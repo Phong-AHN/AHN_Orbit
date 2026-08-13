@@ -108,9 +108,14 @@ export function instagramCapabilities(apiVersion: string): PlatformCapabilities 
     link: { supported: false, maxCount: 0 },
 
     media: {
-      // Verified: the Content Publishing API accepts JPEG for image containers.
-      // PNG is widely reported to work and is *not* documented — excluded, so a
-      // PNG is refused in the composer rather than at publish time.
+      /**
+       * JPEG only, and now verified rather than inferred.
+       *
+       * Meta's Content Publishing guide states it outright: "JPEG is the only
+       * image format supported. Extended JPEG formats such as MPO and JPS are
+       * not supported." So refusing a PNG in the composer is not caution — it
+       * is the platform's rule, applied where the person can still act on it.
+       */
       image: {
         mimeTypes: ['image/jpeg'],
         // UNVERIFIED: 8 MB is the commonly cited ceiling.
@@ -177,8 +182,21 @@ export function instagramCapabilities(apiVersion: string): PlatformCapabilities 
       // No client idempotency key, same as Pages — hence reconcile().
       idempotencyKey: false,
       reconcilable: true,
-      // Verified: 25 published posts per rolling 24 hours, per account.
-      rateLimit: { maxPosts: 25, windowMs: 24 * 60 * 60 * 1000 },
+      /**
+       * 100 per rolling 24 hours, and a carousel counts as one.
+       *
+       * I had 25 here, which was wrong. Meta's Content Publishing guide is
+       * itself inconsistent — the Rate Limit section says 100, the carousel
+       * section says 50 — so the higher, primary figure is used and the
+       * conflict is recorded rather than quietly averaged. Being generous is
+       * the safe direction for a *ceiling*: Meta enforces the real one on
+       * `media_publish` regardless, and a limit we set too low would refuse
+       * posts the platform would have accepted.
+       *
+       * `GET /{ig-user-id}/content_publishing_limit` reports actual usage and
+       * is the honest source if this ever needs to be exact.
+       */
+      rateLimit: { maxPosts: 100, windowMs: 24 * 60 * 60 * 1000 },
     },
 
     analytics: {
