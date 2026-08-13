@@ -15,6 +15,7 @@ import { closeQueues, closeSharedConnection, queueFor } from '@orbit/queue';
 import { s3 } from '@orbit/storage';
 import { CreateBucketCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { ensureProvidersRegistered } from '@/server/providers';
+import { schedulePost } from '../scheduling/service';
 import { completeMediaUpload, presignMediaUpload } from '../media/service';
 import {
   assertNotSystemStatus,
@@ -203,6 +204,18 @@ async function driveTo(postId: string, target: PostStatus): Promise<void> {
   };
 
   for (const step of path[target] ?? [target]) {
+    if (step === 'SCHEDULED') {
+      // Not `transitionPost`: SCHEDULED without a date is refused, because the
+      // calendar and the scheduler sweep both key off `scheduledFor`, and a row
+      // without one is invisible to each of them.
+      await schedulePost(
+        ownerA,
+        postId,
+        { scheduledForUtc: new Date(clock.now().getTime() + 3_600_000).toISOString() },
+        fingerprint,
+      );
+      continue;
+    }
     await transitionPost(ownerA, postId, step, fingerprint);
   }
 }
@@ -677,6 +690,36 @@ describe('state transitions', () => {
     await expect(transitionPost(ownerA, postId, 'SCHEDULED', fingerprint)).rejects.toBeInstanceOf(
       InvalidStateTransitionError,
     );
+  });
+
+  /**
+   * The generic transition endpoint sets `status` and nothing else, so before
+   * this guard a post could reach SCHEDULED with no date. It then vanished
+   * twice over: the calendar filters on `scheduledFor`, and the scheduler sweep
+   * looks for one that is due. The post looked scheduled and could never
+   * publish.
+   */
+  it('refuses SCHEDULED without a date, and leaves the post where it was', async () => {
+    const postId = await publishablePost();
+    await driveTo(postId, 'APPROVED');
+
+    await expect(transitionPost(ownerA, postId, 'SCHEDULED', fingerprint)).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+
+    // Rolled back, not left in a state it could never leave.
+    const after = await getPost(ownerA, postId);
+    expect(after.status).toBe('APPROVED');
+    expect(after.scheduledFor).toBeNull();
+  });
+
+  it('reaches SCHEDULED with a date through the scheduling service', async () => {
+    const postId = await publishablePost();
+    await driveTo(postId, 'SCHEDULED');
+
+    const after = await getPost(ownerA, postId);
+    expect(after.status).toBe('SCHEDULED');
+    expect(after.scheduledFor).toBeInstanceOf(Date);
   });
 
   it('refuses system-only statuses even for an Owner', async () => {

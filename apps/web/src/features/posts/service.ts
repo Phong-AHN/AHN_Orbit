@@ -665,10 +665,36 @@ export async function transitionPost(
 
     // The caller's own work, committed or rolled back with the status change.
     //
+    // `schedulePost` supplies the callback that sets `scheduledFor`; the generic
+    // transition endpoint supplies none, which is how a post reached SCHEDULED
+    // with no date at all. That row is invisible on the calendar — which filters
+    // on `scheduledFor` — and invisible to the scheduler sweep, which looks for
+    // a due date. It simply sits there looking correct. The invariant is checked
+    // below, after the callback has had its chance to satisfy it.
+    //
     // Runs *before* the gate bookkeeping below, because a reviewer's decision
     // stamps the very record that bookkeeping would otherwise cancel. Once it
     // has run the decided gate is no longer PENDING, so it is left alone.
     await onTransition?.(db, updated);
+
+    if (to === 'SCHEDULED') {
+      // Re-read: the callback writes the date on the same row, so `updated`
+      // above predates it.
+      const scheduled = await db.post.findFirst({
+        where: { id: postId },
+        select: { scheduledFor: true },
+      });
+
+      if (!scheduled?.scheduledFor) {
+        // Throwing rolls the whole transaction back, so the post stays where it
+        // was rather than landing somewhere it can never leave.
+        throw new ValidationError('A scheduled post must have a date', {
+          userMessage: 'Choose when this should go out before scheduling it.',
+          details: [{ field: 'scheduledFor', issue: 'required when scheduling' }],
+          context: { postId },
+        });
+      }
+    }
 
     // Close any gate that no longer applies.
     //
