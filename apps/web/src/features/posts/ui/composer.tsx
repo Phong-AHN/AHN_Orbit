@@ -22,6 +22,7 @@ import { ApiError, postsApi, type PostDetail, type PostValidationResponse } from
 import type { CapabilitySummary } from './capability-summary';
 import { STATUS_LABEL, STATUS_TONE } from './status';
 import { ScheduleForm } from './schedule-form';
+import { PublishNowButton } from './publish-now-button';
 
 /**
  * The composer (SRS §9, §31).
@@ -64,6 +65,8 @@ export interface ComposerProps {
   editLocked: boolean;
   /** The client's zone — what a chosen wall time means when scheduling. */
   workspaceTimezone: string;
+  /** Owner, Admin and Account Manager only (docs/RBAC.md §4.4). */
+  canPublishNow: boolean;
 }
 
 type SaveState =
@@ -319,6 +322,8 @@ export function Composer(props: ComposerProps) {
           orgSlug={props.orgSlug}
           postId={post.id}
           workspaceTimezone={props.workspaceTimezone}
+          canPublishNow={props.canPublishNow}
+          accountCount={post.variants.length}
           onScheduled={() => {
             void refreshPost();
           }}
@@ -766,6 +771,8 @@ function TransitionPanel({
   orgSlug,
   postId,
   workspaceTimezone,
+  canPublishNow,
+  accountCount,
   onScheduled,
   transitions,
   busy,
@@ -775,6 +782,8 @@ function TransitionPanel({
   orgSlug: string;
   postId: string;
   workspaceTimezone: string;
+  canPublishNow: boolean;
+  accountCount: number;
   onScheduled: () => void;
   transitions: PostStatus[];
   busy: boolean;
@@ -814,14 +823,27 @@ function TransitionPanel({
           // SCHEDULED is the one forward step that carries data, so it gets a
           // form rather than a button. Everything else is a status change.
           to === 'SCHEDULED' ? (
-            <ScheduleForm
-              key={to}
-              orgSlug={orgSlug}
-              postId={postId}
-              timezone={workspaceTimezone}
-              disabled={busy || blocked}
-              onScheduled={onScheduled}
-            />
+            <div key={to} className="space-y-2">
+              <ScheduleForm
+                orgSlug={orgSlug}
+                postId={postId}
+                timezone={workspaceTimezone}
+                disabled={busy || blocked}
+                onScheduled={onScheduled}
+              />
+              {/* Same gate as scheduling: publishing now routes through the
+                  state machine's APPROVED → SCHEDULED rule, so it is offered
+                  exactly where scheduling is, and never as a way around it. */}
+              {canPublishNow ? (
+                <PublishNowButton
+                  orgSlug={orgSlug}
+                  postId={postId}
+                  accountCount={accountCount}
+                  disabled={busy || blocked}
+                  onPublished={onScheduled}
+                />
+              ) : null}
+            </div>
           ) : (
             <Button
               key={to}
