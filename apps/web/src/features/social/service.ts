@@ -565,16 +565,35 @@ export async function startReconnect(
 
   const provider = getProvider(account.platform);
 
+  /**
+   * Reconnect through the surface this account was connected on.
+   *
+   * Not a choice to offer. Instagram can be reached two ways and the stored row
+   * is specific to one of them: an `INSTAGRAM_LOGIN` account holds an Instagram
+   * user token against an Instagram user id, an `INSTAGRAM_BUSINESS` one holds
+   * a *Page* token. Reconnecting through the other surface would return a
+   * credential of the wrong kind for the id already on the row — it would look
+   * like it worked and fail at the next publish.
+   *
+   * So the account decides, and the person reconnecting simply signs in.
+   */
+  const accountType = account.accountType ?? undefined;
+
   const { state, nonce } = issueOAuthState({
     platform: account.platform,
     organizationId: ctx.organizationId,
     workspaceId: account.workspaceId,
     brandId: account.brandId,
     userId: input.userId,
+    ...(accountType ? { accountType } : {}),
     ...(input.returnTo !== undefined ? { returnTo: input.returnTo } : {}),
   });
 
-  const { url, scopes } = provider.getAuthorizationUrl({ redirectUri: input.redirectUri, state });
+  const { url, scopes } = provider.getAuthorizationUrl({
+    redirectUri: input.redirectUri,
+    state,
+    ...(accountType ? { accountType } : {}),
+  });
 
   logger.info('reconnect started', {
     socialAccountId: account.id,

@@ -569,6 +569,66 @@ describe('starting a reconnect', () => {
     expect(result.scopes.length).toBeGreaterThan(0);
   });
 
+  /**
+   * Instagram can be reached two ways, and the row records which. Reconnecting
+   * through the other one returns a credential of the wrong kind for the id
+   * already stored — a Page token where an Instagram user token belongs — and
+   * it would look like it worked until the next publish.
+   *
+   * The mock only serves FACEBOOK, so this registers a stub that records what
+   * `startReconnect` handed it. What is being checked is the wiring, not the
+   * adapter: the provider's own suite already proves it branches on this.
+   */
+  it('reconnects through the surface the account was connected on', async () => {
+    const seen: Array<string | undefined> = [];
+
+    // Only the two methods this path touches. Spreading the mock would not
+    // carry its prototype methods across, and a half-built object fails inside
+    // `registerProvider` rather than in the assertion.
+    registerProvider(
+      {
+        platform: 'INSTAGRAM',
+        // `MockProvider.capabilities` takes no argument; the interface allows
+        // one. Calling it without is what type-checks and what it expects.
+        capabilities: () => mock.capabilities(),
+        getAuthorizationUrl: (input: { state: string; accountType?: string | undefined }) => {
+          seen.push(input.accountType);
+          return { url: `https://example.test/dialog?state=${input.state}`, scopes: ['s'] };
+        },
+      } as never,
+      { developmentOnly: true },
+    );
+
+    await stageDiscoveredAccounts(ctxA, {
+      platform: 'INSTAGRAM',
+      workspaceId: WS_A,
+      brandId: BRAND_A,
+      discovered: [{ ...discovered('ig-1'), accountType: 'INSTAGRAM_LOGIN' }],
+    });
+
+    const row = await platformDb.socialAccount.findFirstOrThrow({
+      where: { organizationId: ORG_A, platform: 'INSTAGRAM' },
+    });
+    await connectAccounts(
+      ctxA,
+      {
+        platform: 'INSTAGRAM',
+        workspaceId: WS_A,
+        brandId: BRAND_A,
+        socialAccountIds: [row.id],
+      },
+      fingerprint,
+    );
+
+    await startReconnect(ctxA, {
+      socialAccountId: row.id,
+      userId: USER_A,
+      redirectUri: 'https://app.test/api/v1/social/oauth/instagram/callback',
+    });
+
+    expect(seen).toEqual(['INSTAGRAM_LOGIN']);
+  });
+
   it('never returns token material', async () => {
     const id = await connectOne();
 
