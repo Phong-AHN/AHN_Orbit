@@ -163,6 +163,12 @@ describe('capabilities', () => {
 });
 
 describe('authorization', () => {
+  /**
+   * The scope strings are the one thing here nothing else can check. A typo
+   * type-checks, passes every local test, and fails only at Meta's dialog —
+   * which is exactly how `instagram_content_publishing` (from Meta's own
+   * use-case page, and wrong) got as far as a live authorization attempt.
+   */
   it('asks for exactly the permissions the Instagram use case adds', () => {
     const { url, scopes } = provider(graph).getAuthorizationUrl({
       redirectUri: 'https://app.test/cb',
@@ -172,7 +178,7 @@ describe('authorization', () => {
     expect(scopes).toEqual([
       'business_management',
       'instagram_basic',
-      'instagram_content_publishing',
+      'instagram_content_publish',
       'pages_read_engagement',
       'pages_show_list',
     ]);
@@ -362,6 +368,6 @@ describe('lifecycle', () => {
     const health = await provider(graph).probeHealth(credential, { externalId: 'ig-user-1' });
 
     expect(health.status).toBe('NEEDS_RECONNECT');
-    expect(health.missingScopes).toContain('instagram_content_publishing');
+    expect(health.missingScopes).toContain('instagram_content_publish');
   });
 });

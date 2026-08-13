@@ -108,7 +108,7 @@ export default function PrivacyPolicyPage() {
             Meta&rsquo;s privacy policy. It is not loaded anywhere else in the application, and we
             do not use its analytics features.
           </P>
-          <P>We ask for these permissions and no others:</P>
+          <P>To publish to a Facebook Page we ask for these permissions and no others:</P>
           <List>
             <li>
               <Code>pages_show_list</Code> — to show you which Pages you administer, so you can pick
@@ -122,6 +122,16 @@ export default function PrivacyPolicyPage() {
               <Code>pages_manage_posts</Code> — to publish the posts you schedule.
             </li>
           </List>
+          <P>
+            Connecting an <Strong>Instagram</Strong> professional account uses the same Facebook
+            sign-in, because an Instagram account is reached through the Page it is linked to. That
+            asks for <Code>instagram_basic</Code> and <Code>instagram_content_publish</Code> in
+            addition to <Code>business_management</Code>, <Code>pages_show_list</Code> and{' '}
+            <Code>pages_read_engagement</Code> — enough to list your accounts, publish the posts you
+            schedule, and read back how they performed. We store the account id, username, display
+            name and profile picture, and nothing about your followers or the people who interact
+            with your posts.
+          </P>
           <P>
             From that authorization we store the Page id, the Page name and handle, the Page profile
             picture, and an access token for that Page. We store no personal Facebook profile

@@ -12,11 +12,24 @@ import { defineCapabilities, type PlatformCapabilities } from '../capabilities.j
  * adds by default for "API setup with Facebook Login", content management.
  */
 
-/** Verified: added by default for content management on the Instagram use case. */
+/**
+ * The permissions the Instagram use case needs for content management.
+ *
+ * **`instagram_content_publish`, not `instagram_content_publishing`.** Meta's
+ * own use-case setup page writes it with the `-ing`, and the OAuth dialog
+ * rejects that outright:
+ *
+ *   Invalid Scope: instagram_content_publishing
+ *   (Please check lower letter case or delimiter)
+ *
+ * The Permissions Reference is the authority here, and it has no `-ing` form.
+ * Verified against the dialog, which is the only test that counts — a scope
+ * string is not checkable by types or by us, only by Meta.
+ */
 export const INSTAGRAM_PUBLISH_SCOPES = [
   'business_management',
   'instagram_basic',
-  'instagram_content_publishing',
+  'instagram_content_publish',
   'pages_read_engagement',
   'pages_show_list',
 ] as const;
