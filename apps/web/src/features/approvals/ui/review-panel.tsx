@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import type { ApprovalDecision } from '@orbit/core';
 import {
   Badge,
@@ -41,6 +42,7 @@ export interface ReviewPanelProps {
 }
 
 export function ReviewPanel(props: ReviewPanelProps) {
+  const router = useRouter();
   const api = React.useMemo(() => approvalsApi(props.orgSlug), [props.orgSlug]);
 
   const [history, setHistory] = React.useState(props.history);
@@ -71,7 +73,24 @@ export function ReviewPanel(props: ReviewPanelProps) {
       setOnBehalfOf(false);
       props.onDecided?.();
     } catch (e) {
-      setError(e instanceof ApiError ? e : new ApiError(500, { message: 'Something went wrong.' }));
+      const failure =
+        e instanceof ApiError ? e : new ApiError(500, { message: 'Something went wrong.' });
+      setError(failure);
+
+      // The gate moved while this panel was on screen — someone advanced the
+      // post from the composer, or from another tab. The record held here is
+      // dead and every retry will fail the same way, so re-read rather than
+      // leaving the reviewer pressing a button that cannot work. The error
+      // stays visible; what changes is that the panel now offers the gate the
+      // post is actually at.
+      if (failure.code === 'INVALID_STATE_TRANSITION') {
+        const refreshed = await api.forPost(props.postId).catch(() => null);
+        if (refreshed) {
+          setHistory(refreshed.approvals);
+          setPending(refreshed.approvals.find((a) => a.state === 'PENDING') ?? null);
+        }
+        router.refresh();
+      }
     } finally {
       setBusy(null);
     }

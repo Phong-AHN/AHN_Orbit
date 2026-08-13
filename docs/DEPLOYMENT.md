@@ -19,6 +19,36 @@ Vercel                          AWS ECS Fargate
                     S3
 ```
 
+### Put the compute next to the database
+
+Not a tuning detail — it is the difference between a fast app and an unusable
+one, and it is invisible in code review because nothing about the code changes.
+
+A serverless function opens a *new* database connection on a cold invocation:
+TCP, then TLS, then the Postgres startup and SCRAM auth. That is six or seven
+round trips before the first row is read. At 5 ms of latency nobody notices. At
+230 ms — which is what a US-East function pays to reach Singapore — the same
+handshake costs a second and a half, and a page that runs four queries feels
+broken.
+
+Measured on this deployment, from inside the function, with the region left at
+Vercel's default (`iad1`, US East) and the database in `ap-southeast-1`:
+
+| Check | Latency |
+| --- | --- |
+| `SELECT 1` (Postgres, Singapore) | **1141 / 2901 / 3806 ms** |
+| `PING` (Redis, same region) | 3–46 ms |
+| `HeadBucket` (S3, Sydney) | 214–673 ms |
+
+`vercel.json` pins functions to `sin1` for that reason. **The rule: every
+dependency on the request path belongs in the same region as the function.**
+Move one and the others must follow — including Redis, which is co-located with
+the function today and would become the slow one after this change.
+
+> If the Vercel project's **Root Directory** is `apps/web`, `vercel.json` must
+> live there instead of at the repo root, or it is ignored silently. The same
+> setting exists in the dashboard under Settings → Functions → Function Region.
+
 The split is not a preference (**D-002**). A BullMQ worker is a long-lived process holding a
 blocking Redis connection; Vercel functions are request-scoped and cap at 800s. It is not
 expressible as a function.
