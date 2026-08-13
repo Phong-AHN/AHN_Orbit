@@ -22,7 +22,6 @@ export const FACEBOOK_INSIGHTS_SCOPE = 'read_insights';
 
 export const FACEBOOK_DEFAULT_SCOPES = [
   ...FACEBOOK_PUBLISH_SCOPES,
-  FACEBOOK_INSIGHTS_SCOPE,
 ] as const;
 
 /**
