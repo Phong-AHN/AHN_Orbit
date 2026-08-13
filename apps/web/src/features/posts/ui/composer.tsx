@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import type { PostStatus } from '@orbit/core';
 import {
   Badge,
@@ -70,6 +71,7 @@ type SaveState =
   | { kind: 'error'; message: string };
 
 export function Composer(props: ComposerProps) {
+  const router = useRouter();
   const api = React.useMemo(() => postsApi(props.orgSlug), [props.orgSlug]);
 
   const [post, setPost] = React.useState(props.post);
@@ -181,6 +183,14 @@ export function Composer(props: ComposerProps) {
       const { post: full } = await api.get(post.id);
       setPost(full);
       lastSavedAt.current = full.updatedAt;
+
+      // `allowedTransitions` is computed on the server from the status the post
+      // had when the page rendered, and it is a prop — so without this the
+      // buttons keep offering the moves that were legal one status ago. Clicking
+      // one then fails with a 409 that looks like a bug in the state machine and
+      // is really a stale screen. `post` is already up to date above; this is
+      // what re-derives what may be done to it next.
+      router.refresh();
     });
 
   if (!props.canEdit && props.allowedTransitions.length === 0) {
