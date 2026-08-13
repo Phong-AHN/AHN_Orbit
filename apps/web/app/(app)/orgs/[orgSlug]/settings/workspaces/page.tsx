@@ -3,7 +3,6 @@ import Link from 'next/link';
 import { accessibleWorkspaceIds } from '@orbit/core';
 import {
   Badge,
-  Button,
   Card,
   CardBody,
   CardHeader,
@@ -11,6 +10,7 @@ import {
   Empty,
   PageHeader,
   PermissionDenied,
+  buttonClassName,
 } from '@orbit/ui';
 import { pageCan, requirePageContext } from '@/server/page-context';
 import { getOrganization, listWorkspacesWithBrands } from '@/features/tenancy/service';
@@ -138,13 +138,29 @@ export default async function WorkspacesPage({ params, searchParams }: PageProps
                             </div>
 
                             {mayConnect ? (
-                              <Link
-                                href={`/orgs/${orgSlug}/settings/accounts/connect?workspaceId=${workspace.id}&brandId=${brand.id}`}
-                              >
-                                <Button variant={connected > 0 ? 'ghost' : 'secondary'} size="sm">
-                                  {connected > 0 ? 'Connect another' : 'Connect a Page'}
-                                </Button>
-                              </Link>
+                              <div className="flex gap-1.5">
+                                {/* One brand, two Meta surfaces. Naming both is
+                                    clearer than a single button that opens a
+                                    chooser nobody asked for. */}
+                                <Link
+                                  href={`/orgs/${orgSlug}/settings/accounts/connect?workspaceId=${workspace.id}&brandId=${brand.id}&platform=FACEBOOK`}
+                                  className={buttonClassName({
+                                    variant: connected > 0 ? 'ghost' : 'secondary',
+                                    size: 'sm',
+                                  })}
+                                >
+                                  Facebook
+                                </Link>
+                                <Link
+                                  href={`/orgs/${orgSlug}/settings/accounts/connect?workspaceId=${workspace.id}&brandId=${brand.id}&platform=INSTAGRAM`}
+                                  className={buttonClassName({
+                                    variant: connected > 0 ? 'ghost' : 'secondary',
+                                    size: 'sm',
+                                  })}
+                                >
+                                  Instagram
+                                </Link>
+                              </div>
                             ) : null}
                           </li>
                         );

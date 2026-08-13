@@ -2,6 +2,7 @@ import { serverEnv } from '@orbit/config';
 import { logger } from '@orbit/observability';
 import { isSupported, registerProvider, supportedPlatforms } from '@orbit/providers';
 import { FacebookProvider } from '@orbit/providers/facebook';
+import { InstagramProvider } from '@orbit/providers/instagram';
 import { MockProvider } from '@orbit/providers/mock';
 
 /**
@@ -10,10 +11,14 @@ import { MockProvider } from '@orbit/providers/mock';
  * The single place adapters are wired up. Import this once from anything that
  * needs a provider; registration is idempotent.
  *
- * Facebook registers only when a Meta app is configured. Without one, the
- * development mock stands in so the composer and calendar can be exercised
- * before App Review completes — and the registry refuses that substitution in
- * production, so the fallback cannot escape.
+ * Facebook and Instagram register only when a Meta app is configured. They
+ * share one — Instagram publishing here is "API setup with Facebook Login", so
+ * the same app id and secret drive both adapters, and connecting either uses
+ * the same consent dialog with different scopes.
+ *
+ * Without a Meta app the development mock stands in so the composer and
+ * calendar can be exercised before App Review completes — and the registry
+ * refuses that substitution in production, so the fallback cannot escape.
  *
  * ## Tests never reach a real platform by accident (T1.19, decision D-047)
  *
@@ -59,7 +64,18 @@ export function ensureProvidersRegistered(): void {
         webhookVerifyToken: env.FACEBOOK_WEBHOOK_VERIFY_TOKEN,
       }),
     );
-    logger.info('registered Facebook provider', { apiVersion: env.FACEBOOK_GRAPH_VERSION });
+    registerProvider(
+      new InstagramProvider({
+        appId: env.FACEBOOK_APP_ID,
+        appSecret: env.FACEBOOK_APP_SECRET,
+        apiVersion: env.FACEBOOK_GRAPH_VERSION,
+      }),
+    );
+
+    logger.info('registered Meta providers', {
+      apiVersion: env.FACEBOOK_GRAPH_VERSION,
+      platforms: ['FACEBOOK', 'INSTAGRAM'],
+    });
   } else {
     // Throws if this is somehow reached in production.
     registerProvider(new MockProvider(), { developmentOnly: true });

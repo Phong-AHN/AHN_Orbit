@@ -1,0 +1,674 @@
+import { clock, matchesPublishedText, type Platform } from '@orbit/core';
+import { toAppError } from '../errors.js';
+import { validateDraft, type ValidationResult, type VariantDraft } from '../validation.js';
+import type { PlatformCapabilities } from '../capabilities.js';
+import type {
+  AccountHealth,
+  AuthorizationUrlInput,
+  CallbackInput,
+  ConnectedAccounts,
+  DateRange,
+  DecryptedCredential,
+  ExternalPostRef,
+  ExternalPostStatus,
+  IssuedCredential,
+  MetricSet,
+  ProviderEvent,
+  PublishContext,
+  PublishResult,
+  RawWebhookRequest,
+  ReconcileContext,
+  ReconcileResult,
+  RefreshOutcome,
+  SocialProvider,
+} from '../types.js';
+import { GraphClient, type GraphClientOptions } from '../facebook/client.js';
+import { reauthorizationReason } from '../facebook/errors.js';
+import {
+  INSTAGRAM_DEFAULT_SCOPES,
+  INSTAGRAM_PUBLISH_SCOPES,
+  instagramCapabilities,
+} from './capabilities.js';
+
+/**
+ * Instagram professional-account adapter.
+ *
+ * Shares the Meta app, the OAuth dialog and the Graph client with Facebook —
+ * this is "API setup with Facebook Login", so there is no second app id, no
+ * second secret, and no second consent screen. What differs is the scopes
+ * asked for, how accounts are discovered, and how a post is published.
+ *
+ * Discovery is the first surprise: an Instagram professional account is not
+ * found on its own. It hangs off a Facebook Page, and the credential we store
+ * is that **Page's** token. So a brand connects Instagram by authorizing the
+ * Page it is linked to, and an account with no linked Page cannot be connected
+ * at all — which the connect flow reports rather than silently returning
+ * nothing.
+ *
+ * Publishing is the second: it takes two calls, and that shapes the failure
+ * model. See `publish`.
+ */
+
+/**
+ * Identical to the Facebook adapter's options, and deliberately so: one Meta
+ * app drives both. Aliased rather than re-declared so the two cannot drift.
+ */
+export type InstagramProviderOptions = GraphClientOptions;
+
+interface PagesWithInstagram {
+  data?: Array<{
+    id: string;
+    name: string;
+    access_token?: string;
+    instagram_business_account?: {
+      id: string;
+      username?: string;
+      name?: string;
+      profile_picture_url?: string;
+    };
+  }>;
+}
+
+interface DebugTokenResponse {
+  data?: {
+    is_valid?: boolean;
+    scopes?: string[];
+    expires_at?: number;
+    error?: { subcode?: number };
+  };
+}
+
+export class InstagramProvider implements SocialProvider {
+  readonly platform: Platform = 'INSTAGRAM';
+
+  private readonly client: GraphClient;
+  private readonly capabilityCache: PlatformCapabilities;
+
+  constructor(private readonly options: InstagramProviderOptions) {
+    this.client = new GraphClient(options);
+    this.capabilityCache = instagramCapabilities(options.apiVersion);
+  }
+
+  capabilities(): PlatformCapabilities {
+    return this.capabilityCache;
+  }
+
+  validate(draft: VariantDraft): ValidationResult {
+    return validateDraft(this.capabilityCache, draft);
+  }
+
+  // ── OAuth ─────────────────────────────────────────────────────────────────
+
+  getAuthorizationUrl(input: AuthorizationUrlInput): { url: string; scopes: readonly string[] } {
+    const scopes = [...new Set([...INSTAGRAM_DEFAULT_SCOPES, ...(input.extraScopes ?? [])])];
+
+    const url = new URL(`https://www.facebook.com/${this.options.apiVersion}/dialog/oauth`);
+    url.searchParams.set('client_id', this.options.appId);
+    url.searchParams.set('redirect_uri', input.redirectUri);
+    url.searchParams.set('state', input.state);
+    url.searchParams.set('scope', scopes.join(','));
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('auth_type', 'rerequest');
+
+    return { url: url.toString(), scopes };
+  }
+
+  async exchangeCode(input: CallbackInput): Promise<ConnectedAccounts> {
+    const shortLived = await this.client.request<{ access_token: string }>({
+      path: '/oauth/access_token',
+      params: {
+        client_id: this.options.appId,
+        client_secret: this.options.appSecret,
+        redirect_uri: input.redirectUri,
+        code: input.code,
+      },
+    });
+
+    const longLived = await this.exchangeForLongLived(shortLived.access_token);
+    const accounts = await this.discoverAccounts(longLived.accessToken);
+
+    return { userCredential: longLived, accounts };
+  }
+
+  private async exchangeForLongLived(shortLivedToken: string): Promise<IssuedCredential> {
+    const response = await this.client.request<{ access_token: string; expires_in?: number }>({
+      path: '/oauth/access_token',
+      params: {
+        grant_type: 'fb_exchange_token',
+        client_id: this.options.appId,
+        client_secret: this.options.appSecret,
+        fb_exchange_token: shortLivedToken,
+      },
+    });
+
+    return {
+      accessToken: response.access_token,
+      ...(response.expires_in
+        ? { expiresAt: new Date(clock.nowMs() + response.expires_in * 1000) }
+        : {}),
+      scopes: await this.grantedScopes(response.access_token),
+    };
+  }
+
+  /**
+   * Instagram accounts reachable through the Pages this user administers.
+   *
+   * `instagram_business_account` is absent on a Page with nothing linked, so
+   * those Pages are dropped — connecting them would create an account that can
+   * never publish. The stored `externalId` is the **Instagram** id, while the
+   * token is the **Page's**; every publishing call needs that pairing.
+   */
+  private async discoverAccounts(userAccessToken: string) {
+    const response = await this.client.request<PagesWithInstagram>({
+      path: '/me/accounts',
+      params: {
+        fields:
+          'id,name,access_token,instagram_business_account{id,username,name,profile_picture_url}',
+        limit: 100,
+      },
+      accessToken: userAccessToken,
+    });
+
+    return (response.data ?? [])
+      .filter((page) => Boolean(page.access_token) && Boolean(page.instagram_business_account))
+      .map((page) => {
+        const instagram = page.instagram_business_account as NonNullable<
+          NonNullable<PagesWithInstagram['data']>[number]['instagram_business_account']
+        >;
+
+        return {
+          externalId: instagram.id,
+          displayName: instagram.name ?? instagram.username ?? page.name,
+          ...(instagram.username ? { handle: instagram.username } : {}),
+          ...(instagram.profile_picture_url ? { avatarUrl: instagram.profile_picture_url } : {}),
+          accountType: 'INSTAGRAM_BUSINESS',
+          credential: {
+            accessToken: page.access_token as string,
+            scopes: INSTAGRAM_PUBLISH_SCOPES,
+          } satisfies IssuedCredential,
+        };
+      });
+  }
+
+  private async grantedScopes(accessToken: string): Promise<readonly string[]> {
+    const debug = await this.client.request<DebugTokenResponse>({
+      path: '/debug_token',
+      params: { input_token: accessToken, access_token: this.client.appAccessToken },
+    });
+
+    return debug.data?.scopes ?? [];
+  }
+
+  /** Page tokens do not refresh; only a person reauthorizing can fix a dead one. */
+  async refreshCredential(credential: DecryptedCredential): Promise<RefreshOutcome> {
+    try {
+      const debug = await this.client.request<DebugTokenResponse>({
+        path: '/debug_token',
+        params: { input_token: credential.accessToken, access_token: this.client.appAccessToken },
+      });
+
+      if (!debug.data?.is_valid) {
+        return {
+          status: 'REQUIRES_RECONNECT',
+          reason:
+            reauthorizationReason(debug.data?.error?.subcode) ??
+            'The connection to this Instagram account is no longer valid.',
+        };
+      }
+
+      return { status: 'STILL_VALID' };
+    } catch {
+      // A failed debug call is not proof the credential is dead.
+      return { status: 'STILL_VALID' };
+    }
+  }
+
+  async probeHealth(
+    credential: DecryptedCredential,
+    account: { externalId: string },
+  ): Promise<AccountHealth> {
+    const checkedAt = clock.now();
+
+    try {
+      const debug = await this.client.request<DebugTokenResponse>({
+        path: '/debug_token',
+        params: { input_token: credential.accessToken, access_token: this.client.appAccessToken },
+      });
+
+      const data = debug.data;
+
+      if (!data?.is_valid) {
+        return {
+          status: 'NEEDS_RECONNECT',
+          grantedScopes: [],
+          missingScopes: [...INSTAGRAM_PUBLISH_SCOPES],
+          message:
+            reauthorizationReason(data?.error?.subcode) ??
+            'This Instagram account needs to be reconnected before it can publish.',
+          checkedAt,
+        };
+      }
+
+      const granted = data.scopes ?? [];
+      const missing = INSTAGRAM_PUBLISH_SCOPES.filter((scope) => !granted.includes(scope));
+
+      if (missing.length > 0) {
+        return {
+          status: 'NEEDS_RECONNECT',
+          grantedScopes: granted,
+          missingScopes: missing,
+          message: 'A permission this account needs was removed. Reconnect to restore it.',
+          checkedAt,
+        };
+      }
+
+      // The Instagram account can be unlinked from the Page while the token
+      // stays perfectly valid, so reading the account itself is the only check
+      // that proves publishing would work.
+      await this.client.request<{ id: string }>({
+        path: `/${account.externalId}`,
+        params: { fields: 'id' },
+        accessToken: credential.accessToken,
+      });
+
+      return { status: 'ACTIVE', grantedScopes: granted, missingScopes: [], checkedAt };
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+
+      if (code === 'PROVIDER_AUTHENTICATION_ERROR' || code === 'PROVIDER_PERMISSION_ERROR') {
+        return {
+          status: 'NEEDS_RECONNECT',
+          grantedScopes: [],
+          missingScopes: [...INSTAGRAM_PUBLISH_SCOPES],
+          message: 'This Instagram account needs to be reconnected before it can publish.',
+          checkedAt,
+        };
+      }
+
+      // A transient outage is not a broken connection.
+      throw error;
+    }
+  }
+
+  async revoke(credential: DecryptedCredential, account: { externalId: string }): Promise<void> {
+    void credential;
+    void account;
+    // Deliberately a no-op. The grant belongs to the Facebook Page, and
+    // revoking it would disconnect the Page too — including a Facebook account
+    // in the same brand that the user did not ask to disconnect. Removing the
+    // row locally is the whole of what "disconnect Instagram" should mean.
+  }
+
+  // ── Publishing ────────────────────────────────────────────────────────────
+
+  /**
+   * Publish, in the two calls Instagram requires.
+   *
+   *   POST /{ig-user-id}/media          → a container id
+   *   POST /{ig-user-id}/media_publish  → the published media id
+   *
+   * The gap between them is the whole risk. A container is inert — creating one
+   * and never publishing costs nothing and leaves nothing visible. But a
+   * `media_publish` that times out is genuinely ambiguous: the post may be live.
+   * Retrying it would duplicate, so the error is left to propagate as a
+   * publishing timeout, which the worker parks in NEEDS_REVIEW rather than
+   * retrying (**D-027**), and `reconcile` is what resolves it.
+   *
+   * Carousels build one container per image first, then a parent that names
+   * them. A partial failure there is safe for the same reason: unpublished
+   * children are invisible and expire on their own.
+   */
+  async publish(ctx: PublishContext): Promise<PublishResult> {
+    const validation = this.validate({
+      ...ctx.draft,
+      media: ctx.media.map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        mimeType: item.mimeType,
+        sizeBytes: item.sizeBytes,
+        width: item.width,
+        height: item.height,
+        durationMs: item.durationMs,
+        altText: item.altText,
+      })),
+    });
+
+    if (!validation.valid) {
+      throw toAppError('INSTAGRAM', {
+        kind: 'VALIDATION',
+        message: `Draft failed validation: ${validation.issues.map((i) => i.code).join(', ')}`,
+      });
+    }
+
+    const images = ctx.media.filter((item) => item.kind === 'IMAGE');
+    if (ctx.media.length !== images.length) {
+      throw toAppError('INSTAGRAM', {
+        kind: 'MEDIA',
+        message: 'Only images are supported for Instagram publishing at present',
+      });
+    }
+
+    // Validation guarantees this, but publishing is where an empty post would
+    // become a confusing platform error rather than our own message.
+    if (images.length === 0) {
+      throw toAppError('INSTAGRAM', {
+        kind: 'MEDIA',
+        message: 'Instagram cannot publish a post without an image',
+      });
+    }
+
+    const caption = composeCaption(ctx.draft);
+    const igUserId = ctx.account.externalId;
+
+    const containerId =
+      images.length === 1
+        ? await this.createImageContainer(ctx, igUserId, images[0]!, caption)
+        : await this.createCarouselContainer(ctx, igUserId, images, caption);
+
+    const published = await this.client.request<{ id: string }>({
+      path: `/${igUserId}/media_publish`,
+      method: 'POST',
+      accessToken: ctx.credential.accessToken,
+      form: { creation_id: containerId },
+      signal: ctx.signal,
+    });
+
+    return {
+      externalPostId: published.id,
+      permalink: await this.permalinkFor(published.id, ctx.credential.accessToken),
+      publishedAt: clock.now(),
+      providerMeta: {
+        accountId: igUserId,
+        apiVersion: this.client.apiVersion,
+        containerId,
+      },
+    };
+  }
+
+  private async createImageContainer(
+    ctx: PublishContext,
+    igUserId: string,
+    image: PublishContext['media'][number],
+    caption: string,
+  ): Promise<string> {
+    const container = await this.client.request<{ id: string }>({
+      path: `/${igUserId}/media`,
+      method: 'POST',
+      accessToken: ctx.credential.accessToken,
+      form: {
+        image_url: image.url,
+        caption,
+        ...(image.altText ? { alt_text: image.altText } : {}),
+      },
+      signal: ctx.signal,
+    });
+
+    return container.id;
+  }
+
+  private async createCarouselContainer(
+    ctx: PublishContext,
+    igUserId: string,
+    images: readonly PublishContext['media'][number][],
+    caption: string,
+  ): Promise<string> {
+    const children: string[] = [];
+
+    for (const image of images) {
+      const child = await this.client.request<{ id: string }>({
+        path: `/${igUserId}/media`,
+        method: 'POST',
+        accessToken: ctx.credential.accessToken,
+        form: {
+          image_url: image.url,
+          is_carousel_item: true,
+          ...(image.altText ? { alt_text: image.altText } : {}),
+        },
+        signal: ctx.signal,
+      });
+      children.push(child.id);
+    }
+
+    const parent = await this.client.request<{ id: string }>({
+      path: `/${igUserId}/media`,
+      method: 'POST',
+      accessToken: ctx.credential.accessToken,
+      form: { media_type: 'CAROUSEL', children: children.join(','), caption },
+      signal: ctx.signal,
+    });
+
+    return parent.id;
+  }
+
+  /** Best effort: a published post without a permalink is still published. */
+  private async permalinkFor(mediaId: string, accessToken: string): Promise<string | undefined> {
+    try {
+      const media = await this.client.request<{ permalink?: string }>({
+        path: `/${mediaId}`,
+        params: { fields: 'permalink' },
+        accessToken,
+      });
+      return media.permalink;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Did the post we are unsure about actually go out?
+   *
+   * Reads the account's recent media and matches on the caption, exactly as the
+   * Facebook adapter matches on the message. This is what stands between an
+   * ambiguous `media_publish` and a duplicate reaching a client's followers.
+   */
+  async reconcile(ctx: ReconcileContext): Promise<ReconcileResult> {
+    try {
+      const response = await this.client.request<{
+        data?: Array<{ id: string; caption?: string; timestamp?: string; permalink?: string }>;
+      }>({
+        path: `/${ctx.account.externalId}/media`,
+        params: { fields: 'id,caption,timestamp,permalink', limit: 25 },
+        accessToken: ctx.credential.accessToken,
+        signal: ctx.signal,
+      });
+
+      const lower = ctx.attemptedAt.getTime() - ctx.windowMs;
+      const upper = ctx.attemptedAt.getTime() + ctx.windowMs;
+
+      // `/media` takes no time filter, so the window is applied here rather
+      // than trusting position in the list.
+      const match = (response.data ?? []).find((media) => {
+        if (!matchesPublishedText(media.caption ?? '', ctx.body)) return false;
+        if (!media.timestamp) return true;
+        const at = new Date(media.timestamp).getTime();
+        return at >= lower && at <= upper;
+      });
+
+      if (match) {
+        return {
+          outcome: 'FOUND',
+          externalPostId: match.id,
+          ...(match.permalink ? { permalink: match.permalink } : {}),
+          publishedAt: match.timestamp ? new Date(match.timestamp) : clock.now(),
+        };
+      }
+
+      return { outcome: 'NOT_FOUND' };
+    } catch (error) {
+      // We could not look. NOT_FOUND here would licence a retry that might
+      // duplicate; INCONCLUSIVE parks it for a human instead.
+      return {
+        outcome: 'INCONCLUSIVE',
+        reason: `Could not read the Instagram account to confirm: ${
+          (error as { code?: string }).code ?? 'unknown error'
+        }`,
+      };
+    }
+  }
+
+  async getPostStatus(
+    ref: ExternalPostRef,
+    credential: DecryptedCredential,
+  ): Promise<ExternalPostStatus> {
+    try {
+      const media = await this.client.request<{
+        id: string;
+        permalink?: string;
+        timestamp?: string;
+      }>({
+        path: `/${ref.externalPostId}`,
+        params: { fields: 'id,permalink,timestamp' },
+        accessToken: credential.accessToken,
+      });
+
+      return {
+        exists: true,
+        ...(media.permalink ? { permalink: media.permalink } : {}),
+        ...(media.timestamp ? { publishedAt: new Date(media.timestamp) } : {}),
+      };
+    } catch (error) {
+      if ((error as { code?: string }).code === 'PROVIDER_VALIDATION_ERROR') {
+        return { exists: false };
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * There is no delete.
+   *
+   * The Instagram Graph API exposes no way to remove a published media object;
+   * it is a manual action in the app. Saying so is better than a request that
+   * fails with something indistinguishable from an outage — and the capability
+   * descriptor already declares `lifecycle.delete: false`, so nothing in the
+   * product should be calling this.
+   */
+  async deletePost(ref: ExternalPostRef, credential: DecryptedCredential): Promise<void> {
+    void ref;
+    void credential;
+
+    throw toAppError('INSTAGRAM', {
+      kind: 'VALIDATION',
+      message:
+        'Instagram does not allow deleting a published post through the API. Remove it in the Instagram app.',
+    });
+  }
+
+  // ── Analytics ─────────────────────────────────────────────────────────────
+
+  async fetchPostAnalytics(
+    ref: ExternalPostRef,
+    credential: DecryptedCredential,
+    range: DateRange,
+  ): Promise<MetricSet> {
+    // Media insights are lifetime totals; there is no window to narrow.
+    void range;
+
+    return this.fetchInsights(
+      `/${ref.externalPostId}/insights`,
+      this.capabilityCache.analytics.metrics,
+      credential,
+    );
+  }
+
+  async fetchAccountAnalytics(
+    account: { externalId: string },
+    credential: DecryptedCredential,
+    range: DateRange,
+  ): Promise<MetricSet> {
+    return this.fetchInsights(`/${account.externalId}/insights`, ['reach'], credential, range);
+  }
+
+  /**
+   * Mirrors the Facebook adapter, and for the same reason: a withdrawn metric
+   * is an *error* from Graph rather than an empty result, so requesting one
+   * fails the whole call. Deprecated metrics are reported, never asked for.
+   */
+  private async fetchInsights(
+    path: string,
+    metricNames: readonly string[],
+    credential: DecryptedCredential,
+    range?: DateRange,
+  ): Promise<MetricSet> {
+    const availability: MetricSet['availability'] = {};
+
+    for (const metric of this.capabilityCache.analytics.deprecatedMetrics) {
+      availability[metric] = 'DEPRECATED';
+    }
+
+    const response = await this.client.request<{
+      data?: Array<{ name: string; values?: Array<{ value: unknown }> }>;
+    }>({
+      path,
+      params: {
+        metric: metricNames.join(','),
+        ...(range
+          ? {
+              period: 'day',
+              since: Math.floor(range.from.getTime() / 1000),
+              until: Math.floor(range.to.getTime() / 1000),
+            }
+          : {}),
+      },
+      accessToken: credential.accessToken,
+    });
+
+    const metrics: Record<string, number> = {};
+    for (const entry of response.data ?? []) {
+      const value = entry.values?.at(-1)?.value;
+      if (typeof value === 'number') {
+        metrics[entry.name] = value;
+        availability[entry.name] = 'AVAILABLE';
+      } else {
+        availability[entry.name] = 'ERROR';
+      }
+    }
+
+    for (const metric of metricNames) {
+      if (availability[metric] === undefined) availability[metric] = 'UNSUPPORTED';
+    }
+
+    return {
+      metrics,
+      availability,
+      capturedAt: clock.now(),
+      apiVersion: this.client.apiVersion,
+    };
+  }
+
+  // ── Webhooks ──────────────────────────────────────────────────────────────
+
+  /**
+   * Not subscribed.
+   *
+   * Instagram webhooks need their own subscription and a published app. The
+   * capability descriptor says `webhooks.supported: false`, so nothing routes
+   * here; returning an empty list is the honest answer if anything does.
+   */
+  verifyWebhook(): boolean {
+    return false;
+  }
+
+  parseWebhook(request: RawWebhookRequest): ProviderEvent[] {
+    void request;
+    return [];
+  }
+}
+
+/**
+ * Caption text, assembled the same way the Facebook message is.
+ *
+ * Hashtags go in the caption because Instagram's first comment is out of reach
+ * without `instagram_manage_comments` — which is why the capability descriptor
+ * refuses `firstComment` rather than quietly dropping it.
+ */
+function composeCaption(draft: VariantDraft): string {
+  const hashtags = draft.hashtags ?? [];
+  const parts = [draft.body.trim()];
+
+  if (hashtags.length > 0) {
+    parts.push(hashtags.map((tag) => (tag.startsWith('#') ? tag : `#${tag}`)).join(' '));
+  }
+
+  return parts.filter((part) => part.length > 0).join('\n\n');
+}
