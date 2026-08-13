@@ -99,10 +99,17 @@ function validateMediaItem(
   const issues: ValidationIssue[] = [];
 
   if (!constraint.mimeTypes.includes(item.mimeType)) {
+    // Naming what *is* accepted turns a dead end into an instruction. The list
+    // was already in the metadata and nothing rendered it, so the reader was
+    // told their file was wrong and left to guess what would be right.
     issues.push(
-      issue('ERROR', 'MEDIA_TYPE_UNSUPPORTED', field, `${item.mimeType} isn't accepted here.`, {
-        accepted: constraint.mimeTypes.join(', '),
-      }),
+      issue(
+        'ERROR',
+        'MEDIA_TYPE_UNSUPPORTED',
+        field,
+        `${item.mimeType} isn't accepted here — this platform takes ${constraint.mimeTypes.join(', ')}.`,
+        { accepted: constraint.mimeTypes.join(', ') },
+      ),
     );
   }
 
