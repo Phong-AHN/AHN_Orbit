@@ -1,0 +1,41 @@
+# Keep the build context to source and manifests.
+#
+# Without this the context is the whole working tree, and `COPY packages/`
+# overwrites the Linux dependencies pnpm just installed with the host's —
+# Windows binaries and all. The symptom is `prisma generate` failing on
+# "Cannot find module /repo/packages/db/node_modules/prisma/build/index.js",
+# which reads like a broken install rather than a stowaway from the host.
+#
+# A platform that builds from a git archive never sees this, so it fails only
+# for whoever runs the command printed at the top of the Dockerfile.
+
+node_modules
+**/node_modules
+
+# Build output — regenerated inside the image.
+dist
+**/dist
+.next
+**/.next
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Never in an image, and no reason to upload them either.
+.env
+.env.*
+!.env.example
+
+.git
+.github
+.vscode
+.idea
+
+# Not part of the worker.
+apps/web
+packages/ui
+docs
+*.md
+!README.md
+
+coverage
+**/coverage

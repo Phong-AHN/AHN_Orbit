@@ -16,6 +16,13 @@ RUN corepack enable
 
 # Only the manifests, so this layer is cached until a dependency actually
 # changes rather than on every source edit.
+#
+# **This list must cover every `@orbit/*` in apps/worker/package.json.** A
+# workspace package whose manifest is missing here is not installed, so pnpm
+# never links its dependencies — and the failure surfaces two stages later as
+# `tsc` reporting "Cannot find module '@orbit/core'" from inside *that* package,
+# which reads like a broken import rather than a missing COPY. It has drifted
+# once already: `@orbit/notifications` arrived after this file was written.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY packages/config/package.json packages/config/
 COPY packages/core/package.json packages/core/
@@ -23,6 +30,7 @@ COPY packages/observability/package.json packages/observability/
 COPY packages/db/package.json packages/db/
 COPY packages/rbac/package.json packages/rbac/
 COPY packages/auth/package.json packages/auth/
+COPY packages/notifications/package.json packages/notifications/
 COPY packages/providers/package.json packages/providers/
 COPY packages/storage/package.json packages/storage/
 COPY packages/queue/package.json packages/queue/
@@ -43,9 +51,22 @@ RUN pnpm --filter=@orbit/db exec prisma generate --schema prisma/schema.prisma
 
 RUN pnpm exec tsc -b apps/worker
 
-# Drop everything the runtime does not need — dev dependencies are roughly half
-# the tree, and none of them run in production.
-RUN pnpm prune --prod
+# Nothing is pruned, and that is deliberate.
+#
+# Two obvious ways to slim the image both break it:
+#
+#   • `pnpm prune --prod` deletes the workspace symlinks along with the dev
+#     dependencies. The image builds, starts, and dies on
+#     `Cannot find module '@orbit/config'` — which reads as a missing dependency
+#     rather than a deleted link.
+#   • `pnpm deploy` rebuilds `node_modules` from the store, which discards the
+#     *generated* Prisma client written above. The image then dies on
+#     `Named export 'PrismaClient' not found`, because what it got back is the
+#     un-generated stub.
+#
+# Both were tried. Slimming this properly means giving the Prisma generator an
+# `output` inside `packages/db` so the client travels with the package; until
+# then the honest trade is a larger image that runs.
 
 # ── Stage 3: runtime ─────────────────────────────────────────────────────────
 FROM node:22-alpine AS runtime
@@ -61,6 +82,7 @@ ENV ORBIT_SERVICE=worker
 # Never run as root.
 RUN addgroup -S orbit && adduser -S orbit -G orbit
 
+# The whole workspace, symlinks and generated client intact.
 COPY --from=build --chown=orbit:orbit /repo/node_modules ./node_modules
 COPY --from=build --chown=orbit:orbit /repo/packages ./packages
 COPY --from=build --chown=orbit:orbit /repo/apps/worker ./apps/worker
