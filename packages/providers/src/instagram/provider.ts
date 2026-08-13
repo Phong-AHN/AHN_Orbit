@@ -522,6 +522,67 @@ export class InstagramProvider implements SocialProvider {
     // row locally is the whole of what "disconnect Instagram" should mean.
   }
 
+  /**
+   * One call, routed to the host that issued the token.
+   *
+   * Everything after the connection — publishing, reconciling, reading a post
+   * back, insights — is identical in *shape* on both surfaces and different in
+   * *host*. `graph.facebook.com` will not accept a token minted by the
+   * Instagram app, and the error it returns is an authentication failure, which
+   * the publish path reads as "this credential is dead" and demotes the account.
+   *
+   * So a username-login account was disconnected by its own successful publish
+   * attempt, every time. Routing by credential is the fix, and it belongs here
+   * rather than at each call site precisely because there are eight of them.
+   */
+  private async call<T>(
+    credential: DecryptedCredential,
+    request: {
+      path: string;
+      method?: 'GET' | 'POST';
+      params?: Record<string, string | number | boolean | undefined>;
+      form?: Record<string, string | number | boolean | undefined>;
+      signal?: AbortSignal | undefined;
+    },
+  ): Promise<T> {
+    if (!this.isLoginSurface(credential)) {
+      return this.client.request<T>({
+        path: request.path,
+        ...(request.method ? { method: request.method } : {}),
+        ...(request.params ? { params: request.params } : {}),
+        ...(request.form ? { form: request.form } : {}),
+        accessToken: credential.accessToken,
+        ...(request.signal ? { signal: request.signal } : {}),
+      });
+    }
+
+    const url = new URL(`${INSTAGRAM_LOGIN_GRAPH}${request.path}`);
+    for (const [key, value] of Object.entries(request.params ?? {})) {
+      if (value !== undefined) url.searchParams.set(key, String(value));
+    }
+
+    // graph.instagram.com takes the token as a parameter; there is no bearer
+    // header and no app-secret proof.
+    if (request.form) {
+      const body = new URLSearchParams();
+      for (const [key, value] of Object.entries(request.form)) {
+        if (value !== undefined) body.set(key, String(value));
+      }
+      body.set('access_token', credential.accessToken);
+
+      return this.instagramLoginFetch<T>(url.toString(), {
+        method: 'POST',
+        body,
+        ...(request.signal ? { signal: request.signal } : {}),
+      });
+    }
+
+    url.searchParams.set('access_token', credential.accessToken);
+    return this.instagramLoginFetch<T>(url.toString(), {
+      ...(request.signal ? { signal: request.signal } : {}),
+    });
+  }
+
   // ── Publishing ────────────────────────────────────────────────────────────
 
   /**
@@ -588,17 +649,16 @@ export class InstagramProvider implements SocialProvider {
         ? await this.createImageContainer(ctx, igUserId, images[0]!, caption)
         : await this.createCarouselContainer(ctx, igUserId, images, caption);
 
-    const published = await this.client.request<{ id: string }>({
+    const published = await this.call<{ id: string }>(ctx.credential, {
       path: `/${igUserId}/media_publish`,
       method: 'POST',
-      accessToken: ctx.credential.accessToken,
       form: { creation_id: containerId },
       signal: ctx.signal,
     });
 
     return {
       externalPostId: published.id,
-      permalink: await this.permalinkFor(published.id, ctx.credential.accessToken),
+      permalink: await this.permalinkFor(published.id, ctx.credential),
       publishedAt: clock.now(),
       providerMeta: {
         accountId: igUserId,
@@ -614,10 +674,9 @@ export class InstagramProvider implements SocialProvider {
     image: PublishContext['media'][number],
     caption: string,
   ): Promise<string> {
-    const container = await this.client.request<{ id: string }>({
+    const container = await this.call<{ id: string }>(ctx.credential, {
       path: `/${igUserId}/media`,
       method: 'POST',
-      accessToken: ctx.credential.accessToken,
       form: {
         image_url: image.url,
         caption,
@@ -638,10 +697,9 @@ export class InstagramProvider implements SocialProvider {
     const children: string[] = [];
 
     for (const image of images) {
-      const child = await this.client.request<{ id: string }>({
+      const child = await this.call<{ id: string }>(ctx.credential, {
         path: `/${igUserId}/media`,
         method: 'POST',
-        accessToken: ctx.credential.accessToken,
         form: {
           image_url: image.url,
           is_carousel_item: true,
@@ -652,10 +710,9 @@ export class InstagramProvider implements SocialProvider {
       children.push(child.id);
     }
 
-    const parent = await this.client.request<{ id: string }>({
+    const parent = await this.call<{ id: string }>(ctx.credential, {
       path: `/${igUserId}/media`,
       method: 'POST',
-      accessToken: ctx.credential.accessToken,
       form: { media_type: 'CAROUSEL', children: children.join(','), caption },
       signal: ctx.signal,
     });
@@ -664,12 +721,14 @@ export class InstagramProvider implements SocialProvider {
   }
 
   /** Best effort: a published post without a permalink is still published. */
-  private async permalinkFor(mediaId: string, accessToken: string): Promise<string | undefined> {
+  private async permalinkFor(
+    mediaId: string,
+    credential: DecryptedCredential,
+  ): Promise<string | undefined> {
     try {
-      const media = await this.client.request<{ permalink?: string }>({
+      const media = await this.call<{ permalink?: string }>(credential, {
         path: `/${mediaId}`,
         params: { fields: 'permalink' },
-        accessToken,
       });
       return media.permalink;
     } catch {
@@ -686,12 +745,11 @@ export class InstagramProvider implements SocialProvider {
    */
   async reconcile(ctx: ReconcileContext): Promise<ReconcileResult> {
     try {
-      const response = await this.client.request<{
+      const response = await this.call<{
         data?: Array<{ id: string; caption?: string; timestamp?: string; permalink?: string }>;
-      }>({
+      }>(ctx.credential, {
         path: `/${ctx.account.externalId}/media`,
         params: { fields: 'id,caption,timestamp,permalink', limit: 25 },
-        accessToken: ctx.credential.accessToken,
         signal: ctx.signal,
       });
 
@@ -734,14 +792,13 @@ export class InstagramProvider implements SocialProvider {
     credential: DecryptedCredential,
   ): Promise<ExternalPostStatus> {
     try {
-      const media = await this.client.request<{
+      const media = await this.call<{
         id: string;
         permalink?: string;
         timestamp?: string;
-      }>({
+      }>(credential, {
         path: `/${ref.externalPostId}`,
         params: { fields: 'id,permalink,timestamp' },
-        accessToken: credential.accessToken,
       });
 
       return {
@@ -819,9 +876,9 @@ export class InstagramProvider implements SocialProvider {
       availability[metric] = 'DEPRECATED';
     }
 
-    const response = await this.client.request<{
+    const response = await this.call<{
       data?: Array<{ name: string; values?: Array<{ value: unknown }> }>;
-    }>({
+    }>(credential, {
       path,
       params: {
         metric: metricNames.join(','),
@@ -833,7 +890,6 @@ export class InstagramProvider implements SocialProvider {
             }
           : {}),
       },
-      accessToken: credential.accessToken,
     });
 
     const metrics: Record<string, number> = {};

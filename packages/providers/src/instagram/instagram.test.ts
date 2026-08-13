@@ -367,6 +367,51 @@ describe('publishing', () => {
   });
 });
 
+describe('publishing on the username-login surface', () => {
+  /**
+   * The connection is only the beginning. Publishing, reconciling and reading a
+   * post back all have to reach the host that issued the token — and
+   * `graph.facebook.com` answers an Instagram-app token with an authentication
+   * error, which the publish path reads as a dead credential and demotes the
+   * account on.
+   *
+   * The result was an account disconnected by its own publish attempt, every
+   * time, with a message telling the person to reconnect the thing they had
+   * just reconnected.
+   */
+  it('sends every publishing call to graph.instagram.com', async () => {
+    const seen: string[] = [];
+    const globalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      seen.push(url);
+      const id = url.includes('media_publish') ? 'ig-media-1' : 'container-1';
+      return new Response(JSON.stringify({ id, permalink: 'https://instagram.test/p/1/' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      const result = await provider(graph).publish(
+        publishContext({
+          credential: { accessToken: 'ig-token', scopes: INSTAGRAM_LOGIN_SCOPES },
+        }),
+      );
+
+      expect(result.externalPostId).toBe('ig-media-1');
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen.every((url) => url.startsWith('https://graph.instagram.com/'))).toBe(true);
+    } finally {
+      globalThis.fetch = globalFetch;
+    }
+
+    // Nothing reached the Facebook Graph client's recorded calls.
+    expect(graph.calls).toHaveLength(0);
+  });
+});
+
 describe('reconciliation', () => {
   it('finds a post that went out during an ambiguous attempt', async () => {
     await provider(graph).publish(
