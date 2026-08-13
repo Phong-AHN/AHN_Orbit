@@ -8,7 +8,7 @@ import {
   requireSession,
   resolveUser,
 } from '@orbit/auth';
-import { Badge, Button, Card, CardBody, Empty, PageHeader } from '@orbit/ui';
+import { Badge, Card, CardBody, Empty, PageHeader, buttonClassName } from '@orbit/ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,10 +49,8 @@ export default async function OrganizationsPage() {
         title="Your organizations"
         description="Choose which agency to work in."
         actions={
-          <Link href="/orgs/new">
-            <Button variant="secondary" size="sm">
-              New organization
-            </Button>
+          <Link href="/orgs/new" className={buttonClassName({ variant: 'secondary', size: 'sm' })}>
+            New organization
           </Link>
         }
       />
@@ -63,8 +61,8 @@ export default async function OrganizationsPage() {
           title="You are not in an organization yet"
           description="Ask whoever runs your agency to invite you, or create one to get started."
           action={
-            <Link href="/orgs/new">
-              <Button>Create an organization</Button>
+            <Link href="/orgs/new" className={buttonClassName()}>
+              Create an organization
             </Link>
           }
         />

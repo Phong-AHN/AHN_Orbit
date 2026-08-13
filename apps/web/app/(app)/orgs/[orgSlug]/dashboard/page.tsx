@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import {
-  Button,
   Card,
   CardBody,
   CardHeader,
@@ -9,6 +8,7 @@ import {
   Empty,
   PageHeader,
   PermissionDenied,
+  buttonClassName,
 } from '@orbit/ui';
 import { pageCan, requirePageContext } from '@/server/page-context';
 import { dashboardSummary } from '@/features/dashboard/service';
@@ -114,8 +114,8 @@ export default async function DashboardPage({ params }: PageProps) {
               description="Create a workspace for your first client to see their content here."
               action={
                 pageCan(ctx, 'workspace:create') ? (
-                  <Link href={`/orgs/${orgSlug}/settings/workspaces`}>
-                    <Button>Add a client</Button>
+                  <Link href={`/orgs/${orgSlug}/settings/workspaces`} className={buttonClassName()}>
+                    Add a client
                   </Link>
                 ) : null
               }

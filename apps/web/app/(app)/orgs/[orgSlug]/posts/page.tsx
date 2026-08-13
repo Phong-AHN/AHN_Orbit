@@ -7,7 +7,7 @@ import {
 } from '@orbit/core';
 import { CLIENT_VISIBLE_STATUSES } from '@orbit/rbac';
 import Link from 'next/link';
-import { Button, Empty, PageHeader, PermissionDenied } from '@orbit/ui';
+import { Empty, PageHeader, PermissionDenied, buttonClassName } from '@orbit/ui';
 import { pageCan, requirePageContext } from '@/server/page-context';
 import { listPosts } from '@/features/posts/service';
 import { PostCard } from '@/features/posts/ui/post-card';
@@ -79,8 +79,8 @@ export default async function PostsPage({ params, searchParams }: PageProps) {
         description="Everything in flight — drafts, reviews, scheduled and published."
         actions={
           pageCan(ctx, 'post:create') ? (
-            <Link href={`/orgs/${orgSlug}/posts/new`}>
-              <Button size="sm">New post</Button>
+            <Link href={`/orgs/${orgSlug}/posts/new`} className={buttonClassName({ size: 'sm' })}>
+              New post
             </Link>
           ) : null
         }
@@ -97,8 +97,8 @@ export default async function PostsPage({ params, searchParams }: PageProps) {
           }
           action={
             pageCan(ctx, 'post:create') ? (
-              <Link href={`/orgs/${orgSlug}/posts/new`}>
-                <Button>New post</Button>
+              <Link href={`/orgs/${orgSlug}/posts/new`} className={buttonClassName()}>
+                New post
               </Link>
             ) : null
           }

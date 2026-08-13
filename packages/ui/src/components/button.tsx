@@ -19,6 +19,32 @@ const SIZES: Record<ButtonSize, string> = {
   lg: 'h-11 px-6 text-base gap-2',
 };
 
+/**
+ * The button's appearance, without the `<button>`.
+ *
+ * A link that looks like a button must *be* a link. Wrapping `<Button>` in an
+ * anchor produces `<a><button></a>`, which the HTML spec forbids — interactive
+ * content cannot nest — and browsers do not run the anchor's activation
+ * behaviour when the click starts on the inner control. The result is a control
+ * that looks perfectly normal and does nothing at all.
+ *
+ * So navigation uses `<Link className={buttonClassName()}>`: one element, one
+ * role, and middle-click and the context menu work as they should.
+ */
+export function buttonClassName(
+  options: { variant?: ButtonVariant; size?: ButtonSize; className?: string } = {},
+): string {
+  const { variant = 'primary', size = 'md', className } = options;
+
+  return cn(
+    'inline-flex items-center justify-center rounded font-medium transition-colors',
+    'disabled:cursor-not-allowed',
+    VARIANTS[variant],
+    SIZES[size],
+    className,
+  );
+}
+
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
@@ -54,13 +80,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
       type={type}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
-      className={cn(
-        'inline-flex items-center justify-center rounded font-medium transition-colors',
-        'disabled:cursor-not-allowed',
-        VARIANTS[variant],
-        SIZES[size],
-        className,
-      )}
+      className={buttonClassName({ variant, size, className })}
       {...props}
     >
       {loading ? (

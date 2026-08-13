@@ -2,6 +2,7 @@ export { cn } from './lib/cn';
 export {
   Button,
   Spinner,
+  buttonClassName,
   type ButtonProps,
   type ButtonVariant,
   type ButtonSize,

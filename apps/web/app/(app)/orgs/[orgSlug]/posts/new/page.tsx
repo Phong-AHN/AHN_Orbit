@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { accessibleWorkspaceIds } from '@orbit/core';
-import { Button, Empty, PageHeader, PermissionDenied } from '@orbit/ui';
+import { Empty, PageHeader, PermissionDenied, buttonClassName } from '@orbit/ui';
 import { pageCan, requirePageContext } from '@/server/page-context';
 import { listPublishTargets } from '@/features/posts/service';
 import { NewPostForm } from '@/features/posts/ui/new-post-form';
@@ -61,8 +61,8 @@ export default async function NewPostPage({ params }: PageProps) {
           description="A post belongs to a brand inside a client workspace. Create one first."
           action={
             pageCan(ctx, 'brand:create') ? (
-              <Link href={`/orgs/${orgSlug}/settings/workspaces`}>
-                <Button>Set up a client</Button>
+              <Link href={`/orgs/${orgSlug}/settings/workspaces`} className={buttonClassName()}>
+                Set up a client
               </Link>
             ) : null
           }

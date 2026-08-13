@@ -1,7 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import type { SocialAccountStatus } from '@orbit/core';
-import { Badge, Button, Card, CardBody, Empty, PageHeader, PermissionDenied } from '@orbit/ui';
+import {
+  Badge,
+  Card,
+  CardBody,
+  Empty,
+  PageHeader,
+  PermissionDenied,
+  buttonClassName,
+} from '@orbit/ui';
 import { pageCan, requirePageContext } from '@/server/page-context';
 import { listAccounts } from '@/features/social/service';
 import { NeedsReconnectBanner } from '@/features/social/ui/needs-reconnect-banner';
@@ -64,10 +72,11 @@ export default async function AccountsPage({ params }: PageProps) {
         description="The social accounts this organization publishes to, and whether they are working."
         actions={
           pageCan(ctx, 'social_account:connect') ? (
-            <Link href={`/orgs/${orgSlug}/settings/workspaces`}>
-              <Button variant="secondary" size="sm">
-                Connect an account
-              </Button>
+            <Link
+              href={`/orgs/${orgSlug}/settings/workspaces`}
+              className={buttonClassName({ variant: 'secondary', size: 'sm' })}
+            >
+              Connect an account
             </Link>
           ) : null
         }
@@ -95,8 +104,8 @@ export default async function AccountsPage({ params }: PageProps) {
             description="Connect a Facebook Page to start scheduling and publishing posts. Accounts connect to a brand, so pick one first."
             action={
               pageCan(ctx, 'social_account:connect') ? (
-                <Link href={`/orgs/${orgSlug}/settings/workspaces`}>
-                  <Button>Choose a brand</Button>
+                <Link href={`/orgs/${orgSlug}/settings/workspaces`} className={buttonClassName()}>
+                  Choose a brand
                 </Link>
               ) : null
             }
