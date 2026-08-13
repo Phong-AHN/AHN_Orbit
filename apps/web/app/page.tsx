@@ -39,6 +39,14 @@ export default function HomePage() {
           </p>
         </CardBody>
       </Card>
+
+      {/* App Review checks that the policy is reachable from the app, not only
+          by its URL. */}
+      <footer className="mt-12 border-t border-line pt-6">
+        <Link href="/privacy-policy" className="text-sm text-ink-muted hover:underline">
+          Privacy policy
+        </Link>
+      </footer>
     </main>
   );
 }
