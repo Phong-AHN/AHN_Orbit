@@ -1,0 +1,60 @@
+{
+  "name": "ahn-orbit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-tenant agency social media and content operations platform",
+  "packageManager": "pnpm@10.32.1",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter=./packages/* build && pnpm --filter=@orbit/web build && pnpm --filter=@orbit/worker build",
+    "dev": "pnpm --filter=@orbit/web dev",
+    "dev:worker": "pnpm --filter=@orbit/worker dev",
+    "typecheck": "tsc -b --pretty && pnpm --filter=@orbit/ui typecheck && pnpm --filter=@orbit/web typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "//db": "Prisma runs from the repo root so it picks up the root .env; --schema points at the db package.",
+    "db:generate": "prisma generate --schema packages/db/prisma/schema.prisma",
+    "db:validate": "prisma validate --schema packages/db/prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema packages/db/prisma/schema.prisma",
+    "db:migrate:create": "prisma migrate dev --create-only --schema packages/db/prisma/schema.prisma",
+    "db:migrate:deploy": "prisma migrate deploy --schema packages/db/prisma/schema.prisma",
+    "db:push": "prisma db push --schema packages/db/prisma/schema.prisma",
+    "db:seed": "node --experimental-strip-types packages/db/prisma/seed.ts",
+    "db:studio": "prisma studio --schema packages/db/prisma/schema.prisma",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+    "verify:full": "pnpm verify && pnpm test:integration && pnpm test:e2e"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "prisma",
+      "@prisma/client",
+      "@prisma/engines",
+      "sharp",
+      "unrs-resolver"
+    ]
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@prisma/client": "6.19.3",
+    "@types/node": "^22.10.2",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.31.0",
+    "prettier": "^3.4.2",
+    "prisma": "^6.2.1",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.1",
+    "vitest": "^2.1.8"
+  }
+}

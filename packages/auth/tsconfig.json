@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.integration.test.ts"],
+  "references": [
+    { "path": "../config" },
+    { "path": "../core" },
+    { "path": "../db" },
+    { "path": "../observability" },
+    { "path": "../rbac" }
+  ]
+}

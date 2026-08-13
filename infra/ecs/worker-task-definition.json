@@ -1,0 +1,74 @@
+{
+  "//": "ECS Fargate task definition for the worker (T1.11 DoD, docs/ARCHITECTURE.md §5). Placeholders in ${...} are substituted at deploy time. Secrets are injected from Secrets Manager and never appear in the environment block.",
+
+  "family": "orbit-worker",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "${EXECUTION_ROLE_ARN}",
+  "taskRoleArn": "${TASK_ROLE_ARN}",
+
+  "//stopTimeout": "Must exceed the worker's 25s shutdown grace so in-flight jobs drain before SIGKILL. A publish cut off mid-provider-call is the ambiguous outcome the idempotency design exists to avoid.",
+
+  "containerDefinitions": [
+    {
+      "name": "worker",
+      "image": "${ECR_REPOSITORY}:${IMAGE_TAG}",
+      "essential": true,
+      "stopTimeout": 40,
+
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "APP_ENV", "value": "${APP_ENV}" },
+        { "name": "ORBIT_ROLE", "value": "worker" },
+        { "name": "WORKER_HEALTH_PORT", "value": "3100" },
+        { "name": "LOG_LEVEL", "value": "info" },
+        { "name": "S3_REGION", "value": "${AWS_REGION}" },
+        { "name": "S3_BUCKET", "value": "${S3_BUCKET}" }
+      ],
+
+      "//secrets": "Everything credential-bearing arrives here, not in `environment` — an environment block is readable from the task definition by anyone with ecs:DescribeTaskDefinition.",
+      "secrets": [
+        { "name": "DATABASE_URL", "valueFrom": "${SECRET_ARN}:DATABASE_URL::" },
+        { "name": "REDIS_URL", "valueFrom": "${SECRET_ARN}:REDIS_URL::" },
+        { "name": "S3_ACCESS_KEY_ID", "valueFrom": "${SECRET_ARN}:S3_ACCESS_KEY_ID::" },
+        { "name": "S3_SECRET_ACCESS_KEY", "valueFrom": "${SECRET_ARN}:S3_SECRET_ACCESS_KEY::" },
+        {
+          "name": "CREDENTIAL_ENCRYPTION_KEY",
+          "valueFrom": "${SECRET_ARN}:CREDENTIAL_ENCRYPTION_KEY::"
+        },
+        { "name": "STATE_SIGNING_SECRET", "valueFrom": "${SECRET_ARN}:STATE_SIGNING_SECRET::" },
+        { "name": "FACEBOOK_APP_ID", "valueFrom": "${SECRET_ARN}:FACEBOOK_APP_ID::" },
+        { "name": "FACEBOOK_APP_SECRET", "valueFrom": "${SECRET_ARN}:FACEBOOK_APP_SECRET::" }
+      ],
+
+      "portMappings": [{ "containerPort": 3100, "protocol": "tcp", "name": "health" }],
+
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 20
+      },
+
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/orbit/worker",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "worker",
+          "mode": "non-blocking"
+        }
+      },
+
+      "linuxParameters": { "initProcessEnabled": true },
+      "readonlyRootFilesystem": true,
+      "user": "orbit"
+    }
+  ]
+}

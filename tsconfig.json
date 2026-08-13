@@ -1,0 +1,17 @@
+{
+  "//": "Solution-style tsconfig. `tsc -b` builds packages in reference order. References are added as each package lands; the Next.js app is typechecked separately (it uses bundler module resolution).",
+  "files": [],
+  "references": [
+    { "path": "packages/config" },
+    { "path": "packages/core" },
+    { "path": "packages/observability" },
+    { "path": "packages/db" },
+    { "path": "packages/rbac" },
+    { "path": "packages/auth" },
+    { "path": "packages/providers" },
+    { "path": "packages/storage" },
+    { "path": "packages/queue" },
+    { "path": "packages/notifications" },
+    { "path": "apps/worker" }
+  ]
+}

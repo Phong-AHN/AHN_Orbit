@@ -1,0 +1,43 @@
+/* Token values first — a CSS @import must precede every other rule. */
+@import '@orbit/ui/tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Element-level application of the tokens. Lives here rather than in
+   tokens.css so Tailwind can order it inside its own base layer; utilities
+   still win over everything below. */
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: hsl(var(--line));
+  }
+
+  html {
+    color-scheme: light dark;
+  }
+
+  body {
+    background-color: hsl(var(--canvas));
+    color: hsl(var(--ink));
+  }
+
+  /* Focus is never removed — only restyled (SRS §29). */
+  :focus-visible {
+    outline: 2px solid hsl(var(--focus));
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

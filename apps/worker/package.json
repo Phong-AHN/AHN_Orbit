@@ -1,0 +1,25 @@
+{
+  "name": "@orbit/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "tsc -b --clean",
+    "dev": "node --watch --experimental-strip-types src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@orbit/auth": "workspace:*",
+    "@orbit/config": "workspace:*",
+    "@orbit/core": "workspace:*",
+    "@orbit/db": "workspace:*",
+    "@orbit/notifications": "workspace:*",
+    "@orbit/observability": "workspace:*",
+    "@orbit/providers": "workspace:*",
+    "@orbit/queue": "workspace:*",
+    "@orbit/rbac": "workspace:*",
+    "@orbit/storage": "workspace:*"
+  }
+}

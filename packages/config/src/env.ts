@@ -1,0 +1,204 @@
+import { z } from 'zod';
+import { loadRootEnv } from './load-env.js';
+
+/**
+ * Environment configuration (SRS §45).
+ *
+ * Validated once, lazily, on first access. A missing or malformed value throws
+ * with every problem listed at once — the deploy fails, not the first request
+ * that happens to need the value.
+ *
+ * Secrets are never logged. `describeEnv()` exists for the health endpoint and
+ * reports presence only, never values.
+ */
+
+const base64Key = (bytes: number) =>
+  z
+    .string()
+    .min(1)
+    .refine(
+      (v) => {
+        try {
+          return Buffer.from(v, 'base64').length === bytes;
+        } catch {
+          return false;
+        }
+      },
+      { message: `must be ${bytes} bytes, base64-encoded` },
+    );
+
+const optionalUrl = z
+  .string()
+  .url()
+  .optional()
+  .or(z.literal('').transform(() => undefined));
+
+export const serverEnvSchema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  APP_ENV: z.enum(['development', 'staging', 'production']).default('development'),
+  APP_URL: z.string().url().default('http://localhost:3000'),
+  LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
+
+  // ── Data ──────────────────────────────────────────────────────────────────
+  DATABASE_URL: z.string().url(),
+  DIRECT_URL: z.string().url().optional(),
+  REDIS_URL: z.string().url(),
+
+  // ── Worker (docs/ARCHITECTURE.md §5) ──────────────────────────────────────
+  /**
+   * Liveness and metrics port for the worker container. The worker has no
+   * other HTTP surface; this is not routed publicly.
+   */
+  WORKER_HEALTH_PORT: z.coerce.number().int().positive().default(3100),
+
+  // ── Storage (SRS §17) ─────────────────────────────────────────────────────
+  S3_REGION: z.string().min(1).default('eu-west-1'),
+  S3_BUCKET: z.string().min(1),
+  S3_ACCESS_KEY_ID: z.string().min(1),
+  S3_SECRET_ACCESS_KEY: z.string().min(1),
+  S3_ENDPOINT: optionalUrl,
+  S3_FORCE_PATH_STYLE: z.coerce.boolean().default(false),
+  S3_PUBLIC_BASE_URL: optionalUrl,
+
+  // ── Encryption (SRS §6) ───────────────────────────────────────────────────
+  CREDENTIAL_ENCRYPTION_KEY: base64Key(32),
+  CREDENTIAL_ENCRYPTION_KEY_VERSION: z.coerce.number().int().positive().default(1),
+  STATE_SIGNING_SECRET: base64Key(32),
+
+  // ── Firebase Admin (SRS §51) — server only, never sent to the browser ──────
+  FIREBASE_PROJECT_ID: z.string().min(1).optional(),
+  FIREBASE_CLIENT_EMAIL: z.string().email().optional(),
+  FIREBASE_PRIVATE_KEY: z
+    .string()
+    .optional()
+    .transform((v) => v?.replace(/\\n/g, '\n')),
+  FIREBASE_AUTH_EMULATOR_HOST: z.string().optional(),
+
+  // ── Social providers (SRS §7) ─────────────────────────────────────────────
+  FACEBOOK_APP_ID: z.string().optional(),
+  FACEBOOK_APP_SECRET: z.string().optional(),
+  FACEBOOK_GRAPH_VERSION: z
+    .string()
+    .regex(/^v\d+\.\d+$/)
+    .default('v21.0'),
+  FACEBOOK_WEBHOOK_VERIFY_TOKEN: z.string().optional(),
+
+  // ── AI (SRS §51) ──────────────────────────────────────────────────────────
+  GEMINI_API_KEY: z.string().optional(),
+  GEMINI_MODEL: z.string().default('gemini-2.0-flash'),
+
+  // ── Billing (SRS §38) ─────────────────────────────────────────────────────
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+
+  // ── Observability (SRS §33) ───────────────────────────────────────────────
+  SENTRY_DSN: optionalUrl,
+
+  // ── Email (SRS §22) ───────────────────────────────────────────────────────
+  EMAIL_FROM: z.string().email().default('orbit@example.com'),
+  RESEND_API_KEY: z.string().optional(),
+});
+
+export type ServerEnv = z.infer<typeof serverEnvSchema>;
+
+/**
+ * Production requires the credentials that development can stub. Enforced
+ * separately so local development stays frictionless while a production deploy
+ * cannot start half-configured.
+ */
+const productionRequired = [
+  'FIREBASE_PROJECT_ID',
+  'FIREBASE_CLIENT_EMAIL',
+  'FIREBASE_PRIVATE_KEY',
+  'FACEBOOK_APP_ID',
+  'FACEBOOK_APP_SECRET',
+  'SENTRY_DSN',
+] as const satisfies readonly (keyof ServerEnv)[];
+
+export class EnvValidationError extends Error {
+  override readonly name = 'EnvValidationError';
+  constructor(readonly issues: string[]) {
+    super(`Invalid environment configuration:\n${issues.map((i) => `  • ${i}`).join('\n')}`);
+  }
+}
+
+export function parseServerEnv(source?: NodeJS.ProcessEnv): ServerEnv {
+  // Only when reading the ambient environment — a caller passing an explicit
+  // source (tests) gets exactly what it passed.
+  if (source === undefined) loadRootEnv();
+
+  const parsed = serverEnvSchema.safeParse(source ?? process.env);
+
+  if (!parsed.success) {
+    throw new EnvValidationError(
+      parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`),
+    );
+  }
+
+  const env = parsed.data;
+
+  if (env.APP_ENV === 'production') {
+    const missing = productionRequired.filter((key) => !env[key]);
+    if (missing.length > 0) {
+      throw new EnvValidationError(missing.map((k) => `${k}: required when APP_ENV=production`));
+    }
+    if (env.S3_ENDPOINT) {
+      throw new EnvValidationError([
+        'S3_ENDPOINT: must be unset in production — it exists only for local S3-compatible storage',
+      ]);
+    }
+  }
+
+  return env;
+}
+
+let cached: ServerEnv | undefined;
+
+/**
+ * Validated server environment. Throws on first access if misconfigured.
+ *
+ * `SKIP_ENV_VALIDATION` exists only so container image builds (which have no
+ * secrets) can run `next build`. It must never be set at runtime.
+ */
+export function serverEnv(): ServerEnv {
+  if (cached) return cached;
+  if (process.env.SKIP_ENV_VALIDATION === 'true') {
+    cached = serverEnvSchema.parse({
+      DATABASE_URL: 'postgresql://build:build@localhost:5432/build',
+      REDIS_URL: 'redis://localhost:6379',
+      S3_BUCKET: 'build',
+      S3_ACCESS_KEY_ID: 'build',
+      S3_SECRET_ACCESS_KEY: 'build',
+      CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32).toString('base64'),
+      STATE_SIGNING_SECRET: Buffer.alloc(32).toString('base64'),
+    });
+    return cached;
+  }
+  cached = parseServerEnv();
+  return cached;
+}
+
+/** Test seam: drop the memoised value so a test can re-parse a different env. */
+export function resetServerEnvCache(): void {
+  cached = undefined;
+}
+
+/**
+ * Presence-only view of configuration, safe to expose on the health endpoint.
+ * Reports whether a secret is set — never what it is (SRS §33).
+ */
+export function describeEnv(env: ServerEnv = serverEnv()): Record<string, string | boolean> {
+  return {
+    appEnv: env.APP_ENV,
+    nodeEnv: env.NODE_ENV,
+    logLevel: env.LOG_LEVEL,
+    graphVersion: env.FACEBOOK_GRAPH_VERSION,
+    aiModel: env.GEMINI_MODEL,
+    hasFirebaseAdmin: Boolean(env.FIREBASE_PROJECT_ID && env.FIREBASE_PRIVATE_KEY),
+    hasFacebookApp: Boolean(env.FACEBOOK_APP_ID && env.FACEBOOK_APP_SECRET),
+    hasGemini: Boolean(env.GEMINI_API_KEY),
+    hasStripe: Boolean(env.STRIPE_SECRET_KEY),
+    hasSentry: Boolean(env.SENTRY_DSN),
+    usesLocalStorageEmulator: Boolean(env.S3_ENDPOINT),
+  };
+}

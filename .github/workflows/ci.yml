@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Values are non-secret placeholders sufficient for schema validation, codegen
+  # and unit tests. Unit tests never touch infrastructure.
+  DATABASE_URL: postgresql://orbit:orbit@localhost:5432/orbit?schema=public
+  DIRECT_URL: postgresql://orbit:orbit@localhost:5432/orbit?schema=public
+  REDIS_URL: redis://localhost:6379
+  CREDENTIAL_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  STATE_SIGNING_SECRET: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=
+
+jobs:
+  verify:
+    name: format · lint · typecheck · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build packages
+        run: pnpm -r --filter=./packages/* build
+
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  integration:
+    name: integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: orbit
+          POSTGRES_PASSWORD: orbit
+          POSTGRES_DB: orbit
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U orbit -d orbit"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm -r --filter=./packages/* build
+      - name: Apply migrations
+        run: pnpm db:migrate:deploy
+      - name: Integration tests
+        run: pnpm test:integration

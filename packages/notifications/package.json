@@ -1,0 +1,21 @@
+{
+  "name": "@orbit/notifications",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "tsc -b --clean"
+  },
+  "dependencies": {
+    "@orbit/core": "workspace:*",
+    "@orbit/db": "workspace:*",
+    "@orbit/observability": "workspace:*",
+    "@orbit/rbac": "workspace:*"
+  }
+}

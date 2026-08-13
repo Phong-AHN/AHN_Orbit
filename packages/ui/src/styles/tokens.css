@@ -1,0 +1,138 @@
+/* ───────────────────────────────────────────────────────────────────────────
+   AHN Orbit — design tokens (SRS §29)
+
+   Values only. This file is imported as its own CSS module, so it deliberately
+   contains no `@layer` and no Tailwind directives — the element-level rules
+   that *apply* these tokens live in the app's globals.css, inside `@layer base`
+   where Tailwind can order them correctly.
+
+   Palette: verdigris accent on green-cool neutrals. The neutrals carry a
+   deliberate hue bias toward the accent rather than being pure grey, so the
+   greys read as chosen. Semantic colours (success/warning/danger) are separate
+   from the accent and never stand in for it.
+
+   Both themes are defined here at token level, and components style through
+   the tokens only — never inside a media query — so the un-stamped "system"
+   state and the explicit toggle both resolve correctly.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Surfaces, lightest to most raised */
+  --canvas: 150 14% 97%;
+  --surface: 0 0% 100%;
+  --surface-sunken: 150 12% 94%;
+  --surface-raised: 0 0% 100%;
+
+  /* Text */
+  --ink: 168 24% 10%;
+  --ink-secondary: 168 10% 28%;
+  --ink-muted: 168 8% 42%;
+  --ink-inverse: 150 14% 97%;
+
+  /* Lines */
+  --line: 156 12% 87%;
+  --line-strong: 156 12% 76%;
+
+  /* Accent — verdigris. Also carries the "settled / verified" semantic. */
+  --accent: 168 68% 26%;
+  --accent-hover: 168 68% 21%;
+  --accent-soft: 168 40% 93%;
+  --accent-ink: 0 0% 100%;
+
+  /* Semantic — deliberately distinct from the accent hue */
+  --success: 152 55% 30%;
+  --success-soft: 152 45% 94%;
+  --warning: 36 72% 34%;
+  --warning-soft: 40 70% 94%;
+  --danger: 2 65% 40%;
+  --danger-soft: 2 70% 96%;
+  --info: 208 60% 38%;
+  --info-soft: 208 60% 95%;
+
+  /* Focus ring — always visible, never removed (SRS §29 keyboard navigation) */
+  --focus: 168 80% 34%;
+
+  --radius-sm: 0.25rem;
+  --radius: 0.375rem;
+  --radius-lg: 0.5rem;
+
+  --shadow-sm: 0 1px 2px hsl(168 24% 10% / 0.06);
+  --shadow: 0 1px 3px hsl(168 24% 10% / 0.08), 0 8px 24px -16px hsl(168 24% 10% / 0.24);
+  --shadow-lg: 0 2px 8px hsl(168 24% 10% / 0.1), 0 16px 48px -24px hsl(168 24% 10% / 0.32);
+}
+
+/* The default "system" setting stamps nothing on the root, so only the media
+   query separates light from dark. Guarded so an explicit light choice beats a
+   dark OS. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --canvas: 170 22% 7%;
+    --surface: 170 20% 10%;
+    --surface-sunken: 170 22% 6%;
+    --surface-raised: 170 18% 13%;
+
+    --ink: 158 20% 92%;
+    --ink-secondary: 158 12% 78%;
+    --ink-muted: 158 8% 60%;
+    --ink-inverse: 170 22% 7%;
+
+    --line: 168 14% 18%;
+    --line-strong: 168 12% 28%;
+
+    --accent: 168 52% 55%;
+    --accent-hover: 168 56% 64%;
+    --accent-soft: 168 40% 14%;
+    --accent-ink: 170 30% 8%;
+
+    --success: 152 45% 58%;
+    --success-soft: 152 35% 13%;
+    --warning: 40 65% 60%;
+    --warning-soft: 40 40% 14%;
+    --danger: 4 70% 65%;
+    --danger-soft: 4 40% 15%;
+    --info: 205 60% 62%;
+    --info-soft: 205 40% 14%;
+
+    --focus: 168 60% 58%;
+
+    --shadow-sm: 0 1px 2px hsl(0 0% 0% / 0.4);
+    --shadow: 0 1px 3px hsl(0 0% 0% / 0.5), 0 8px 24px -16px hsl(0 0% 0% / 0.8);
+    --shadow-lg: 0 2px 8px hsl(0 0% 0% / 0.55), 0 16px 48px -24px hsl(0 0% 0% / 0.9);
+  }
+}
+
+/* An explicit dark choice wins in the other direction. */
+:root[data-theme='dark'] {
+  --canvas: 170 22% 7%;
+  --surface: 170 20% 10%;
+  --surface-sunken: 170 22% 6%;
+  --surface-raised: 170 18% 13%;
+
+  --ink: 158 20% 92%;
+  --ink-secondary: 158 12% 78%;
+  --ink-muted: 158 8% 60%;
+  --ink-inverse: 170 22% 7%;
+
+  --line: 168 14% 18%;
+  --line-strong: 168 12% 28%;
+
+  --accent: 168 52% 55%;
+  --accent-hover: 168 56% 64%;
+  --accent-soft: 168 40% 14%;
+  --accent-ink: 170 30% 8%;
+
+  --success: 152 45% 58%;
+  --success-soft: 152 35% 13%;
+  --warning: 40 65% 60%;
+  --warning-soft: 40 40% 14%;
+  --danger: 4 70% 65%;
+  --danger-soft: 4 40% 15%;
+  --info: 205 60% 62%;
+  --info-soft: 205 40% 14%;
+
+  --focus: 168 60% 58%;
+
+  --shadow-sm: 0 1px 2px hsl(0 0% 0% / 0.4);
+  --shadow: 0 1px 3px hsl(0 0% 0% / 0.5), 0 8px 24px -16px hsl(0 0% 0% / 0.8);
+  --shadow-lg: 0 2px 8px hsl(0 0% 0% / 0.55), 0 16px 48px -24px hsl(0 0% 0% / 0.9);
+}

@@ -1,0 +1,81 @@
+import { serverEnv } from '@orbit/config';
+import { logger } from '@orbit/observability';
+import { isSupported, registerProvider, supportedPlatforms } from '@orbit/providers';
+import { FacebookProvider } from '@orbit/providers/facebook';
+import { MockProvider } from '@orbit/providers/mock';
+
+/**
+ * Provider bootstrap.
+ *
+ * The single place adapters are wired up. Import this once from anything that
+ * needs a provider; registration is idempotent.
+ *
+ * Facebook registers only when a Meta app is configured. Without one, the
+ * development mock stands in so the composer and calendar can be exercised
+ * before App Review completes — and the registry refuses that substitution in
+ * production, so the fallback cannot escape.
+ *
+ * ## Tests never reach a real platform by accident (T1.19, decision D-047)
+ *
+ * A developer with `FACEBOOK_APP_ID` in their `.env` — which is the normal
+ * state — would otherwise have the real adapter registered inside the test
+ * suite, because this function is reached from `validatePost` on any
+ * transition. That is how the first run of the E2E flow ended up calling
+ * `graph.facebook.com` and failing on a real OAuth error.
+ *
+ * So in `test` the mock is used regardless of configuration. The one deliberate
+ * exception is `ORBIT_E2E_REAL_PROVIDER=true`, which exists for the DoD's other
+ * half: running the §32 flow **once, manually, against a real Meta Test Page**
+ * after App Review. It has to be asked for explicitly and by name.
+ */
+
+let bootstrapped = false;
+
+/** Reset the bootstrap latch. Tests only, so a suite can choose its provider. */
+export function resetProviderBootstrap(): void {
+  bootstrapped = false;
+}
+
+function useRealProvider(env: ReturnType<typeof serverEnv>): boolean {
+  if (!env.FACEBOOK_APP_ID || !env.FACEBOOK_APP_SECRET) return false;
+  if (env.NODE_ENV !== 'test') return true;
+
+  // Opt in, explicitly, for the one manual run against a real Test Page.
+  return process.env.ORBIT_E2E_REAL_PROVIDER === 'true';
+}
+
+export function ensureProvidersRegistered(): void {
+  if (bootstrapped) return;
+  bootstrapped = true;
+
+  const env = serverEnv();
+
+  if (useRealProvider(env) && env.FACEBOOK_APP_ID && env.FACEBOOK_APP_SECRET) {
+    registerProvider(
+      new FacebookProvider({
+        appId: env.FACEBOOK_APP_ID,
+        appSecret: env.FACEBOOK_APP_SECRET,
+        apiVersion: env.FACEBOOK_GRAPH_VERSION,
+        webhookVerifyToken: env.FACEBOOK_WEBHOOK_VERIFY_TOKEN,
+      }),
+    );
+    logger.info('registered Facebook provider', { apiVersion: env.FACEBOOK_GRAPH_VERSION });
+  } else {
+    // Throws if this is somehow reached in production.
+    registerProvider(new MockProvider(), { developmentOnly: true });
+    logger.warn('using the development mock provider', {
+      reason:
+        env.NODE_ENV === 'test'
+          ? 'tests never call a real platform unless ORBIT_E2E_REAL_PROVIDER=true'
+          : 'Facebook is not configured',
+      hint: 'Set FACEBOOK_APP_ID and FACEBOOK_APP_SECRET to use the real adapter.',
+    });
+  }
+
+  logger.info('providers registered', { platforms: supportedPlatforms() });
+}
+
+export function providerIsSupported(platform: Parameters<typeof isSupported>[0]): boolean {
+  ensureProvidersRegistered();
+  return isSupported(platform);
+}
