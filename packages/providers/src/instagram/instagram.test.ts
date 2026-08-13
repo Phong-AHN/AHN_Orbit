@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { InstagramProvider } from './provider.js';
-import { INSTAGRAM_PUBLISH_SCOPES } from './capabilities.js';
+import { INSTAGRAM_LOGIN_SCOPES, INSTAGRAM_PUBLISH_SCOPES } from './capabilities.js';
 import type { FetchLike } from '../facebook/client.js';
 
 /**
@@ -407,6 +407,40 @@ describe('lifecycle', () => {
     await expect(
       provider(graph).deletePost({ externalPostId: 'ig-media-1' } as never, credential),
     ).rejects.toThrow(/Remove it in the Instagram app/);
+  });
+
+  /**
+   * The two surfaces hold tokens issued by *different Meta apps*. Checking an
+   * Instagram-app token against the Facebook app's `debug_token` returns
+   * invalid, and the account is demoted for no reason — which is exactly what
+   * happened to a live account.
+   */
+  it('probes a username-login account against Instagram, not Graph', async () => {
+    const seen: string[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      seen.push(typeof input === 'string' ? input : input.toString());
+      return new Response(JSON.stringify({ id: 'ig-user-1' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    const globalFetch = globalThis.fetch;
+    globalThis.fetch = fetchImpl;
+
+    try {
+      const health = await provider(graph).probeHealth(
+        { accessToken: 'ig-token', scopes: INSTAGRAM_LOGIN_SCOPES },
+        { externalId: 'ig-user-1' },
+      );
+
+      expect(health.status).toBe('ACTIVE');
+      expect(seen.some((url) => url.startsWith('https://graph.instagram.com/'))).toBe(true);
+      // Never the Facebook app's debug endpoint.
+      expect(seen.some((url) => url.includes('debug_token'))).toBe(false);
+    } finally {
+      globalThis.fetch = globalFetch;
+    }
   });
 
   it('reports NEEDS_RECONNECT when a permission was removed', async () => {

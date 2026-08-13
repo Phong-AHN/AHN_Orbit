@@ -356,8 +356,39 @@ export class InstagramProvider implements SocialProvider {
     return debug.data?.scopes ?? [];
   }
 
+  /**
+   * Which surface a stored credential belongs to.
+   *
+   * Read from the scopes, because that is what the row actually carries — the
+   * two surfaces ask for disjoint sets and `probeHealth` receives no account
+   * type. Getting this wrong is not a small error: an Instagram-app token
+   * checked against the *Facebook* app's `debug_token` comes back invalid, and
+   * the account is demoted to NEEDS_RECONNECT for no reason. It did.
+   */
+  private isLoginSurface(credential: DecryptedCredential): boolean {
+    return credential.scopes.includes('instagram_business_basic');
+  }
+
   /** Page tokens do not refresh; only a person reauthorizing can fix a dead one. */
   async refreshCredential(credential: DecryptedCredential): Promise<RefreshOutcome> {
+    if (this.isLoginSurface(credential)) {
+      // No debug endpoint here. Reading the account is the check.
+      try {
+        await this.instagramLoginFetch(
+          `${INSTAGRAM_LOGIN_GRAPH}/me?${new URLSearchParams({
+            fields: 'id',
+            access_token: credential.accessToken,
+          }).toString()}`,
+        );
+        return { status: 'STILL_VALID' };
+      } catch {
+        return {
+          status: 'REQUIRES_RECONNECT',
+          reason: 'The connection to this Instagram account is no longer valid.',
+        };
+      }
+    }
+
     try {
       const debug = await this.client.request<DebugTokenResponse>({
         path: '/debug_token',
@@ -385,6 +416,41 @@ export class InstagramProvider implements SocialProvider {
     account: { externalId: string },
   ): Promise<AccountHealth> {
     const checkedAt = clock.now();
+
+    if (this.isLoginSurface(credential)) {
+      try {
+        // Reading the account with the token proves both at once: the token
+        // works, and the account it names is still reachable.
+        await this.instagramLoginFetch(
+          `${INSTAGRAM_LOGIN_GRAPH}/${account.externalId}?${new URLSearchParams({
+            fields: 'id',
+            access_token: credential.accessToken,
+          }).toString()}`,
+        );
+
+        return {
+          status: 'ACTIVE',
+          grantedScopes: credential.scopes,
+          missingScopes: [],
+          checkedAt,
+        };
+      } catch (error) {
+        const code = (error as { code?: string }).code;
+
+        if (code === 'PROVIDER_AUTHENTICATION_ERROR' || code === 'PROVIDER_PERMISSION_ERROR') {
+          return {
+            status: 'NEEDS_RECONNECT',
+            grantedScopes: [],
+            missingScopes: [...INSTAGRAM_LOGIN_SCOPES],
+            message: 'This Instagram account needs to be reconnected before it can publish.',
+            checkedAt,
+          };
+        }
+
+        // A transient outage is not a broken connection.
+        throw error;
+      }
+    }
 
     try {
       const debug = await this.client.request<DebugTokenResponse>({

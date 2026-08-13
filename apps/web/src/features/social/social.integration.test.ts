@@ -155,6 +155,51 @@ describe('staging discovered accounts', () => {
     ).rejects.toThrow(NotFoundError);
   });
 
+  /**
+   * Reconnecting is how a broken account is fixed, so staging a fresh
+   * credential onto one has to clear the state that said it was broken.
+   * `alreadyConnected` is true for NEEDS_RECONNECT — the row is not DISABLED —
+   * so the status was previously left exactly as it was: the credential was
+   * replaced, the banner stayed up, and there was nothing else to click.
+   */
+  it('restores a broken account when a fresh credential is staged onto it', async () => {
+    await stageDiscoveredAccounts(ctxA, {
+      platform: 'FACEBOOK',
+      workspaceId: WS_A,
+      brandId: BRAND_A,
+      discovered: [discovered('page-broken')],
+    });
+    const [row] = await platformDb.socialAccount.findMany({
+      where: { organizationId: ORG_A, externalId: 'page-broken' },
+    });
+    await connectAccounts(
+      ctxA,
+      {
+        platform: 'FACEBOOK',
+        workspaceId: WS_A,
+        brandId: BRAND_A,
+        socialAccountIds: [row!.id],
+      },
+      fingerprint,
+    );
+
+    await platformDb.socialAccount.update({
+      where: { id: row!.id },
+      data: { status: 'NEEDS_RECONNECT', healthError: 'expired' },
+    });
+
+    await stageDiscoveredAccounts(ctxA, {
+      platform: 'FACEBOOK',
+      workspaceId: WS_A,
+      brandId: BRAND_A,
+      discovered: [discovered('page-broken', 'fresh-token')],
+    });
+
+    const after = await platformDb.socialAccount.findFirstOrThrow({ where: { id: row!.id } });
+    expect(after.status).toBe('ACTIVE');
+    expect(after.healthError).toBeNull();
+  });
+
   it('does not disturb an account that is already live', async () => {
     await stageDiscoveredAccounts(ctxA, {
       platform: 'FACEBOOK',

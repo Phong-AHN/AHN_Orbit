@@ -269,6 +269,23 @@ export async function stageDiscoveredAccounts(
             ...data,
             // An account already live stays live; only fresh ones are staged.
             ...(alreadyConnected ? {} : { status: 'DISABLED', deletedAt: null }),
+            /**
+             * A broken account is fixed by the credential we just stored.
+             *
+             * `alreadyConnected` is true for NEEDS_RECONNECT — the row is not
+             * DISABLED — so without this the reconnect flow replaced the
+             * credential and left the status exactly as it was. The account
+             * stayed broken, the banner stayed up, and the person who had just
+             * signed in successfully had no way to tell what else to do.
+             *
+             * Restoring ACTIVE is not a claim that the connection is healthy:
+             * the next probe re-checks, and demotes again if a scope is still
+             * missing. It is only saying that the reason it was demoted —
+             * "reconnect it" — has been answered.
+             */
+            ...(existing.status === 'NEEDS_RECONNECT'
+              ? { status: 'ACTIVE' as const, healthError: null }
+              : {}),
           },
         });
       } else {
