@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "//build": "Every @orbit/* package except @orbit/ui resolves to dist/, so the workspace dependencies must be compiled before Next can find them. `^...` selects this package's dependencies and not this package, which is what makes it safe to call from the build script of the package itself. Vercel builds only this app, so without this its `next build` fails on 'Can't resolve @orbit/core'.",
+    "build": "pnpm --filter @orbit/web^... build && next build",
     "start": "next start",
     "typecheck": "tsc --noEmit"
   },

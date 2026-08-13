@@ -7,6 +7,10 @@
   "engines": {
     "node": ">=22.0.0"
   },
+  "//prisma": "The schema is not in a default location, so `@prisma/client`'s own postinstall cannot find it and silently installs a stub with no models — which then fails to compile. Pointing at it here is what makes a fresh install produce a real client, on a laptop and on a build machine alike.",
+  "prisma": {
+    "schema": "packages/db/prisma/schema.prisma"
+  },
   "scripts": {
     "build": "pnpm -r --filter=./packages/* build && pnpm --filter=@orbit/web build && pnpm --filter=@orbit/worker build",
     "dev": "pnpm --filter=@orbit/web dev",

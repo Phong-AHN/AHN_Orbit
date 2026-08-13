@@ -9,12 +9,16 @@
     ".": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsc -b",
+    "//build": "The Prisma client is generated code that `tsc` immediately compiles against, so it has to exist first. Generating here rather than in a root postinstall keeps it out of `pnpm install`, where Prisma's auto-install would try `pnpm add` and be refused at a workspace root. This package owns the schema, so it owns the CLI too.",
+    "build": "prisma generate --schema prisma/schema.prisma && tsc -b",
     "clean": "tsc -b --clean"
   },
   "dependencies": {
     "@orbit/config": "workspace:*",
     "@orbit/core": "workspace:*",
     "@prisma/client": "6.19.3"
+  },
+  "devDependencies": {
+    "prisma": "^6.2.1"
   }
 }
