@@ -115,10 +115,40 @@ const productionRequired = [
   'SENTRY_DSN',
 ] as const satisfies readonly (keyof ServerEnv)[];
 
+/**
+ * Why a `.env` sitting right there did not help.
+ *
+ * `next build` sets `NODE_ENV=production`, and `loadRootEnv` deliberately reads
+ * nothing in production — deployed configuration comes from the platform, not a
+ * file. The result is an error that looks like "you have no configuration" to
+ * someone looking straight at their `.env`, which is the most misleading moment
+ * this codebase produces. So the error explains itself rather than making the
+ * reader remember.
+ */
+function productionHint(): string {
+  const inProduction =
+    process.env.APP_ENV === 'production' || process.env.NODE_ENV === 'production';
+
+  if (!inProduction) return '';
+
+  return [
+    '',
+    'NODE_ENV or APP_ENV is production, so `.env` was deliberately not read —',
+    'deployed configuration comes from the platform.',
+    '',
+    '  • Building locally?  SKIP_ENV_VALIDATION=true pnpm build',
+    '  • Deploying?         set these in your platform’s environment settings.',
+    '',
+    'See docs/DEPLOYMENT.md §2.',
+  ].join('\n');
+}
+
 export class EnvValidationError extends Error {
   override readonly name = 'EnvValidationError';
   constructor(readonly issues: string[]) {
-    super(`Invalid environment configuration:\n${issues.map((i) => `  • ${i}`).join('\n')}`);
+    super(
+      `Invalid environment configuration:\n${issues.map((i) => `  • ${i}`).join('\n')}${productionHint()}`,
+    );
   }
 }
 
