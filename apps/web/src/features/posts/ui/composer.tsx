@@ -22,6 +22,7 @@ import { ApiError, postsApi, type PostDetail, type PostValidationResponse } from
 import type { CapabilitySummary } from './capability-summary';
 import { STATUS_LABEL, STATUS_TONE } from './status';
 import { ScheduleForm } from './schedule-form';
+import { MediaPanel, type MediaItem } from '@/features/media/ui/media-panel';
 import { PublishNowButton } from './publish-now-button';
 
 /**
@@ -87,6 +88,14 @@ export function Composer(props: ComposerProps) {
     props.post.variants.map((v) => v.socialAccountId),
   );
   const [activeVariantId, setActiveVariantId] = React.useState<string | null>(null);
+  const [media, setMedia] = React.useState<MediaItem[]>(() =>
+    props.post.media.map((item) => ({
+      mediaAssetId: item.mediaAsset.id,
+      kind: item.mediaAsset.kind,
+      mimeType: item.mediaAsset.mimeType,
+      altText: item.altText ?? '',
+    })),
+  );
 
   const [save, setSave] = React.useState<SaveState>({ kind: 'idle' });
   const [validation, setValidation] = React.useState<PostValidationResponse | null>(null);
@@ -200,6 +209,19 @@ export function Composer(props: ComposerProps) {
     router.refresh();
   }, [api, post.id, router]);
 
+  const saveMedia = (next: MediaItem[]) =>
+    withBusy(async () => {
+      setMedia(next);
+      await api.update(post.id, {
+        media: next.map((item) => ({
+          mediaAssetId: item.mediaAssetId,
+          ...(item.altText.trim() ? { altText: item.altText.trim() } : {}),
+        })),
+      });
+      await refreshPost();
+      runValidation();
+    });
+
   const transition = (to: PostStatus) =>
     withBusy(async () => {
       await api.transition(post.id, to);
@@ -282,6 +304,17 @@ export function Composer(props: ComposerProps) {
             />
           </CardBody>
         </Card>
+
+        <MediaPanel
+          orgSlug={props.orgSlug}
+          workspaceId={post.workspaceId}
+          brandId={post.brandId}
+          items={media}
+          disabled={readOnly || busy}
+          onChange={(next) => {
+            void saveMedia(next);
+          }}
+        />
 
         <AccountPicker
           accounts={props.accounts}
