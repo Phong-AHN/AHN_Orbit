@@ -20,6 +20,8 @@ export interface ConnectStartButtonProps {
   brandId: string;
   /** Where the callback returns the browser — must be a relative path. */
   returnTo: string;
+  /** Which login surface, where the platform has more than one. */
+  accountType?: string;
   label: string;
 }
 
@@ -29,6 +31,7 @@ export function ConnectStartButton({
   workspaceId,
   brandId,
   returnTo,
+  accountType,
   label,
 }: ConnectStartButtonProps) {
   const [busy, setBusy] = React.useState(false);
@@ -43,6 +46,7 @@ export function ConnectStartButton({
         workspaceId,
         brandId,
         returnTo,
+        ...(accountType ? { accountType } : {}),
       });
 
       // Leaving the app: the busy state stays on so the button does not look

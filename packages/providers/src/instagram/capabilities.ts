@@ -43,6 +43,34 @@ export const INSTAGRAM_PUBLISH_SCOPES = [
 export const INSTAGRAM_DEFAULT_SCOPES = INSTAGRAM_PUBLISH_SCOPES;
 
 /**
+ * The two ways an Instagram account can be reached.
+ *
+ * `INSTAGRAM_BUSINESS` — through the Facebook Page it is linked to. Meta calls
+ * this "API setup with Facebook Login". One consent covers the Page and the
+ * Instagram account, and it needs a linked Page.
+ *
+ * `INSTAGRAM_LOGIN` — Business Login for Instagram: the person signs in with
+ * their Instagram username. No Page required, and it needs a **separate Meta
+ * app**, because Meta allows one API setup per app.
+ */
+export const INSTAGRAM_ACCOUNT_TYPES = ['INSTAGRAM_BUSINESS', 'INSTAGRAM_LOGIN'] as const;
+export type InstagramAccountType = (typeof INSTAGRAM_ACCOUNT_TYPES)[number];
+
+/**
+ * Scopes for Business Login for Instagram.
+ *
+ * A different namespace from the Facebook-Login ones — `instagram_business_*`,
+ * not `instagram_*` — and **not verifiable from our side**. The `-ing` incident
+ * with `instagram_content_publish` is the reason this says so out loud: a scope
+ * string type-checks, passes every test here, and is judged only by Meta's
+ * dialog. Confirm each against the Permissions Reference before submitting.
+ */
+export const INSTAGRAM_LOGIN_SCOPES = [
+  'instagram_business_basic',
+  'instagram_business_content_publish',
+] as const;
+
+/**
  * Metrics the Instagram Graph API exposes for a published media object.
  *
  * UNVERIFIED as a set: Meta reshuffles these more often than the Pages

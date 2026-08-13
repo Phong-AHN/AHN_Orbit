@@ -64,7 +64,7 @@ export function createBrand(
 export function startConnect(
   orgSlug: string,
   platform: string,
-  input: { workspaceId: string; brandId: string; returnTo: string },
+  input: { workspaceId: string; brandId: string; returnTo: string; accountType?: string },
 ) {
   return send<{ authorizationUrl: string; scopes: string[] }>(
     `${org(orgSlug)}/social-accounts/oauth/${encodeURIComponent(platform.toLowerCase())}/start`,

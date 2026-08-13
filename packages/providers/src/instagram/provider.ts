@@ -26,6 +26,7 @@ import { GraphClient, type GraphClientOptions } from '../facebook/client.js';
 import { reauthorizationReason } from '../facebook/errors.js';
 import {
   INSTAGRAM_DEFAULT_SCOPES,
+  INSTAGRAM_LOGIN_SCOPES,
   INSTAGRAM_PUBLISH_SCOPES,
   instagramCapabilities,
 } from './capabilities.js';
@@ -50,10 +51,25 @@ import {
  */
 
 /**
- * Identical to the Facebook adapter's options, and deliberately so: one Meta
- * app drives both. Aliased rather than re-declared so the two cannot drift.
+ * The Facebook-Login surface's options, plus the second app if it exists.
+ *
+ * The base fields are the Facebook app's — aliased from `GraphClientOptions` so
+ * the two adapters cannot drift. `login` is Business Login for Instagram, which
+ * Meta requires to live in its own app; absent, that surface is not offered.
  */
-export type InstagramProviderOptions = GraphClientOptions;
+export interface InstagramProviderOptions extends GraphClientOptions {
+  login?:
+    | {
+        appId: string;
+        appSecret: string;
+      }
+    | undefined;
+}
+
+/** Business Login for Instagram speaks to its own hosts, not to Graph. */
+const INSTAGRAM_LOGIN_DIALOG = 'https://www.instagram.com/oauth/authorize';
+const INSTAGRAM_LOGIN_TOKEN = 'https://api.instagram.com/oauth/access_token';
+const INSTAGRAM_LOGIN_GRAPH = 'https://graph.instagram.com';
 
 interface PagesWithInstagram {
   data?: Array<{
@@ -99,7 +115,14 @@ export class InstagramProvider implements SocialProvider {
 
   // ── OAuth ─────────────────────────────────────────────────────────────────
 
+  /** Whether the username-login surface is configured at all. */
+  get supportsInstagramLogin(): boolean {
+    return Boolean(this.options.login);
+  }
+
   getAuthorizationUrl(input: AuthorizationUrlInput): { url: string; scopes: readonly string[] } {
+    if (input.accountType === 'INSTAGRAM_LOGIN') return this.instagramLoginAuthorizationUrl(input);
+
     const scopes = [...new Set([...INSTAGRAM_DEFAULT_SCOPES, ...(input.extraScopes ?? [])])];
 
     const url = new URL(`https://www.facebook.com/${this.options.apiVersion}/dialog/oauth`);
@@ -113,7 +136,45 @@ export class InstagramProvider implements SocialProvider {
     return { url: url.toString(), scopes };
   }
 
+  /**
+   * Business Login for Instagram.
+   *
+   * A different dialog on a different host, and `scope` is space-delimited here
+   * where Graph uses commas — the kind of detail that produces "Invalid Scope"
+   * rather than anything that names the real problem.
+   */
+  private instagramLoginAuthorizationUrl(input: AuthorizationUrlInput): {
+    url: string;
+    scopes: readonly string[];
+  } {
+    const login = this.requireLoginApp();
+    const scopes = [...new Set([...INSTAGRAM_LOGIN_SCOPES, ...(input.extraScopes ?? [])])];
+
+    const url = new URL(INSTAGRAM_LOGIN_DIALOG);
+    url.searchParams.set('client_id', login.appId);
+    url.searchParams.set('redirect_uri', input.redirectUri);
+    url.searchParams.set('state', input.state);
+    url.searchParams.set('scope', scopes.join(' '));
+    url.searchParams.set('response_type', 'code');
+
+    return { url: url.toString(), scopes };
+  }
+
+  private requireLoginApp(): { appId: string; appSecret: string } {
+    const login = this.options.login;
+    if (!login) {
+      throw toAppError('INSTAGRAM', {
+        kind: 'VALIDATION',
+        message:
+          'Business Login for Instagram is not configured. It needs its own Meta app — set INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET.',
+      });
+    }
+    return login;
+  }
+
   async exchangeCode(input: CallbackInput): Promise<ConnectedAccounts> {
+    if (input.accountType === 'INSTAGRAM_LOGIN') return this.exchangeInstagramLoginCode(input);
+
     const shortLived = await this.client.request<{ access_token: string }>({
       path: '/oauth/access_token',
       params: {
@@ -128,6 +189,102 @@ export class InstagramProvider implements SocialProvider {
     const accounts = await this.discoverAccounts(longLived.accessToken);
 
     return { userCredential: longLived, accounts };
+  }
+
+  /**
+   * Business Login for Instagram: code → short-lived → long-lived, then the
+   * account is *itself* the account. There is no Page to walk through and no
+   * list to choose from, so exactly one account comes back.
+   *
+   * Three things differ from Graph and each is its own trap: the token exchange
+   * is a form POST rather than a query string, the long-lived exchange is a GET
+   * on a different path, and the user id arrives as `user_id` on the token
+   * response rather than needing a `/me` call.
+   */
+  private async exchangeInstagramLoginCode(input: CallbackInput): Promise<ConnectedAccounts> {
+    const login = this.requireLoginApp();
+
+    const form = new URLSearchParams({
+      client_id: login.appId,
+      client_secret: login.appSecret,
+      grant_type: 'authorization_code',
+      redirect_uri: input.redirectUri,
+      code: input.code,
+    });
+
+    const shortLived = await this.instagramLoginFetch<{
+      access_token: string;
+      user_id: number | string;
+    }>(INSTAGRAM_LOGIN_TOKEN, { method: 'POST', body: form });
+
+    const longLived = await this.instagramLoginFetch<{
+      access_token: string;
+      expires_in?: number;
+    }>(
+      `${INSTAGRAM_LOGIN_GRAPH}/access_token?${new URLSearchParams({
+        grant_type: 'ig_exchange_token',
+        client_secret: login.appSecret,
+        access_token: shortLived.access_token,
+      }).toString()}`,
+    );
+
+    const profile = await this.instagramLoginFetch<{
+      id: string;
+      username?: string;
+      name?: string;
+      profile_picture_url?: string;
+    }>(
+      `${INSTAGRAM_LOGIN_GRAPH}/me?${new URLSearchParams({
+        fields: 'id,username,name,profile_picture_url',
+        access_token: longLived.access_token,
+      }).toString()}`,
+    );
+
+    const credential: IssuedCredential = {
+      accessToken: longLived.access_token,
+      ...(longLived.expires_in
+        ? { expiresAt: new Date(clock.nowMs() + longLived.expires_in * 1000) }
+        : {}),
+      scopes: INSTAGRAM_LOGIN_SCOPES,
+    };
+
+    return {
+      userCredential: credential,
+      accounts: [
+        {
+          externalId: profile.id || String(shortLived.user_id),
+          displayName: profile.name ?? profile.username ?? 'Instagram account',
+          ...(profile.username ? { handle: profile.username } : {}),
+          ...(profile.profile_picture_url ? { avatarUrl: profile.profile_picture_url } : {}),
+          accountType: 'INSTAGRAM_LOGIN',
+          credential,
+        },
+      ],
+    };
+  }
+
+  /**
+   * These hosts are not Graph, so `GraphClient` — with its app-secret proof,
+   * its error map and its base URL — does not apply. Errors are normalised
+   * through the same `toAppError` so the rest of the system sees one shape.
+   */
+  private async instagramLoginFetch<T>(url: string, init?: RequestInit): Promise<T> {
+    const response = await fetch(url, init);
+    const body: unknown = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      const message =
+        (body as { error_message?: string; error?: { message?: string } } | null)?.error_message ??
+        (body as { error?: { message?: string } } | null)?.error?.message ??
+        `Instagram login request failed (${response.status})`;
+
+      throw toAppError('INSTAGRAM', {
+        kind: response.status === 401 || response.status === 403 ? 'AUTHENTICATION' : 'VALIDATION',
+        message,
+      });
+    }
+
+    return body as T;
   }
 
   private async exchangeForLongLived(shortLivedToken: string): Promise<IssuedCredential> {

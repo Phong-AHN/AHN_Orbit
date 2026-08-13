@@ -100,7 +100,12 @@ export async function GET(
       // 5. Exchange server-side. The app secret never leaves this process.
       const provider = getProvider(platform as (typeof PLATFORMS)[number]);
       const redirectUri = `${serverEnv().APP_URL}/api/v1/social/oauth/${platformParam.toLowerCase()}/callback`;
-      const discovered = await provider.exchangeCode({ code, redirectUri });
+      const discovered = await provider.exchangeCode({
+        code,
+        redirectUri,
+        // From the signed state, never from the callback URL.
+        ...(payload.accountType ? { accountType: payload.accountType } : {}),
+      });
 
       logger.info('oauth exchange completed', {
         platform,

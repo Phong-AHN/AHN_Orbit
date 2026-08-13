@@ -194,6 +194,55 @@ describe('authorization', () => {
   });
 });
 
+describe('Business Login for Instagram', () => {
+  const withLogin = (graph: FakeGraph) =>
+    new InstagramProvider({
+      appId: 'app-123',
+      appSecret: 'secret-abc',
+      apiVersion: 'v21.0',
+      fetchImpl: graph.fetch,
+      baseUrl: 'https://graph.test',
+      login: { appId: 'ig-app-9', appSecret: 'ig-secret-9' },
+    });
+
+  it('uses Instagram’s own dialog and its own app id', () => {
+    const { url, scopes } = withLogin(graph).getAuthorizationUrl({
+      redirectUri: 'https://app.test/cb',
+      state: 's',
+      accountType: 'INSTAGRAM_LOGIN',
+    });
+
+    const parsed = new URL(url);
+    expect(parsed.origin + parsed.pathname).toBe('https://www.instagram.com/oauth/authorize');
+    // The second app's id, not the Facebook one.
+    expect(parsed.searchParams.get('client_id')).toBe('ig-app-9');
+    // Space-delimited here, where Graph uses commas.
+    expect(parsed.searchParams.get('scope')).toBe(scopes.join(' '));
+    expect(scopes).toContain('instagram_business_content_publish');
+  });
+
+  it('still uses the Facebook dialog when no surface is named', () => {
+    const { url } = withLogin(graph).getAuthorizationUrl({
+      redirectUri: 'https://app.test/cb',
+      state: 's',
+    });
+
+    // The Page-linked flow stays the default; adding a second app changes
+    // nothing for anyone already using the first.
+    expect(url).toContain('facebook.com');
+  });
+
+  it('refuses the username surface when the second app is not configured', () => {
+    expect(() =>
+      provider(graph).getAuthorizationUrl({
+        redirectUri: 'https://app.test/cb',
+        state: 's',
+        accountType: 'INSTAGRAM_LOGIN',
+      }),
+    ).toThrow(/needs its own Meta app/);
+  });
+});
+
 describe('account discovery', () => {
   it('finds the Instagram account through its Page, and keeps the Page token', async () => {
     graph

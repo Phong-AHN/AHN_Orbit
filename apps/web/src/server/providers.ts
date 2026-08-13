@@ -69,12 +69,19 @@ export function ensureProvidersRegistered(): void {
         appId: env.FACEBOOK_APP_ID,
         appSecret: env.FACEBOOK_APP_SECRET,
         apiVersion: env.FACEBOOK_GRAPH_VERSION,
+        // The second Meta app, if there is one. Business Login for Instagram
+        // cannot share the Facebook app — Meta allows one API setup per app —
+        // so this is either configured separately or the surface is not offered.
+        ...(env.INSTAGRAM_APP_ID && env.INSTAGRAM_APP_SECRET
+          ? { login: { appId: env.INSTAGRAM_APP_ID, appSecret: env.INSTAGRAM_APP_SECRET } }
+          : {}),
       }),
     );
 
     logger.info('registered Meta providers', {
       apiVersion: env.FACEBOOK_GRAPH_VERSION,
       platforms: ['FACEBOOK', 'INSTAGRAM'],
+      instagramUsernameLogin: Boolean(env.INSTAGRAM_APP_ID && env.INSTAGRAM_APP_SECRET),
     });
   } else {
     // Throws if this is somehow reached in production.

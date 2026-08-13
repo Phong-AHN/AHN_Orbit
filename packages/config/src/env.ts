@@ -140,6 +140,20 @@ export const serverEnvSchema = z.object({
    */
   NEXT_PUBLIC_FACEBOOK_CONFIG_ID: optionalString,
 
+  /**
+   * Business Login for Instagram — a *second* Meta app.
+   *
+   * Meta permits one API setup per app: an app configured for "Instagram Login"
+   * cannot also serve "Facebook Login". So these are not the Facebook app's
+   * credentials under another name, and the two flows cannot share one app no
+   * matter how similar they look.
+   *
+   * Absent means the username login is simply not offered; the Page-linked flow
+   * is unaffected.
+   */
+  INSTAGRAM_APP_ID: optionalString,
+  INSTAGRAM_APP_SECRET: optionalString,
+
   // ── AI (SRS §51) ──────────────────────────────────────────────────────────
   GEMINI_API_KEY: optionalString,
   GEMINI_MODEL: z.string().default('gemini-2.0-flash'),

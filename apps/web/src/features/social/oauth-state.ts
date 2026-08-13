@@ -38,6 +38,14 @@ export interface OAuthStatePayload {
   expiresAt: number;
   /** Where to send the browser once the connection completes. */
   returnTo?: string | undefined;
+  /**
+   * Which login surface the flow was started on, for a platform with more than
+   * one. It rides in the *signed* state rather than the callback URL because
+   * the exchange host and the app secret are chosen from it — letting the
+   * callback be told a different surface than the consent was granted on would
+   * be an open invitation to mix the two apps' credentials.
+   */
+  accountType?: string | undefined;
 }
 
 function signingKey(): Buffer {

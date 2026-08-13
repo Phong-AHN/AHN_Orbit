@@ -48,6 +48,8 @@ interface PageProps {
     brandId?: string;
     connection?: string;
     platform?: string;
+    /** Instagram only: which login surface. */
+    via?: string;
   }>;
 }
 
@@ -66,7 +68,7 @@ interface PageProps {
  */
 export default async function ConnectAccountPage({ params, searchParams }: PageProps) {
   const { orgSlug } = await params;
-  const { workspaceId, brandId, connection, platform: platformParam } = await searchParams;
+  const { workspaceId, brandId, connection, platform: platformParam, via } = await searchParams;
 
   const platform: ConnectablePlatform = (PLATFORMS as readonly string[]).includes(
     (platformParam ?? '').toUpperCase(),
@@ -95,13 +97,28 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
     (account) => account.status === 'DISABLED' && account.platform === platform,
   );
 
+  /**
+   * Instagram can be reached two ways, and the choice is the user's.
+   *
+   * Through the linked Facebook Page (one consent covers both, needs a Page),
+   * or with an Instagram username (no Page, but it lives in a second Meta app —
+   * so it is offered only when that app is configured).
+   */
+  const usernameLogin = platform === 'INSTAGRAM' && via === 'username';
+
+  const connectHref = `/orgs/${orgSlug}/settings/accounts/connect?workspaceId=${workspaceId}&brandId=${brandId}`;
+
   const accountsHref = `/orgs/${orgSlug}/settings/accounts`;
-  const returnTo = `/orgs/${orgSlug}/settings/accounts/connect?workspaceId=${workspaceId}&brandId=${brandId}&platform=${platform}`;
+  const returnTo = `/orgs/${orgSlug}/settings/accounts/connect?workspaceId=${workspaceId}&brandId=${brandId}&platform=${platform}${usernameLogin ? '&via=username' : ''}`;
 
   // A Login for Business configuration is what makes the SDK's popup usable;
   // without one, the full-page redirect is the flow — the same one reconnection
   // always uses, so this is a choice of entry point, not of mechanism.
   const env = serverEnv();
+
+  // Offered only when the second Meta app exists, so the link never leads to a
+  // dialog that cannot be built.
+  const instagramUsernameLoginAvailable = Boolean(env.INSTAGRAM_APP_ID && env.INSTAGRAM_APP_SECRET);
   const sdk =
     platform === 'FACEBOOK' && env.NEXT_PUBLIC_FACEBOOK_CONFIG_ID && env.FACEBOOK_APP_ID
       ? {
@@ -129,6 +146,7 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
         workspaceId={workspaceId}
         brandId={brandId}
         returnTo={returnTo}
+        {...(usernameLogin ? { accountType: 'INSTAGRAM_LOGIN' } : {})}
         label={label}
       />
     );
@@ -168,11 +186,41 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
       ) : (
         <Card>
           <CardBody className="space-y-4">
-            <p className="text-sm text-ink-secondary">{PLATFORM_NOTE[platform]}</p>
+            <p className="text-sm text-ink-secondary">
+              {usernameLogin
+                ? 'You will sign in at Instagram with the account’s own username. No Facebook Page is needed. Access tokens are exchanged and stored server-side; they never reach your browser.'
+                : PLATFORM_NOTE[platform]}
+            </p>
 
-            {/* Both go through Facebook's dialog — Instagram included, because
-                that is where the Page grant comes from. */}
-            {startButton('Continue with Facebook')}
+            {startButton(usernameLogin ? 'Continue with Instagram' : 'Continue with Facebook')}
+
+            {platform === 'INSTAGRAM' && instagramUsernameLoginAvailable ? (
+              <p className="text-sm text-ink-muted">
+                {usernameLogin ? (
+                  <>
+                    No Instagram account without a Page?{' '}
+                    <Link
+                      href={`${connectHref}&platform=INSTAGRAM`}
+                      className="text-accent hover:underline"
+                    >
+                      Connect through a Facebook Page instead
+                    </Link>
+                    .
+                  </>
+                ) : (
+                  <>
+                    This client has no Facebook Page?{' '}
+                    <Link
+                      href={`${connectHref}&platform=INSTAGRAM&via=username`}
+                      className="text-accent hover:underline"
+                    >
+                      Sign in with an Instagram username instead
+                    </Link>
+                    .
+                  </>
+                )}
+              </p>
+            ) : null}
           </CardBody>
         </Card>
       )}

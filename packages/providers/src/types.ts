@@ -62,11 +62,24 @@ export interface AuthorizationUrlInput {
   state: string;
   /** Additional scopes beyond the provider's default set. */
   extraScopes?: readonly string[] | undefined;
+  /**
+   * Which login surface to use, for a platform that has more than one.
+   *
+   * Instagram is the only such platform: the same account can be reached
+   * through the Facebook Page it is linked to, or through Instagram's own
+   * login. They are different OAuth hosts with different scopes, and the choice
+   * has to be made *before* any account exists — so it cannot be read off one.
+   *
+   * Providers with a single surface ignore it.
+   */
+  accountType?: string | undefined;
 }
 
 export interface CallbackInput {
   code: string;
   redirectUri: string;
+  /** The surface the authorization was started on. See `AuthorizationUrlInput`. */
+  accountType?: string | undefined;
 }
 
 /**

@@ -18,6 +18,8 @@ const bodySchema = z.object({
   workspaceId: z.string().uuid(),
   brandId: z.string().uuid(),
   returnTo: z.string().max(512).optional(),
+  /** Which login surface, where the platform has more than one. */
+  accountType: z.string().max(40).optional(),
 });
 
 /**
@@ -76,6 +78,7 @@ export const POST = withAuth<Params>(
 
     const { state, nonce } = issueOAuthState({
       platform: platform as (typeof PLATFORMS)[number],
+      ...(input.accountType ? { accountType: input.accountType } : {}),
       organizationId: ctx.organizationId,
       workspaceId: input.workspaceId,
       brandId: input.brandId,
@@ -83,7 +86,11 @@ export const POST = withAuth<Params>(
       returnTo: input.returnTo,
     });
 
-    const { url, scopes } = provider.getAuthorizationUrl({ redirectUri, state });
+    const { url, scopes } = provider.getAuthorizationUrl({
+      redirectUri,
+      state,
+      ...(input.accountType ? { accountType: input.accountType } : {}),
+    });
 
     const response = jsonOk({ authorizationUrl: url, scopes });
     response.cookies.set(oauthStateCookie(nonce));
