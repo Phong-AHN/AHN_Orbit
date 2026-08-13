@@ -145,6 +145,7 @@ export default async function ComposerPage({ params }: PageProps) {
           canEdit={pageCan(ctx, 'post:update', scope)}
           canDelete={pageCan(ctx, 'post:delete', scope)}
           editLocked={isEditLocked(post.status)}
+          workspaceTimezone={post.workspace.timezone}
         />
       </div>
 

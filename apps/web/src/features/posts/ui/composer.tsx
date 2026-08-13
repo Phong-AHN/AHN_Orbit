@@ -21,6 +21,7 @@ import {
 import { ApiError, postsApi, type PostDetail, type PostValidationResponse } from './api';
 import type { CapabilitySummary } from './capability-summary';
 import { STATUS_LABEL, STATUS_TONE } from './status';
+import { ScheduleForm } from './schedule-form';
 
 /**
  * The composer (SRS §9, §31).
@@ -61,6 +62,8 @@ export interface ComposerProps {
   canDelete: boolean;
   /** Read-only view for a status past the edit lock. */
   editLocked: boolean;
+  /** The client's zone — what a chosen wall time means when scheduling. */
+  workspaceTimezone: string;
 }
 
 type SaveState =
@@ -177,20 +180,27 @@ export function Composer(props: ComposerProps) {
       runValidation();
     });
 
+  /**
+   * Re-read the post, then re-render the server component.
+   *
+   * Both halves are needed. `api.get` refreshes what is displayed;
+   * `router.refresh()` refreshes what may be *done* — `allowedTransitions` is
+   * computed on the server from the status the post had when the page
+   * rendered, and it is a prop. Without it the buttons keep offering the moves
+   * that were legal one status ago, and clicking one fails with a 409 that
+   * looks like a broken state machine and is really a stale screen.
+   */
+  const refreshPost = React.useCallback(async () => {
+    const { post: full } = await api.get(post.id);
+    setPost(full);
+    lastSavedAt.current = full.updatedAt;
+    router.refresh();
+  }, [api, post.id, router]);
+
   const transition = (to: PostStatus) =>
     withBusy(async () => {
       await api.transition(post.id, to);
-      const { post: full } = await api.get(post.id);
-      setPost(full);
-      lastSavedAt.current = full.updatedAt;
-
-      // `allowedTransitions` is computed on the server from the status the post
-      // had when the page rendered, and it is a prop — so without this the
-      // buttons keep offering the moves that were legal one status ago. Clicking
-      // one then fails with a 409 that looks like a bug in the state machine and
-      // is really a stale screen. `post` is already up to date above; this is
-      // what re-derives what may be done to it next.
-      router.refresh();
+      await refreshPost();
     });
 
   if (!props.canEdit && props.allowedTransitions.length === 0) {
@@ -306,6 +316,12 @@ export function Composer(props: ComposerProps) {
         <ValidationPanel validation={validation} validating={validating} />
 
         <TransitionPanel
+          orgSlug={props.orgSlug}
+          postId={post.id}
+          workspaceTimezone={props.workspaceTimezone}
+          onScheduled={() => {
+            void refreshPost();
+          }}
           transitions={props.allowedTransitions}
           busy={busy}
           blocked={validation !== null && !validation.valid}
@@ -747,11 +763,19 @@ function transitionLabel(to: PostStatus): string {
  * has no human transition at all, not because the UI hides it.
  */
 function TransitionPanel({
+  orgSlug,
+  postId,
+  workspaceTimezone,
+  onScheduled,
   transitions,
   busy,
   blocked,
   onTransition,
 }: {
+  orgSlug: string;
+  postId: string;
+  workspaceTimezone: string;
+  onScheduled: () => void;
   transitions: PostStatus[];
   busy: boolean;
   blocked: boolean;
@@ -786,19 +810,32 @@ function TransitionPanel({
         <CardTitle>Next step</CardTitle>
       </CardHeader>
       <CardBody className="space-y-2">
-        {transitions.map((to, index) => (
-          <Button
-            key={to}
-            className="w-full"
-            variant={index === 0 ? 'primary' : 'secondary'}
-            disabled={busy || (blocked && forward.has(to))}
-            onClick={() => {
-              onTransition(to);
-            }}
-          >
-            {transitionLabel(to)}
-          </Button>
-        ))}
+        {transitions.map((to, index) =>
+          // SCHEDULED is the one forward step that carries data, so it gets a
+          // form rather than a button. Everything else is a status change.
+          to === 'SCHEDULED' ? (
+            <ScheduleForm
+              key={to}
+              orgSlug={orgSlug}
+              postId={postId}
+              timezone={workspaceTimezone}
+              disabled={busy || blocked}
+              onScheduled={onScheduled}
+            />
+          ) : (
+            <Button
+              key={to}
+              className="w-full"
+              variant={index === 0 ? 'primary' : 'secondary'}
+              disabled={busy || (blocked && forward.has(to))}
+              onClick={() => {
+                onTransition(to);
+              }}
+            >
+              {transitionLabel(to)}
+            </Button>
+          ),
+        )}
 
         {blocked ? (
           <p className="pt-1 text-xs text-ink-muted">

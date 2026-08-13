@@ -298,6 +298,10 @@ export async function getPost(ctx: TenantContext, postId: string) {
       where: { id: postId, deletedAt: null },
       select: {
         ...POST_SELECT,
+        // The composer has to name the zone a chosen wall time will be read in,
+        // and that is the client's zone — not the viewer's. Labelling the
+        // picker with the wrong one is how a post goes out seven hours early.
+        workspace: { select: { timezone: true } },
         variants: { where: { deletedAt: null }, select: VARIANT_SELECT },
         media: {
           where: { postVariantId: null },
