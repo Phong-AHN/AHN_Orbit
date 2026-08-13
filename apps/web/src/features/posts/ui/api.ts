@@ -5,7 +5,7 @@ import type { PostStatus } from '@orbit/core';
 /**
  * Browser-side client for the post API.
  *
- * Every call goes through `request()`, which turns the error envelope
+ * Every call goes through `apiRequest()`, which turns the error envelope
  * (docs/API.md §1) into a typed `ApiError`. The UI therefore never has to read
  * a raw response, and never has a reason to render `error.message` from an
  * unknown shape — `userMessage` from the envelope is already safe to show,
@@ -49,7 +49,14 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
+/**
+ * Shared by every browser-side caller, not only posts.
+ *
+ * `ApiError` was already being imported from here by other features, so the
+ * envelope handling is exported alongside it rather than copied — one place
+ * that knows what the error envelope looks like (docs/API.md §1).
+ */
+export async function apiRequest<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
     headers: {
@@ -161,22 +168,22 @@ export function postsApi(orgSlug: string) {
         Object.entries(params).filter((entry): entry is [string, string] => Boolean(entry[1])),
       );
       const suffix = query.size > 0 ? `?${query.toString()}` : '';
-      return request<{ posts: PostListItem[] }>(`${base}${suffix}`);
+      return apiRequest<{ posts: PostListItem[] }>(`${base}${suffix}`);
     },
 
     get(postId: string) {
-      return request<{ post: PostDetail }>(`${base}/${postId}`);
+      return apiRequest<{ post: PostDetail }>(`${base}/${postId}`);
     },
 
     create(input: Record<string, unknown>) {
-      return request<{ post: PostDetail }>(base, {
+      return apiRequest<{ post: PostDetail }>(base, {
         method: 'POST',
         body: JSON.stringify(input),
       });
     },
 
     update(postId: string, input: Record<string, unknown>) {
-      return request<{ post: PostDetail }>(`${base}/${postId}`, {
+      return apiRequest<{ post: PostDetail }>(`${base}/${postId}`, {
         method: 'PATCH',
         body: JSON.stringify(input),
       });
@@ -184,43 +191,46 @@ export function postsApi(orgSlug: string) {
 
     /** Returns the new `updatedAt` to carry into the next autosave. */
     autosave(postId: string, input: Record<string, unknown>) {
-      return request<{ id: string; updatedAt: string }>(`${base}/${postId}/autosave`, {
+      return apiRequest<{ id: string; updatedAt: string }>(`${base}/${postId}/autosave`, {
         method: 'POST',
         body: JSON.stringify(input),
       });
     },
 
     updateVariant(postId: string, variantId: string, input: Record<string, unknown>) {
-      return request<{ variant: PostVariantSummary }>(`${base}/${postId}/variants/${variantId}`, {
-        method: 'PATCH',
-        body: JSON.stringify(input),
-      });
+      return apiRequest<{ variant: PostVariantSummary }>(
+        `${base}/${postId}/variants/${variantId}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(input),
+        },
+      );
     },
 
     validate(postId: string) {
-      return request<PostValidationResponse>(`${base}/${postId}/validate`, { method: 'POST' });
+      return apiRequest<PostValidationResponse>(`${base}/${postId}/validate`, { method: 'POST' });
     },
 
     transition(postId: string, to: PostStatus, comment?: string) {
-      return request<{ post: PostDetail }>(`${base}/${postId}/transition`, {
+      return apiRequest<{ post: PostDetail }>(`${base}/${postId}/transition`, {
         method: 'POST',
         body: JSON.stringify({ to, ...(comment ? { comment } : {}) }),
       });
     },
 
     duplicate(postId: string) {
-      return request<{ post: PostDetail }>(`${base}/${postId}/duplicate`, { method: 'POST' });
+      return apiRequest<{ post: PostDetail }>(`${base}/${postId}/duplicate`, { method: 'POST' });
     },
 
     assign(postId: string, assignedToId: string | null) {
-      return request<{ post: PostDetail }>(`${base}/${postId}/assign`, {
+      return apiRequest<{ post: PostDetail }>(`${base}/${postId}/assign`, {
         method: 'POST',
         body: JSON.stringify({ assignedToId }),
       });
     },
 
     remove(postId: string) {
-      return request<void>(`${base}/${postId}`, { method: 'DELETE' });
+      return apiRequest<void>(`${base}/${postId}`, { method: 'DELETE' });
     },
   };
 }

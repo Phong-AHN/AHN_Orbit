@@ -50,6 +50,39 @@ describe('parseServerEnv', () => {
     );
   });
 
+  /**
+   * Server-side Firebase alone is the configuration that looks complete and is
+   * not: the server would verify ID tokens the browser has no way to obtain,
+   * and the only symptom is a sign-in page that does nothing (**D-050**).
+   */
+  it('refuses server-side Firebase without the browser config in production', () => {
+    const err = (() => {
+      try {
+        parseServerEnv({
+          ...valid,
+          APP_ENV: 'production',
+          APP_URL: 'https://orbit.example.com',
+          FIREBASE_PROJECT_ID: 'p',
+          FIREBASE_CLIENT_EMAIL: 'a@b.com',
+          FIREBASE_PRIVATE_KEY: 'k',
+          FACEBOOK_APP_ID: 'id',
+          FACEBOOK_APP_SECRET: 'secret',
+          SENTRY_DSN: 'https://sentry.example.com/1',
+        });
+        return undefined;
+      } catch (e) {
+        return e as EnvValidationError;
+      }
+    })();
+
+    expect(err).toBeInstanceOf(EnvValidationError);
+    expect(err!.issues).toEqual([
+      'NEXT_PUBLIC_FIREBASE_API_KEY: required when APP_ENV=production',
+      'NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: required when APP_ENV=production',
+      'NEXT_PUBLIC_FIREBASE_APP_ID: required when APP_ENV=production',
+    ]);
+  });
+
   it('refuses an S3 endpoint override in production', () => {
     expect(() =>
       parseServerEnv({
@@ -59,12 +92,37 @@ describe('parseServerEnv', () => {
         FIREBASE_PROJECT_ID: 'p',
         FIREBASE_CLIENT_EMAIL: 'a@b.com',
         FIREBASE_PRIVATE_KEY: 'k',
+        NEXT_PUBLIC_FIREBASE_API_KEY: 'web-key',
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: 'p.firebaseapp.com',
+        NEXT_PUBLIC_FIREBASE_APP_ID: '1:1:web:1',
         FACEBOOK_APP_ID: 'id',
         FACEBOOK_APP_SECRET: 'secret',
         SENTRY_DSN: 'https://sentry.example.com/1',
         S3_ENDPOINT: 'http://localhost:9000',
       }),
     ).toThrow(/must be unset in production/);
+  });
+
+  /**
+   * The paste error this exists to name: the `",` at the end comes from the
+   * service-account JSON, the value stops looking quoted, the newlines are
+   * never unescaped, and OpenSSL reports `DECODER routines::unsupported` from
+   * somewhere deep inside firebase-admin.
+   */
+  it('rejects a PEM key truncated by a stray trailing character', () => {
+    expect(() =>
+      parseServerEnv({
+        ...valid,
+        FIREBASE_PRIVATE_KEY:
+          '"-----BEGIN PRIVATE KEY-----\\nMIIE\\n-----END PRIVATE KEY-----\\n",',
+      }),
+    ).toThrow(/does not end with the END line/);
+  });
+
+  it('leaves a non-PEM placeholder alone', () => {
+    expect(parseServerEnv({ ...valid, FIREBASE_PRIVATE_KEY: 'key' }).FIREBASE_PRIVATE_KEY).toBe(
+      'key',
+    );
   });
 
   it('unescapes newlines in the Firebase private key', () => {

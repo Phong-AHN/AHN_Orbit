@@ -184,6 +184,58 @@ export async function listWorkspaces(ctx: TenantContext, accessible: 'ALL' | rea
   );
 }
 
+/**
+ * Workspaces with their brands and how many accounts each brand can publish to.
+ *
+ * Powers the setup page, which has to show the whole chain at once — a brand
+ * with no connected account is the single most common reason a new agency
+ * cannot post, and a count of brands would not reveal it. Two queries whatever
+ * the row count (Prisma batches the nested select), not one per workspace.
+ *
+ * `listWorkspaces` is left alone: it backs the workspaces API, and widening a
+ * response shape for one page's benefit is how endpoints start returning things
+ * nobody asked for.
+ */
+export async function listWorkspacesWithBrands(
+  ctx: TenantContext,
+  accessible: 'ALL' | readonly string[],
+) {
+  return withTenant(ctx, (db) =>
+    db.workspace.findMany({
+      where: {
+        deletedAt: null,
+        ...(accessible === 'ALL' ? {} : { id: { in: [...accessible] } }),
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        timezone: true,
+        status: true,
+        clientCompanyName: true,
+        brands: {
+          where: { deletedAt: null },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            primaryColor: true,
+            // Staged rows mid-OAuth are DISABLED and are not connections
+            // anybody has made yet, so they must not read as ready.
+            _count: {
+              select: {
+                socialAccounts: { where: { deletedAt: null, status: { not: 'DISABLED' } } },
+              },
+            },
+          },
+          orderBy: { name: 'asc' },
+        },
+      },
+      orderBy: { name: 'asc' },
+    }),
+  );
+}
+
 export async function createWorkspace(
   ctx: TenantContext,
   input: CreateWorkspaceInput,

@@ -1017,6 +1017,71 @@
 
 ---
 
+## D-049 — A test run cannot reach hosted infrastructure by accident
+
+- **Context:** `.env` used to name local Docker, so `pnpm test:integration`
+  could only ever hit this machine. It now names a hosted Postgres. The
+  integration suite creates and deletes organizations.
+- **What actually happened:** two runs were started before this was noticed.
+  Both were aborted, and both left fixture tenants behind in the hosted
+  database — the suite cleans up in `afterAll`, which an aborted run never
+  reaches.
+- **Decision:** under `NODE_ENV=test`, `loadRootEnv` reads `.env.test` *before*
+  `.env`. First file to define a key owns it, so the local overrides win and
+  everything not named there still falls through.
+- **Why not just export the overrides:** because that is a rule someone has to
+  remember, at the exact moment they are least likely to — running the suite is
+  routine, and the failure is silent and lands on production data. The guard has
+  to be structural or it is not a guard.
+- **Why not point `.env` back at Docker:** the app is meant to run against the
+  hosted database now. Making the tests safe is the smaller and more honest
+  change than making the product local again.
+- **Cost:** one more file to keep current when infrastructure changes shape.
+  Mitigated by keeping `.env.test` to the keys that must not leak into a test
+  run — the connection strings and the bucket — rather than a whole second
+  configuration.
+- **Date:** 2026-08-13 · **Status:** IMPLEMENTED.
+
+---
+
+## D-050 — Google sign-in, and one source of truth about which provider is live
+
+- **Context:** the server has verified ID tokens and minted session cookies
+  since T1.1. Nothing could obtain a token — `apps/web` had no Firebase client
+  SDK, and the sign-in form only ever produced `dev:{email}`.
+- **What made it urgent:** `selectIdentityProvider()` picks Firebase whenever
+  the three `FIREBASE_*` variables are present. Adding real credentials to
+  `.env` therefore switched the app to Firebase *locally* and broke sign-in
+  entirely — the dev token stopped being accepted and nothing replaced it.
+- **Decision:** `firebase` is a dependency of `apps/web`, and
+  `GoogleSignInButton` obtains an ID token with `signInWithPopup` and exchanges
+  it at the same `POST /api/v1/auth/session` the dev provider uses.
+- **The sign-in page asks `selectIdentityProvider()`** rather than checking env
+  itself. When a page and an endpoint each decide which provider is live, the
+  failure mode is a form that submits successfully into a rejection, with no
+  symptom visible from the browser. One function decides; both read it.
+- **Google, not email link or password:** it needs no email delivery — which
+  is not configured (**D-034**) — and agencies are overwhelmingly on Google
+  Workspace. Adding another provider later is a console setting plus a button.
+- **We sign out of Firebase after the exchange.** The HttpOnly cookie is the
+  session. A Firebase refresh token left in browser storage would be a second,
+  longer-lived credential that our revocation path does not reach.
+- **The SDK is imported inside the click handler** — `firebase/auth` is large,
+  and the sign-in page's job is to be fast for someone who is not signed in.
+- **Public config is validated:** the three `NEXT_PUBLIC_FIREBASE_*` values join
+  `productionRequired`. Without them the server verifies tokens nobody can
+  obtain, and the only symptom is a sign-in page that does nothing.
+- **An empty value now means unset.** Because provider selection branches on
+  presence, `.env.test` has to *blank* `FIREBASE_*` rather than omit it — an
+  omitted key falls through to `.env` and every authenticated integration test
+  becomes a 401. `optionalString` in the schema makes `KEY=` parse as undefined,
+  which is what everyone already assumes an empty line in a `.env` means.
+- **Date:** 2026-08-13 · **Status:** IMPLEMENTED — **blocked externally** until
+  Authentication is enabled in the Firebase project and the Google provider
+  turned on; the Admin SDK answers `auth/configuration-not-found` until then.
+
+---
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

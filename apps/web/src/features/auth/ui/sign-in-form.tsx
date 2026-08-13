@@ -13,15 +13,14 @@ import { ApiError } from '@/features/posts/ui/api';
  * cookie, and nothing about the identity is read from anything the browser
  * asserts (T1.1, **D-004**). What differs is only where the token comes from.
  *
- * Outside production the identity provider is `devIdentityProvider`, whose
- * "token" is the string `dev:{email}`. It is guarded three ways: the provider
- * refuses to mint or verify anything when `APP_ENV=production`, env validation
- * requires the `FIREBASE_*` variables in production, and this form is not
- * rendered there at all.
+ * This is the fallback, not the default: the page renders it only when
+ * `selectIdentityProvider()` has *not* chosen Firebase — that is, when the
+ * `FIREBASE_*` variables are absent. Its "token" is the string `dev:{email}`,
+ * guarded three ways: the provider refuses to mint or verify anything when
+ * `APP_ENV=production`, env validation requires the `FIREBASE_*` variables in
+ * production, and this form is not rendered there at all.
  *
- * **The real Firebase sign-in is not built** — no client SDK is installed and no
- * Firebase project is configured. That is the honest state, and the page says so
- * rather than showing a form that would fail.
+ * The Google sign-in that replaces it lives in `google-sign-in-button.tsx`.
  */
 export function SignInForm() {
   const router = useRouter();

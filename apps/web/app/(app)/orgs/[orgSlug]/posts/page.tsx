@@ -6,7 +6,8 @@ import {
   type PostStatus,
 } from '@orbit/core';
 import { CLIENT_VISIBLE_STATUSES } from '@orbit/rbac';
-import { Empty, PageHeader, PermissionDenied } from '@orbit/ui';
+import Link from 'next/link';
+import { Button, Empty, PageHeader, PermissionDenied } from '@orbit/ui';
 import { pageCan, requirePageContext } from '@/server/page-context';
 import { listPosts } from '@/features/posts/service';
 import { PostCard } from '@/features/posts/ui/post-card';
@@ -76,6 +77,13 @@ export default async function PostsPage({ params, searchParams }: PageProps) {
         eyebrow={organization.name}
         title="Posts"
         description="Everything in flight — drafts, reviews, scheduled and published."
+        actions={
+          pageCan(ctx, 'post:create') ? (
+            <Link href={`/orgs/${orgSlug}/posts/new`}>
+              <Button size="sm">New post</Button>
+            </Link>
+          ) : null
+        }
       />
 
       {posts.length === 0 ? (
@@ -86,6 +94,13 @@ export default async function PostsPage({ params, searchParams }: PageProps) {
             isClient
               ? 'When your agency sends something for review, it will appear here.'
               : 'Create a post to get started. You can pick the accounts it goes to as you write.'
+          }
+          action={
+            pageCan(ctx, 'post:create') ? (
+              <Link href={`/orgs/${orgSlug}/posts/new`}>
+                <Button>New post</Button>
+              </Link>
+            ) : null
           }
         />
       ) : (

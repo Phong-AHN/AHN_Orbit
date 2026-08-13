@@ -58,6 +58,11 @@ function setProductionEnv(overrides: Record<string, string | undefined> = {}) {
     FIREBASE_PROJECT_ID: 'orbit-prod',
     FIREBASE_CLIENT_EMAIL: 'sa@orbit-prod.iam.gserviceaccount.com',
     FIREBASE_PRIVATE_KEY: 'key',
+    // The browser half. Without these, production has a server that verifies
+    // tokens nobody can obtain (**D-050**).
+    NEXT_PUBLIC_FIREBASE_API_KEY: 'web-key',
+    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: 'orbit-prod.firebaseapp.com',
+    NEXT_PUBLIC_FIREBASE_APP_ID: '1:1:web:1',
     FACEBOOK_APP_ID: 'id',
     FACEBOOK_APP_SECRET: 'secret',
     SENTRY_DSN: 'https://sentry.example.com/1',

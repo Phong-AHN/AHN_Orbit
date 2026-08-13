@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import {
+  Button,
   Card,
   CardBody,
   CardHeader,
@@ -111,6 +112,13 @@ export default async function DashboardPage({ params }: PageProps) {
             <Empty
               title="No clients yet"
               description="Create a workspace for your first client to see their content here."
+              action={
+                pageCan(ctx, 'workspace:create') ? (
+                  <Link href={`/orgs/${orgSlug}/settings/workspaces`}>
+                    <Button>Add a client</Button>
+                  </Link>
+                ) : null
+              }
             />
           ) : (
             <Card>

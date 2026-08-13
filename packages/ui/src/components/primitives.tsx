@@ -133,6 +133,32 @@ export const Input = React.forwardRef<
   );
 });
 
+/**
+ * The native control, deliberately.
+ *
+ * Every select this product needs picks from a short, known list — a workspace,
+ * a brand, a time zone. A custom listbox would have to re-earn keyboard
+ * handling, screen-reader semantics and the mobile picker that the platform
+ * already gets right, and would still be worse on a phone.
+ */
+export const Select = React.forwardRef<
+  HTMLSelectElement,
+  React.SelectHTMLAttributes<HTMLSelectElement>
+>(function Select({ className, ...props }, ref) {
+  return (
+    <select
+      ref={ref}
+      className={cn(
+        'h-9 w-full rounded border border-line-strong bg-surface px-2.5 text-sm text-ink',
+        'aria-[invalid=true]:border-danger',
+        'disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-muted',
+        className,
+      )}
+      {...props}
+    />
+  );
+});
+
 export const Textarea = React.forwardRef<
   HTMLTextAreaElement,
   React.TextareaHTMLAttributes<HTMLTextAreaElement>

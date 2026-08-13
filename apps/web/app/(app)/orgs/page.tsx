@@ -8,7 +8,7 @@ import {
   requireSession,
   resolveUser,
 } from '@orbit/auth';
-import { Badge, Card, CardBody, Empty, PageHeader } from '@orbit/ui';
+import { Badge, Button, Card, CardBody, Empty, PageHeader } from '@orbit/ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,13 +45,28 @@ export default async function OrganizationsPage() {
 
   return (
     <main id="main" className="mx-auto max-w-3xl px-6 py-16">
-      <PageHeader title="Your organizations" description="Choose which agency to work in." />
+      <PageHeader
+        title="Your organizations"
+        description="Choose which agency to work in."
+        actions={
+          <Link href="/orgs/new">
+            <Button variant="secondary" size="sm">
+              New organization
+            </Button>
+          </Link>
+        }
+      />
 
       {organizations.length === 0 ? (
         <Empty
           className="mt-8"
           title="You are not in an organization yet"
           description="Ask whoever runs your agency to invite you, or create one to get started."
+          action={
+            <Link href="/orgs/new">
+              <Button>Create an organization</Button>
+            </Link>
+          }
         />
       ) : (
         <ul className="mt-8 space-y-2">

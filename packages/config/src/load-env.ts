@@ -9,11 +9,18 @@ import { dirname, join, resolve } from 'node:path';
  * `.env` at the workspace root is the only arrangement that does not involve
  * copies drifting apart.
  *
- * Two rules keep this safe:
+ * Three rules keep this safe:
  *   • a variable already present in `process.env` is never overwritten, so a
  *     real deployment's injected configuration always wins;
  *   • nothing is loaded when `APP_ENV`/`NODE_ENV` is production — deployed
- *     environments inject configuration, they do not read files.
+ *     environments inject configuration, they do not read files;
+ *   • under `NODE_ENV=test`, `.env.test` is read first and therefore wins.
+ *
+ * That last rule is not a convenience. `.env` holds whatever infrastructure
+ * this machine is pointed at, and once that is a hosted database, an
+ * integration run — which creates and deletes organizations — would do it
+ * there. The protection has to be structural: a test run must not depend on
+ * someone remembering to export an override first.
  */
 
 let loaded = false;
@@ -27,11 +34,17 @@ export function loadRootEnv(): void {
   const root = findWorkspaceRoot();
   if (!root) return;
 
-  const file = join(root, '.env');
-  if (!existsSync(file)) return;
+  // Order matters: the first file to define a key owns it, so the test
+  // overrides are read before the ambient `.env`.
+  const files = process.env.NODE_ENV === 'test' ? ['.env.test', '.env'] : ['.env'];
 
-  for (const [key, value] of parseDotenv(readFileSync(file, 'utf8'))) {
-    if (process.env[key] === undefined) process.env[key] = value;
+  for (const name of files) {
+    const file = join(root, name);
+    if (!existsSync(file)) continue;
+
+    for (const [key, value] of parseDotenv(readFileSync(file, 'utf8'))) {
+      if (process.env[key] === undefined) process.env[key] = value;
+    }
   }
 }
 

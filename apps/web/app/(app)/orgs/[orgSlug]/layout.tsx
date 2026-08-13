@@ -44,6 +44,7 @@ export default async function OrgLayout({
             <NavLink href={`/orgs/${orgSlug}/calendar`} label="Calendar" />
             <NavLink href={`/orgs/${orgSlug}/approvals`} label="Approvals" />
             <NavLink href={`/orgs/${orgSlug}/publishing`} label="Publishing" />
+            <NavLink href={`/orgs/${orgSlug}/settings/workspaces`} label="Clients" />
             <NavLink href={`/orgs/${orgSlug}/settings/accounts`} label="Accounts" />
           </nav>
 

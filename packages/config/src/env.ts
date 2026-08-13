@@ -33,6 +33,21 @@ const optionalUrl = z
   .optional()
   .or(z.literal('').transform(() => undefined));
 
+/**
+ * Optional, and an empty value means unset.
+ *
+ * `KEY=` in a `.env` file reads as "not configured" to everyone who writes one,
+ * and several things here branch on presence — `selectIdentityProvider()` picks
+ * Firebase the moment `FIREBASE_PROJECT_ID` has a value. Without this, blanking
+ * a key to turn a feature off is a validation error instead, which pushes people
+ * toward deleting lines and losing the documentation that came with them.
+ */
+const optionalString = z
+  .string()
+  .min(1)
+  .optional()
+  .or(z.literal('').transform(() => undefined));
+
 export const serverEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   APP_ENV: z.enum(['development', 'staging', 'production']).default('development'),
@@ -66,37 +81,69 @@ export const serverEnvSchema = z.object({
   STATE_SIGNING_SECRET: base64Key(32),
 
   // ── Firebase Admin (SRS §51) — server only, never sent to the browser ──────
-  FIREBASE_PROJECT_ID: z.string().min(1).optional(),
-  FIREBASE_CLIENT_EMAIL: z.string().email().optional(),
-  FIREBASE_PRIVATE_KEY: z
+  FIREBASE_PROJECT_ID: optionalString,
+  FIREBASE_CLIENT_EMAIL: z
     .string()
+    .email()
     .optional()
-    .transform((v) => v?.replace(/\\n/g, '\n')),
-  FIREBASE_AUTH_EMULATOR_HOST: z.string().optional(),
+    .or(z.literal('').transform(() => undefined)),
+  /**
+   * The service-account key, with its `\n` escapes restored.
+   *
+   * The refinement catches one specific, recurring paste error. The key is
+   * copied out of the service-account JSON, and the trailing `",` comes with
+   * it; because the value then does not end in a quote, `parseDotenv` treats it
+   * as unquoted and never unescapes the newlines. What reaches OpenSSL is a
+   * single line of text, and it answers `DECODER routines::unsupported` —
+   * accurate, and useless for finding the cause.
+   *
+   * A dummy like `'key'` is left alone: only a value that is *trying* to be a
+   * PEM is held to looking like one.
+   */
+  FIREBASE_PRIVATE_KEY: optionalString
+    .transform((v) => v?.replace(/\\n/g, '\n'))
+    .refine((v) => !v?.includes('BEGIN PRIVATE KEY') || /-----END PRIVATE KEY-----\s*$/.test(v), {
+      message:
+        'looks like a PEM key but does not end with the END line — check for a trailing comma or quote copied from the service-account JSON, and wrap the whole value in double quotes',
+    }),
+  FIREBASE_AUTH_EMULATOR_HOST: optionalString,
+
+  /**
+   * Firebase Web App config — public by design, and reaching the browser is the
+   * point: it is what lets the client SDK obtain an ID token to exchange for a
+   * session. The API key identifies the project, it does not authorize anything;
+   * what protects the project is its Auth configuration.
+   *
+   * `projectId` is not repeated here — `FIREBASE_PROJECT_ID` is the same value
+   * and equally public.
+   */
+  NEXT_PUBLIC_FIREBASE_API_KEY: optionalString,
+  NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: optionalString,
+  NEXT_PUBLIC_FIREBASE_APP_ID: optionalString,
 
   // ── Social providers (SRS §7) ─────────────────────────────────────────────
-  FACEBOOK_APP_ID: z.string().optional(),
-  FACEBOOK_APP_SECRET: z.string().optional(),
+  FACEBOOK_APP_ID: optionalString,
+  FACEBOOK_APP_SECRET: optionalString,
   FACEBOOK_GRAPH_VERSION: z
     .string()
     .regex(/^v\d+\.\d+$/)
     .default('v21.0'),
-  FACEBOOK_WEBHOOK_VERIFY_TOKEN: z.string().optional(),
+  FACEBOOK_WEBHOOK_VERIFY_TOKEN: optionalString,
 
   // ── AI (SRS §51) ──────────────────────────────────────────────────────────
-  GEMINI_API_KEY: z.string().optional(),
+  GEMINI_API_KEY: optionalString,
   GEMINI_MODEL: z.string().default('gemini-2.0-flash'),
 
   // ── Billing (SRS §38) ─────────────────────────────────────────────────────
-  STRIPE_SECRET_KEY: z.string().optional(),
-  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_SECRET_KEY: optionalString,
+  STRIPE_WEBHOOK_SECRET: optionalString,
 
   // ── Observability (SRS §33) ───────────────────────────────────────────────
   SENTRY_DSN: optionalUrl,
 
   // ── Email (SRS §22) ───────────────────────────────────────────────────────
   EMAIL_FROM: z.string().email().default('orbit@example.com'),
-  RESEND_API_KEY: z.string().optional(),
+  RESEND_API_KEY: optionalString,
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
@@ -110,6 +157,12 @@ const productionRequired = [
   'FIREBASE_PROJECT_ID',
   'FIREBASE_CLIENT_EMAIL',
   'FIREBASE_PRIVATE_KEY',
+  // Without these the server verifies ID tokens nobody can obtain: the browser
+  // has no way to reach Firebase, so sign-in is impossible and the only symptom
+  // is a sign-in page that does nothing.
+  'NEXT_PUBLIC_FIREBASE_API_KEY',
+  'NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN',
+  'NEXT_PUBLIC_FIREBASE_APP_ID',
   'FACEBOOK_APP_ID',
   'FACEBOOK_APP_SECRET',
   'SENTRY_DSN',

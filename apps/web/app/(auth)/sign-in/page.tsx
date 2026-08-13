@@ -1,8 +1,10 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import { serverEnv } from '@orbit/config';
+import { selectIdentityProvider } from '@orbit/auth';
 import { Card, CardBody, CardHeader, CardTitle, Loading, PageHeader } from '@orbit/ui';
 import { SignInForm } from '@/features/auth/ui/sign-in-form';
+import { GoogleSignInButton } from '@/features/auth/ui/google-sign-in-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,22 +13,38 @@ export const metadata: Metadata = { title: 'Sign in' };
 /**
  * Sign in (SRS §6).
  *
- * Two paths, and only one of them is built:
+ * Which form appears is not this page's decision — it asks
+ * `selectIdentityProvider()`, the same function the session endpoint uses to
+ * decide what it will accept. That matters: when the two disagree, the symptom
+ * is a form that submits successfully into a rejection, and the cause is
+ * invisible from the browser. One source of truth removes the failure mode
+ * rather than documenting it.
  *
- *  • **Outside production** — the development identity provider, whose token is
- *    `dev:{email}`. The session exchange, the cookie, the user provisioning and
- *    every downstream check are identical to production; only the source of the
- *    verified identity differs (**D-004**).
- *  • **In production** — Firebase's client SDK issues the ID token. That SDK is
- *    **not installed and no project is configured**, so rather than render a
- *    form that cannot work, this says so.
+ *  • **Firebase configured** — Google sign-in. The client SDK obtains an ID
+ *    token, which is exchanged for the session cookie.
+ *  • **Otherwise, outside production** — the development provider, whose token
+ *    is `dev:{email}`. Everything after the exchange is identical (**D-004**).
  *
  * The route group is `(auth)` and has no shell: a signed-out person has no
  * organization, so there is no navigation to give them.
  */
 export default function SignInPage() {
   const env = serverEnv();
-  const developmentSignIn = env.APP_ENV !== 'production';
+  const provider = selectIdentityProvider();
+
+  const firebaseWebConfig =
+    provider.kind === 'firebase' &&
+    env.NEXT_PUBLIC_FIREBASE_API_KEY &&
+    env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN &&
+    env.NEXT_PUBLIC_FIREBASE_APP_ID &&
+    env.FIREBASE_PROJECT_ID
+      ? {
+          apiKey: env.NEXT_PUBLIC_FIREBASE_API_KEY,
+          authDomain: env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+          projectId: env.FIREBASE_PROJECT_ID,
+          appId: env.NEXT_PUBLIC_FIREBASE_APP_ID,
+        }
+      : undefined;
 
   return (
     <main id="main" className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 py-16">
@@ -34,31 +52,29 @@ export default function SignInPage() {
         eyebrow="AHN Orbit"
         title="Sign in"
         description={
-          developmentSignIn
-            ? 'Development sign-in. No password — an account is created the first time an address is used.'
-            : 'Sign in to continue.'
+          provider.kind === 'firebase'
+            ? 'Use your Google account. An account is created the first time you sign in.'
+            : 'Development sign-in. No password — an account is created the first time an address is used.'
         }
       />
 
       <Card className="mt-8">
         <CardBody>
-          {developmentSignIn ? (
-            <Suspense fallback={<Loading label="Loading the sign-in form" rows={2} />}>
+          <Suspense fallback={<Loading label="Loading the sign-in form" rows={2} />}>
+            {provider.kind === 'firebase' ? (
+              firebaseWebConfig ? (
+                <GoogleSignInButton config={firebaseWebConfig} />
+              ) : (
+                <MissingWebConfig />
+              )
+            ) : (
               <SignInForm />
-            </Suspense>
-          ) : (
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-ink">Sign-in is not configured</p>
-              <p className="text-sm text-ink-muted">
-                This deployment expects Firebase Auth, and no client SDK is installed yet. See{' '}
-                <span className="font-mono text-xs">docs/DEPLOYMENT.md</span>.
-              </p>
-            </div>
-          )}
+            )}
+          </Suspense>
         </CardBody>
       </Card>
 
-      {developmentSignIn ? (
+      {provider.kind === 'firebase' ? null : (
         <Card className="mt-4 border-warning/40">
           <CardHeader>
             <CardTitle>Why there is no password</CardTitle>
@@ -72,7 +88,29 @@ export default function SignInPage() {
             </p>
           </CardBody>
         </Card>
-      ) : null}
+      )}
     </main>
+  );
+}
+
+/**
+ * The server is on Firebase but the browser has no way to reach it. Production
+ * cannot start in this state — env validation requires the three public keys —
+ * so this is reachable only in development, where saying which half is missing
+ * is more useful than a button that cannot work.
+ */
+function MissingWebConfig() {
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium text-ink">Sign-in is half-configured</p>
+      <p className="text-sm text-ink-muted">
+        The server has Firebase Admin credentials, but{' '}
+        <span className="font-mono text-xs">NEXT_PUBLIC_FIREBASE_API_KEY</span>,{' '}
+        <span className="font-mono text-xs">NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN</span> and{' '}
+        <span className="font-mono text-xs">NEXT_PUBLIC_FIREBASE_APP_ID</span> are not set, so the
+        browser cannot obtain a token. Copy them from the Firebase console under Project settings →
+        Your apps → Web app.
+      </p>
+    </div>
   );
 }

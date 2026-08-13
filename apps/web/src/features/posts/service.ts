@@ -355,6 +355,45 @@ export async function listPosts(
   );
 }
 
+/**
+ * Where a new post could go: every brand the viewer can reach, with the
+ * accounts it can publish to.
+ *
+ * The composer opens on an existing post, so something has to answer "which
+ * brand, and to which accounts?" before one exists. Keyed by brand rather than
+ * workspace because that is what a post actually belongs to.
+ *
+ * `NEEDS_RECONNECT` accounts are included and marked rather than hidden:
+ * writing a post for an account whose token has expired is entirely reasonable
+ * — publishing is what will refuse, and it says so at the time. Silently
+ * omitting the account would look like the account had been deleted.
+ */
+export async function listPublishTargets(
+  ctx: TenantContext,
+  accessible: 'ALL' | readonly string[],
+) {
+  return withTenant(ctx, (db) =>
+    db.brand.findMany({
+      where: {
+        deletedAt: null,
+        ...(accessible === 'ALL' ? {} : { workspaceId: { in: [...accessible] } }),
+      },
+      select: {
+        id: true,
+        name: true,
+        workspaceId: true,
+        workspace: { select: { id: true, name: true, timezone: true } },
+        socialAccounts: {
+          where: { deletedAt: null, status: { in: ['ACTIVE', 'NEEDS_RECONNECT'] } },
+          select: { id: true, displayName: true, platform: true, status: true },
+          orderBy: { displayName: 'asc' },
+        },
+      },
+      orderBy: [{ workspaceId: 'asc' }, { name: 'asc' }],
+    }),
+  );
+}
+
 // ── Update ──────────────────────────────────────────────────────────────────
 
 export async function updatePost(

@@ -26,6 +26,7 @@ export {
   Badge,
   Field,
   Input,
+  Select,
   Textarea,
   PageHeader,
   Scroller,
