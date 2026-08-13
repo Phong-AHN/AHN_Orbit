@@ -93,24 +93,30 @@ export default function PrivacyPolicyPage() {
             </li>
           </List>
           <P>
-            There is no advertising, no analytics tracker, no behavioural profiling and no third
-            party receives your data for their own purposes.
+            There is no advertising, no behavioural profiling, and we do not sell or share your data
+            with anyone for their own purposes. The only third-party script we load is
+            Facebook&rsquo;s own login SDK, and only on the page where you connect a Page — see
+            below.
           </P>
         </Section>
 
         <Section title="Facebook and Meta data">
           <P>
-            When you connect a Facebook Page, you are sent to Facebook to authorize the connection.
-            We ask for these permissions and no others:
+            When you connect a Facebook Page, you authorize the connection with Facebook directly.
+            On that one page we load Facebook&rsquo;s login SDK from{' '}
+            <Code>connect.facebook.net</Code>, which sets its own cookies and is subject to
+            Meta&rsquo;s privacy policy. It is not loaded anywhere else in the application, and we
+            do not use its analytics features.
           </P>
+          <P>We ask for these permissions and no others:</P>
           <List>
             <li>
               <Code>pages_show_list</Code> — to show you which Pages you administer, so you can pick
               the right one.
             </li>
             <li>
-              <Code>pages_read_engagement</Code> and <Code>read_insights</Code> — to read back
-              performance figures for posts published through AHN Orbit.
+              <Code>pages_read_engagement</Code> — to read back how posts published through AHN
+              Orbit performed.
             </li>
             <li>
               <Code>pages_manage_posts</Code> — to publish the posts you schedule.
@@ -234,8 +240,13 @@ export default function PrivacyPolicyPage() {
 
         <Section title="Cookies">
           <P>
-            One cookie, <Code>__orbit_session</Code>, which keeps you signed in for up to 14 days.
-            There are no advertising or analytics cookies. Removing it signs you out.
+            One cookie of our own: <Code>__orbit_session</Code>, which keeps you signed in for up to
+            14 days. Removing it signs you out. We set no advertising or analytics cookies.
+          </P>
+          <P>
+            Facebook&rsquo;s login SDK sets its own cookies, but only on the page where you connect
+            a Page, and only if you go there. Those cookies are Meta&rsquo;s and are governed by
+            their policy.
           </P>
         </Section>
 

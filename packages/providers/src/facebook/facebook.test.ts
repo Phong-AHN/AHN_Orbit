@@ -184,12 +184,11 @@ describe('authorization URL', () => {
       state: 's',
     });
 
-    expect(scopes).toEqual([
-      'pages_show_list',
-      'pages_read_engagement',
-      'pages_manage_posts',
-      'read_insights',
-    ]);
+    // `read_insights` is deliberately not requested (commit cee771f). It is
+    // still exported as `FACEBOOK_INSIGHTS_SCOPE` so analytics can ask for it
+    // as an extra scope later, but asking for it at connect time widens the
+    // App Review submission for a feature Phase 1 does not ship.
+    expect(scopes).toEqual(['pages_show_list', 'pages_read_engagement', 'pages_manage_posts']);
     expect(new URL(url).searchParams.get('scope')).toBe(scopes.join(','));
   });
 
@@ -226,6 +225,25 @@ describe('code exchange', () => {
     expect(result.accounts).toHaveLength(1);
     expect(result.accounts[0]!.externalId).toBe('100000000000001');
     expect(result.accounts[0]!.credential.accessToken).toBe('page-token-1');
+  });
+
+  /**
+   * A code from `FB.login` was never issued against a redirect, so there is
+   * nothing for Meta to match — it requires `redirect_uri` to be present and
+   * empty. Sending our callback URL fails the exchange with an error about a
+   * mismatched redirect, which reads like a misconfigured app rather than the
+   * wrong call shape, so this locks the behaviour down.
+   */
+  it('sends an empty redirect_uri for a code obtained through the JavaScript SDK', async () => {
+    const graph = healthyGraph();
+    await provider(graph).exchangeCode({ code: 'sdk-code', redirectUri: '' });
+
+    const first = graph.calls.filter((c) => c.url.includes('oauth/access_token'))[0]!;
+    const params = new URL(first.url).searchParams;
+
+    expect(params.has('redirect_uri')).toBe(true);
+    expect(params.get('redirect_uri')).toBe('');
+    expect(params.get('code')).toBe('sdk-code');
   });
 
   it('sends the app secret in the exchange but never in a bearer header', async () => {

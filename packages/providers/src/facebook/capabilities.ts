@@ -20,9 +20,7 @@ export const FACEBOOK_PUBLISH_SCOPES = [
 /** Additional scope needed for Page Insights. */
 export const FACEBOOK_INSIGHTS_SCOPE = 'read_insights';
 
-export const FACEBOOK_DEFAULT_SCOPES = [
-  ...FACEBOOK_PUBLISH_SCOPES,
-] as const;
+export const FACEBOOK_DEFAULT_SCOPES = [...FACEBOOK_PUBLISH_SCOPES] as const;
 
 /**
  * Page Insights metrics, post-deprecation.

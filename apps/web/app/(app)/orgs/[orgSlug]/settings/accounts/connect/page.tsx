@@ -1,12 +1,14 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { serverEnv } from '@orbit/config';
 import { Card, CardBody, Empty, PageHeader, PermissionDenied } from '@orbit/ui';
 import { pageCan, requirePageContext } from '@/server/page-context';
 import { getBrand } from '@/features/tenancy/service';
 import { listAccounts } from '@/features/social/service';
 import { AccountPicker } from '@/features/social/ui/account-picker';
 import { ConnectStartButton } from '@/features/social/ui/connect-start-button';
+import { FacebookConnectButton } from '@/features/social/ui/facebook-connect-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,6 +63,41 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
   const accountsHref = `/orgs/${orgSlug}/settings/accounts`;
   const returnTo = `/orgs/${orgSlug}/settings/accounts/connect?workspaceId=${workspaceId}&brandId=${brandId}`;
 
+  // A Login for Business configuration is what makes the SDK's popup usable;
+  // without one, the full-page redirect is the flow — the same one reconnection
+  // always uses, so this is a choice of entry point, not of mechanism.
+  const env = serverEnv();
+  const sdk =
+    env.NEXT_PUBLIC_FACEBOOK_CONFIG_ID && env.FACEBOOK_APP_ID
+      ? {
+          appId: env.FACEBOOK_APP_ID,
+          configId: env.NEXT_PUBLIC_FACEBOOK_CONFIG_ID,
+          graphVersion: env.FACEBOOK_GRAPH_VERSION,
+        }
+      : undefined;
+
+  const startButton = (label: string) =>
+    sdk ? (
+      <FacebookConnectButton
+        orgSlug={orgSlug}
+        workspaceId={workspaceId}
+        brandId={brandId}
+        appId={sdk.appId}
+        configId={sdk.configId}
+        graphVersion={sdk.graphVersion}
+        pickerHref={returnTo}
+      />
+    ) : (
+      <ConnectStartButton
+        orgSlug={orgSlug}
+        platform={PLATFORM}
+        workspaceId={workspaceId}
+        brandId={brandId}
+        returnTo={returnTo}
+        label={label}
+      />
+    );
+
   return (
     <main id="main" className="mx-auto max-w-2xl px-6 py-10">
       <PageHeader
@@ -87,16 +124,7 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
         <Empty
           title="Facebook returned no Pages"
           description="The account you authorized does not administer any Page this brand could publish to. Try again with an account that does."
-          action={
-            <ConnectStartButton
-              orgSlug={orgSlug}
-              platform={PLATFORM}
-              workspaceId={workspaceId}
-              brandId={brandId}
-              returnTo={returnTo}
-              label="Try a different account"
-            />
-          }
+          action={startButton('Try a different account')}
         />
       ) : (
         <Card>
@@ -106,14 +134,7 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
               tokens are exchanged and stored server-side; they never reach your browser.
             </p>
 
-            <ConnectStartButton
-              orgSlug={orgSlug}
-              platform={PLATFORM}
-              workspaceId={workspaceId}
-              brandId={brandId}
-              returnTo={returnTo}
-              label="Continue with Facebook"
-            />
+            {startButton('Continue with Facebook')}
           </CardBody>
         </Card>
       )}

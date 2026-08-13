@@ -1082,6 +1082,44 @@
 
 ---
 
+## D-051 — The JavaScript SDK returns a code, never a token
+
+- **Context:** Meta's Facebook Login quickstart uses `FB.login`, and its sample
+  reads `authResponse.accessToken` in the browser. Adopting that literally would
+  put a live credential where any extension or injected script can read it,
+  which is the one thing the credential design exists to prevent
+  (docs/SECURITY.md §6).
+- **The fact that settles it:** the token `FB.login` hands back is a *user*
+  token that lasts one to two hours. Publishing happens later, in a worker, with
+  no browser present, and needs *Page* tokens. So the server has to run
+  `code → long-lived → /me/accounts` either way. Taking the token client-side
+  saves no step; it only moves a credential through the browser.
+- **Decision:** `FB.login` is called with `response_type: 'code'` and
+  `override_default_response_type: true`. The browser receives an authorization
+  code, which cannot publish and expires unused, and posts it to
+  `POST …/social-accounts/oauth/{platform}/exchange`. That endpoint exchanges it
+  server-side with the app secret and stages the discovered accounts exactly as
+  the redirect callback does.
+- **`redirect_uri` must be empty** on that exchange. The code was not issued
+  against a redirect, so Meta has nothing to match it to; sending our callback
+  URL fails with a redirect-mismatch error that reads like a misconfigured app.
+  A provider test pins this.
+- **No signed `state`, deliberately.** The redirect flow needs one because the
+  tenant arrives back through a URL a third party sent the user to. This is a
+  same-origin `POST` carrying the session cookie: `withAuth` authenticates,
+  `assertCan` authorizes the named workspace, and the tenant comes from the
+  session. `SameSite=Lax` plus a JSON body means a cross-site page cannot make
+  the call.
+- **The redirect flow stays.** It is what reconnection uses, and it is the
+  fallback when `NEXT_PUBLIC_FACEBOOK_CONFIG_ID` is absent — so this is a choice
+  of entry point, not a replacement of the mechanism.
+- **Cost:** a third-party script on one page. It is loaded only on the connect
+  page, `FB.AppEvents.logPageView()` is not called, and the privacy policy now
+  discloses the SDK and its cookies.
+- **Date:** 2026-08-13 · **Status:** IMPLEMENTED.
+
+---
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

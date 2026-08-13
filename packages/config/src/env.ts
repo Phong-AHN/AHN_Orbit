@@ -130,6 +130,16 @@ export const serverEnvSchema = z.object({
     .default('v21.0'),
   FACEBOOK_WEBHOOK_VERIFY_TOKEN: optionalString,
 
+  /**
+   * Facebook Login for Business configuration id.
+   *
+   * Public, like the Firebase web keys — it names a consent configuration, it
+   * grants nothing. Its presence is what switches the connect flow from a
+   * full-page redirect to the JavaScript SDK's popup; absent, the redirect
+   * flow is used, which is also what reconnection always uses.
+   */
+  NEXT_PUBLIC_FACEBOOK_CONFIG_ID: optionalString,
+
   // ── AI (SRS §51) ──────────────────────────────────────────────────────────
   GEMINI_API_KEY: optionalString,
   GEMINI_MODEL: z.string().default('gemini-2.0-flash'),
