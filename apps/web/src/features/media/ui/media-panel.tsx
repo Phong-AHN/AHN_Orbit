@@ -208,8 +208,12 @@ export function MediaPanel({
             }
           />
 
+          {/* Named in full because the `accept` attribute already allows video
+              and this line did not mention it — which reads as "video is not
+              supported" and is the reason a perfectly good clip went untried. */}
           <span className="text-xs text-ink-muted">
-            JPEG, PNG, GIF or WebP. Instagram accepts JPEG only.
+            Images: JPEG, PNG, GIF or WebP — Instagram accepts JPEG only. Video: MP4 or MOV, for
+            TikTok.
           </span>
         </div>
       </CardBody>

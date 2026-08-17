@@ -112,6 +112,46 @@ function mp4(durationSeconds: number, width = 1920, height = 1080): Uint8Array {
   return new Uint8Array([...boxes, ...moov]);
 }
 
+/**
+ * The layout a phone or an editor actually produces.
+ *
+ * `moov` sits at the **end**, after the media data, unless fast-start was
+ * applied. `mp4()` above puts it at the front, which is the easy case and the
+ * only one the suite used to cover.
+ */
+function mp4WithTrailingMoov(durationSeconds: number, mdatBytes: number): Uint8Array {
+  const aligned = mp4(durationSeconds);
+
+  // Everything up to `moov` in the fast-start file is the header; the rest is
+  // the movie box we are relocating.
+  const moovAt = indexOfType(aligned, 'moov') - 4;
+  const header = aligned.slice(0, moovAt);
+  const moov = aligned.slice(moovAt);
+
+  // An `mdat` box of arbitrary size standing in for the video frames. Filled
+  // with a repeating pattern rather than zeroes so a false-positive scan has
+  // something to trip over.
+  const mdat = new Uint8Array(mdatBytes);
+  const view = new DataView(mdat.buffer);
+  view.setUint32(0, mdatBytes);
+  mdat.set([0x6d, 0x64, 0x61, 0x74], 4);
+  for (let i = 8; i < mdatBytes; i += 1) mdat[i] = i % 251;
+
+  const out = new Uint8Array(header.length + mdat.length + moov.length);
+  out.set(header, 0);
+  out.set(mdat, header.length);
+  out.set(moov, header.length + mdat.length);
+  return out;
+}
+
+function indexOfType(bytes: Uint8Array, type: string): number {
+  const codes = [...type].map((ch) => ch.charCodeAt(0));
+  for (let i = 0; i + 4 <= bytes.length; i += 1) {
+    if (codes.every((code, k) => bytes[i + k] === code)) return i;
+  }
+  return -1;
+}
+
 // ── Sniffing ────────────────────────────────────────────────────────────────
 
 describe('sniff — identifies real types', () => {
@@ -203,6 +243,43 @@ describe('declaredTypeMatches', () => {
 });
 
 // ── Probing ─────────────────────────────────────────────────────────────────
+
+/**
+ * Reading an MP4 whose `moov` is not at the front.
+ *
+ * This is what a 7-second clip off a phone looks like, and every one of them
+ * was rejected as "damaged — we couldn't read its length". The probe reads the
+ * head and, failing that, the **tail** — but a tail slice starts wherever
+ * `size - window` lands, which is never a box boundary, so the walk read the
+ * first four bytes as a nonsense box size and gave up immediately.
+ */
+describe('probe — MP4 with the movie box at the end', () => {
+  it('reads the duration from a tail slice that starts mid-file', () => {
+    const file = mp4WithTrailingMoov(7, 400_000);
+
+    // Exactly what `probeIntrinsics` hands over: the last N bytes, cut at an
+    // offset chosen by arithmetic rather than by structure.
+    const tail = file.slice(file.length - 100_000);
+
+    expect(probeMedia('video/mp4', tail)).toMatchObject({ durationMs: 7_000, complete: true });
+  });
+
+  it('still fails honestly when the movie box is not in the slice at all', () => {
+    const file = mp4WithTrailingMoov(7, 400_000);
+    // A window from the middle: real video data, no moov anywhere in it.
+    const middle = file.slice(50_000, 150_000);
+
+    expect(probeMedia('video/mp4', middle).complete).toBe(false);
+  });
+
+  it('does not regress the fast-start layout, where byte 0 is a box', () => {
+    expect(probeMedia('video/mp4', mp4(12))).toMatchObject({
+      durationMs: 12_000,
+      width: 1920,
+      complete: true,
+    });
+  });
+});
 
 describe('probe — dimensions come from the header', () => {
   it('reads PNG dimensions', () => {

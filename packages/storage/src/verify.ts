@@ -103,9 +103,17 @@ export async function verifyUploadedObject(input: VerificationInput): Promise<Ve
   }
 
   if (identified.kind === 'VIDEO' && !probe.complete) {
+    /**
+     * "Damaged" is a strong claim, and it was wrong for a long time.
+     *
+     * The probe reads the head and the tail, not the whole file, so a movie box
+     * sitting somewhere in the middle of a very large video is unreadable
+     * without the file being broken at all. Saying so costs nothing and stops
+     * somebody re-exporting a file that was fine.
+     */
     throw new MediaRejected(
       'Video metadata could not be read',
-      "That video appears to be damaged — we couldn't read its length.",
+      "We couldn't read this video's length. It may be an unusual encoding — re-exporting it as MP4 (H.264) usually fixes it.",
       { mimeType: identified.mimeType },
     );
   }

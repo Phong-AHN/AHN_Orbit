@@ -178,8 +178,65 @@ function probeMp4(bytes: Uint8Array): MediaProbe {
   };
 
   walk(0, bytes.length, 0);
+
+  /**
+   * Second attempt, for a slice that does not start on a box boundary.
+   *
+   * The walk above assumes byte 0 begins a box. That holds for the head of a
+   * file and **never** holds for a tail slice, which starts wherever
+   * `size - window` happens to land — so the first four bytes read as a
+   * nonsense box size and traversal stops immediately.
+   *
+   * That mattered: an MP4 with `moov` at the end is not unusual, it is what a
+   * phone or an editor produces unless fast-start was applied. Every one of
+   * them was reported as a damaged file that we could not read the length of.
+   *
+   * So when the aligned walk finds nothing, locate `moov` by its signature and
+   * walk from the box that contains it.
+   */
+  if (result.durationMs === undefined) {
+    const moovStart = findBoxStart(bytes, 'moov');
+    if (moovStart !== undefined) walk(moovStart, bytes.length, 0);
+  }
+
   result.complete = result.durationMs !== undefined;
   return result;
+}
+
+/**
+ * Find where a named box starts, without assuming alignment.
+ *
+ * An ISO-BMFF box header is a 4-byte big-endian size followed by a 4-byte
+ * ASCII type, so the type appears four bytes into its own box. Scanning for the
+ * type and stepping back four is the only way to re-synchronise on a slice that
+ * begins mid-file.
+ *
+ * The size is checked rather than trusted: the four characters could occur
+ * inside compressed video data by chance, and a candidate whose declared size
+ * is impossible is a false positive rather than a box. Bounded by the buffer
+ * length, so a hostile file cannot spin this.
+ */
+function findBoxStart(bytes: Uint8Array, type: string): number | undefined {
+  const [a, b, c, d] = [
+    type.charCodeAt(0),
+    type.charCodeAt(1),
+    type.charCodeAt(2),
+    type.charCodeAt(3),
+  ];
+
+  for (let i = 4; i + 4 <= bytes.length; i += 1) {
+    if (bytes[i] !== a || bytes[i + 1] !== b || bytes[i + 2] !== c || bytes[i + 3] !== d) continue;
+
+    const start = i - 4;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const size = view.getUint32(start);
+
+    // 0 means "to end of file" and 1 means a 64-bit size follows; both are
+    // legitimate. Anything else must be at least a header long.
+    if (size === 0 || size === 1 || size >= 8) return start;
+  }
+
+  return undefined;
 }
 
 // ── Dispatch ────────────────────────────────────────────────────────────────
