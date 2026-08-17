@@ -179,6 +179,39 @@ export async function readRange(key: string, start: number, end: number): Promis
   return out;
 }
 
+/**
+ * Write bytes from the server.
+ *
+ * Uploads from a browser go through `presignUpload` so the bytes never touch
+ * our infrastructure. This is the other case: something we generated
+ * ourselves — a rendered report — where there is no client to sign a URL for
+ * and the content is already in hand.
+ *
+ * `ContentType` and `ContentDisposition` are set here rather than left to the
+ * reader, so a stored object cannot be served as something it is not.
+ */
+export async function putObject(input: {
+  key: string;
+  body: Uint8Array | string;
+  contentType: string;
+  filename?: string | undefined;
+}): Promise<{ sizeBytes: number }> {
+  const body = typeof input.body === 'string' ? new TextEncoder().encode(input.body) : input.body;
+  const filename = input.filename?.replace(/["\\]/g, '');
+
+  await s3().send(
+    new PutObjectCommand({
+      Bucket: bucket(),
+      Key: input.key,
+      Body: body,
+      ContentType: input.contentType,
+      ...(filename ? { ContentDisposition: `attachment; filename="${filename}"` } : {}),
+    }),
+  );
+
+  return { sizeBytes: body.byteLength };
+}
+
 export async function deleteObject(key: string): Promise<void> {
   await s3().send(new DeleteObjectCommand({ Bucket: bucket(), Key: key }));
 }

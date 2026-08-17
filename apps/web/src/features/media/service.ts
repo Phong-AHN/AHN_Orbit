@@ -340,24 +340,98 @@ export async function getMediaAsset(ctx: TenantContext, assetId: string) {
   });
 }
 
-export async function listMedia(
-  ctx: TenantContext,
-  filter: { workspaceId?: string; brandId?: string; kind?: MediaKind; limit?: number } = {},
-) {
+export interface MediaFilter {
+  workspaceId?: string;
+  brandId?: string;
+  kind?: MediaKind;
+  /** Matched against the original filename and the tags, case-insensitively. */
+  search?: string;
+  /**
+   * Narrow to one folder. `null` means the workspace root specifically —
+   * distinct from `undefined`, which means "anywhere" (SRS §12).
+   */
+  folderId?: string | null;
+  limit?: number;
+}
+
+/**
+ * The where-clause both listings share.
+ *
+ * Note what is *not* here: an organization predicate. The tenant-scoped client
+ * adds it, and RLS enforces it underneath — writing one by hand would suggest
+ * the isolation is this function's job, and the day somebody forgot it, it
+ * would be.
+ */
+function mediaWhere(filter: MediaFilter) {
+  const search = filter.search?.trim();
+
+  return {
+    deletedAt: null,
+    // Only verified assets are listed: PENDING and REJECTED are internal
+    // states, and nothing should be attachable before it is checked.
+    status: 'READY' as const,
+    ...(filter.workspaceId ? { workspaceId: filter.workspaceId } : {}),
+    ...(filter.brandId ? { brandId: filter.brandId } : {}),
+    ...(filter.kind ? { kind: filter.kind } : {}),
+    // `null` is a filter (root only); `undefined` is no filter at all.
+    ...(filter.folderId !== undefined ? { folderId: filter.folderId } : {}),
+    ...(search
+      ? {
+          OR: [
+            { originalFilename: { contains: search, mode: 'insensitive' as const } },
+            { tags: { has: search.toLowerCase() } },
+          ],
+        }
+      : {}),
+  };
+}
+
+export async function listMedia(ctx: TenantContext, filter: MediaFilter = {}) {
   return withTenant(ctx, (db) =>
     db.mediaAsset.findMany({
-      where: {
-        deletedAt: null,
-        // Only verified assets are listed: PENDING and REJECTED are internal
-        // states, and nothing should be attachable before it is checked.
-        status: 'READY',
-        ...(filter.workspaceId ? { workspaceId: filter.workspaceId } : {}),
-        ...(filter.brandId ? { brandId: filter.brandId } : {}),
-        ...(filter.kind ? { kind: filter.kind } : {}),
-      },
+      where: mediaWhere(filter),
       select: MEDIA_SELECT,
       orderBy: { createdAt: 'desc' },
       take: Math.min(filter.limit ?? 50, 200),
+    }),
+  );
+}
+
+/**
+ * The same listing, plus a short-lived preview URL for each row.
+ *
+ * A library you cannot see is a list of filenames, so the grid needs the bytes.
+ * The URLs are signed per object and expire, which is the same bargain
+ * `getMediaDownloadUrl` makes — the difference is only that this makes it once
+ * per page instead of once per click.
+ *
+ * `inline: true` here, unlike the download route: a thumbnail that arrives as
+ * `attachment` is a download prompt, not a thumbnail. That is safe *because*
+ * the Content-Type is the verified one — the browser renders what the bytes
+ * actually were, never what the uploader claimed.
+ */
+export async function listMediaWithPreviews(ctx: TenantContext, filter: MediaFilter = {}) {
+  const assets = await withTenant(ctx, (db) =>
+    db.mediaAsset.findMany({
+      where: mediaWhere(filter),
+      select: { ...MEDIA_SELECT, storageKey: true },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(filter.limit ?? 60, 200),
+    }),
+  );
+
+  return Promise.all(
+    assets.map(async ({ storageKey, ...asset }) => {
+      assertKeyBelongsTo(storageKey, ctx.organizationId);
+
+      const { url } = await presignDownload({
+        key: storageKey,
+        contentType: asset.mimeType,
+        filename: asset.originalFilename ?? undefined,
+        inline: true,
+      });
+
+      return { ...asset, previewUrl: url };
     }),
   );
 }

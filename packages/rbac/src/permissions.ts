@@ -51,6 +51,13 @@ export const PERMISSIONS = [
   'post:update',
   'post:delete',
   'post:assign',
+  // Production tasks (SRS §11). A task is work *about* a post, not the post
+  // itself, so it carries its own verbs: anyone on the brand can move a task
+  // they hold, but creating and deleting the pipeline is a manager's job.
+  'task:create',
+  'task:read',
+  'task:update',
+  'task:delete',
   'post:submit_internal_review',
   'post:approve_internal',
   'post:submit_client_review',

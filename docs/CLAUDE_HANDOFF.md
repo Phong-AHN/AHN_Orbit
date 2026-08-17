@@ -325,15 +325,16 @@ If you believe you need a migration, check the schema first — `PublishingJob`,
 
 ## 3. Current state
 
-### Verification status (as of 2026-08-12, end of T1.14)
+### Verification status (as of 2026-08-15, end of the production completion pass)
 
 | Check | Command | Result |
 |---|---|---|
 | Format | `pnpm format:check` | ✅ clean |
 | Lint | `pnpm lint` | ✅ 0 problems |
 | Typecheck | `pnpm typecheck` | ✅ 0 errors |
-| Unit tests | `pnpm test` | ✅ **646 passed** (29 files) |
-| Integration tests | `pnpm test:integration` | ✅ **381 passed** (15 files) |
+| Unit tests | `pnpm test` | ✅ **797 passed** (39 files) |
+| Integration tests | `pnpm test:integration` | ✅ **640 passed** (32 files) |
+| E2E | `pnpm test:e2e` | ✅ **19 passed** (1 file) |
 | Build | `SKIP_ENV_VALIDATION=true pnpm build` | ✅ web + worker |
 
 **`pnpm build` requires `SKIP_ENV_VALIDATION=true`** unless real env vars are in
@@ -555,90 +556,239 @@ honoured — everything is tested against `MockProvider`.
 
 ## 7. Remaining roadmap
 
-| Task | Status | Depends on | Notes |
-|---|---|---|---|
-| **T1.7** Account health & reconnection (5 pts) | ⬜ not started | T1.6, T1.11 | **Recommended next** — see §8 |
-| **T1.15** Notifications, core (5 pts) | ⬜ not started | T1.10, T1.13 | `Notification` model exists in schema |
-| **T1.16** Client portal, minimal (8 pts) | ⬜ not started | T1.10 | Must use **its own services with narrower selects**, not agency endpoints with a filter (**D-012**) |
-| **T1.17** Agency dashboard & health alerts (5 pts) | ⬜ not started | T1.13, T1.15 | Needs T1.7 for account-health alerts |
-| **T1.18** Platform admin, minimal (5 pts) | ⬜ not started | T1.11, T1.13 | DLQ browser exists in `packages/queue/src/dead-letter.ts` |
-| **T1.19** Observability, docs & E2E (5 pts) | ⬜ not started | all | The §32 E2E flow end to end |
+**Phase 1 (MVP publishing) is complete** — T1.1 through T1.19, plus Instagram
+alongside Facebook, and a live Facebook publish verified end to end against a
+real Page.
 
-Also deferred from completed tasks:
-- `/posts/{id}/preview` endpoint (T1.9 follow-up).
+**Phase 2 (agency operations) is complete** as of 2026-08-14:
+
+| Shipped | Where | Tests |
+|---|---|---|
+| Production tasks — stages, assignee, blocking | `apps/web/src/features/tasks/` | 14 integration |
+| Post-level assignment UI | `features/posts/ui/assignee-select.tsx` | covered by posts suite |
+| Agency comment thread (internal vs client-visible) | `features/comments/ui/comment-thread.tsx` | covered by comments suite |
+| Members list + invitations UI + `/accept-invitation` | `features/tenancy/ui/`, `app/(app)/accept-invitation/` | covered by members suite |
+| Media library — browse, search, filter, previews | `features/media/`, `app/(app)/orgs/[orgSlug]/media/` | covered by media suite |
+| Activity feed + per-post history | `features/activity/` | 5 integration |
+
+New decisions from this phase: **D-052** (a task holds a post, never moves one),
+**D-053** (the activity feed is read-only, scoped by role, keyset-paged),
+**D-054** (library previews are signed, inline, and deliberately not
+`next/image`).
+
+### Still deferred
+
+- ~~`/posts/{id}/preview` endpoint~~ — **shipped as a client-side sketch
+  instead** (**D-084**). A server endpoint would have had to hold platform
+  presentation facts next to the capability descriptor, which is the confusion
+  the preview is built to avoid. `features/posts/ui/preview.tsx` renders it from
+  what is already on screen; `preview-shape.ts` is pure and tested.
 - Drag-to-reorder on composer media (T1.9).
-- Drag-to-*time* within a day on the calendar (T1.12 moves the date only).
-- Queue-slot editor UI (T1.12 — slots are read and honoured, seeded directly).
-- `ProductionTask` UI (T1.10 — schema ships, UI is P1).
-- `retention` and `analytics-rollup` maintenance tasks are declared but log
-  "not yet implemented" (`apps/worker/src/processors/maintenance.ts`).
+- ~~Queue-slot editor UI~~ — **shipped** (**D-083**). Service, two API routes, a
+  week-laid-out editor at
+  `/orgs/{slug}/settings/workspaces/{id}/queue`, 23 integration tests.
+- Media **folders**: `MediaAsset.folderId` exists in the schema and the library
+  ignores it. Filtering is by brand, type, filename, and tag.
+- Attaching an existing library asset to a post from the library page. Upload
+  from the composer works; "reuse this one" is still a composer-side upload.
+- Infinite scroll on the activity feed. The service returns `nextCursor` and
+  the page renders the first 50; nothing consumes the cursor yet.
 
 ---
 
-## 8. Next task — T1.7 Account health & reconnection
+## 8. Production completion pass (2026-08-15)
 
-### Why it is next
+A product-level pass over the whole repository rather than a feature. What
+changed, and why it was worth changing:
 
-`PROVIDER_AUTHENTICATION_ERROR` is now the most actionable failure in the
-publishing log, and `presentFailure` already tells the operator to "reconnect the
-account" — **but that flow is the one piece of T1.6 still outstanding.** Closing
-it turns the commonest publishing failure from a dead end into a two-click fix.
-It is also a prerequisite for T1.17's health alerts.
+| Area | Change |
+|---|---|
+| Design system | `Dialog`, `ConfirmDialog`, `Toast`, `Table`, `Stat`, `Alert`, `Breadcrumbs`, `Section` added to `@orbit/ui`. Pages had been inventing these one at a time. |
+| Navigation | Derived from the permission matrix, grouped, with an active state and a real mobile disclosure (**D-069**). |
+| Dashboard | Composed by role — "Your work" leads for anyone without the agency-wide picture (**D-070**). |
+| Team | Role editing, member removal with confirmation, and **pending invitations** — which were previously invisible. |
+| Media | Attach from the library instead of re-uploading (**D-072**). |
+| Activity | `Load more` consumes the `nextCursor` the service always returned. |
+| RBAC | `canSomewhere()` for menus, and the Brand Brain moved onto `brand_voice:*` (**D-073**). |
+| CI | The production build and the E2E suite now run. |
 
-### Spec (`docs/BUILD-PLAN.md` T1.7)
+### Media folders and email (2026-08-16)
 
-- **Objective:** a broken token is detected and surfaced *before* it silently
-  breaks publishing.
-- **DB:** `SocialAccount.status`, `healthCheckedAt`, `healthError` — all exist.
-- **API:** `GET /social-accounts/{id}/health` (exists),
-  `POST /social-accounts/{id}/reconnect`.
-- **UI:** needs-reconnect banner, per-account health badge, reconnect flow.
-- **Tests:** auth error ⇒ `NEEDS_RECONNECT` + queue paused + notification;
-  recovery restores `ACTIVE`.
-- **DoD:** health is **probe-driven, not expiry-driven**
-  (`docs/SOCIAL_PROVIDERS.md` §4) — Page tokens die silently without expiring.
+| Area | Change |
+|---|---|
+| Email notifications | The notification row is the outbox; four types earn an email (**D-080**) |
+| Media folders | Create, rename, delete-without-deleting, file assets, breadcrumb (**D-081**) |
+| Calendar week view | Times visible per day, shared reschedule path with month (**D-082**) |
 
-### What already exists — do NOT reimplement
+Both used schema that already existed — **no migrations**.
 
-- `checkAccountHealth(ctx, socialAccountId)` in
-  `apps/web/src/features/social/service.ts` (~line 414). It already debounces so
-  a five-minute blip does not prompt every account.
-- `provider.probeHealth(credential, account)` on the `SocialProvider` interface.
-- `connectAccounts` already handles reconnect — same code path as connect
-  (see the comment at ~line 313 of the social service).
-- `GET /api/v1/orgs/[orgSlug]/social-accounts/[accountId]/health` route.
-- The `account-health` queue and payload schema already exist in
-  `packages/queue/src/queues.ts` (concurrency 2). **Wiring it up is a
-  `startWorker('account-health', …)` line in `apps/worker/src/main.ts`** plus a
-  processor.
-- The engine already refuses to publish through a non-`ACTIVE` account
-  (`apps/worker/src/publishing/subject.ts`) and raises
-  `ProviderAuthenticationError` with a safe message.
+### Second pass (same day)
 
-### Security constraints it must preserve
+| Area | Change |
+|---|---|
+| AI rate limiting | Two token buckets, checked before the credit check — a loop can no longer burn a month's allowance in seconds (**D-075**) |
+| MetricStrip | Metric priority per platform, replacing "first four the JSON returned" (**D-074**) |
+| Content Ideas | Phase 4 P2: CRUD, search, accept/dismiss, planning window, convert-to-draft (**D-076**), **and the board UI** (**D-078**) |
+| AI cost visibility | `creditsRemaining` returned by every generation, so a Content Creator sees it without `ai:view_usage` (**D-077**) |
 
-- Follow **D-021**: the health processor must derive its tenant from the
-  `SocialAccount` row via `resolveJobTenant`, not from the payload.
-- Never return token material — no endpoint, no health response, no log.
-- Health probes are per-account provider calls: they should respect the
-  **rate-limit bucket** (`packages/queue/src/rate-limit.ts`) so a sweep across
-  many accounts does not consume the publish budget. **NEEDS VERIFICATION:**
-  whether health probes should share the publish bucket or use a separate key —
-  decide and document.
-- The reconnect flow must reuse the existing signed/single-use OAuth `state`.
+### Two real bugs this pass found
 
-### Tests to add
-
-- Auth error during publish ⇒ account moves to `NEEDS_RECONNECT`.
-- A `NEEDS_RECONNECT` account is skipped by the publish engine (may already be
-  covered — check `publishing.integration.test.ts`).
-- Recovery: a successful probe restores `ACTIVE` and clears `healthError`.
-- Cross-tenant: health and reconnect on another tenant's account ⇒ 404.
-- The repeatable health sweep does not probe accounts checked recently.
+1. **Navigation would have hidden itself from Account Managers.** `can()`
+   denies a workspace-scoped grant asked without a workspace, so a menu built
+   on it loses Analytics, Media, Approvals and Activity for the role those
+   pages exist for (**D-069**).
+2. **Brand Brain was guarded by the wrong permission.** `brand_voice:read` is
+   granted to Content Creators and Approvers precisely so they can write
+   on-brand without editing the definition; `brand:update` moved that line
+   (**D-073**).
 
 ---
 
-## 9. Repository knowledge you need before editing
+## 9. Next task — the rest of Phase 4 P2
+
+**Content Ideas shipped** (service, three API routes, 13 integration tests) with
+a `planningWindow` that puts dated ideas and scheduled posts on one timeline.
+
+**Ideas UI shipped** — board, filters in the URL, create, agree/drop, and
+convert-to-draft with a confirmation (**D-078**). Reachable from **Work → Ideas**.
+
+**Repurposing shipped** — `adaptForPlatform` on the provider interface, Gemini
+and mock implementations, `POST /ai/repurpose`, and two buttons in the composer.
+Constraints come from the target's capability descriptor (**D-079**).
+
+**Still not built:**
+- **Performance-informed suggestions.** Needs analytics *and* a careful
+  separation between observed figures and model interpretation — the SRS is
+  explicit that AI guesses must never be presented as analytics.
+- **The AI queue.** Still not justified: every operation implemented so far is
+  short and somebody is waiting for it. Bulk repurposing would be the first
+  thing that changes that.
+
+**T3.1 → T3.4 are complete.** Analytics ingest on a cadence, are read through
+three endpoints, and are shown on an org-level page and on each post.
+
+| Shipped | Where | Tests |
+|---|---|---|
+| Ingestion — post and account | `apps/worker/src/analytics/ingest.ts` | 12 integration |
+| Sweep + hourly schedule | `apps/worker/src/analytics/sweep.ts` | (same suite) |
+| Read services + 3 API routes | `apps/web/src/features/analytics/` | 11 integration |
+| Analytics page + per-post results | `app/(app)/orgs/[orgSlug]/analytics/`, post page | typecheck + build |
+| Instagram account metrics, corrected | `packages/providers/src/instagram/` | 4 unit |
+
+New decisions: **D-057** (an unavailable metric is never a zero; a partial sum
+is never a total), **D-058** (polls on a cadence, never on a page load),
+**D-059** (Instagram account insights are a different API from media insights).
+
+**No migration and no new permission were needed** — `PostAnalytics`,
+`AnalyticsSnapshot`, `analytics:read` and the `analytics` queue all predated
+this work.
+
+### T3.5 shipped
+
+`Report` model (migration `20260814010000_report`), a `reports` queue, a CSV
+renderer on the worker, three API routes, and a panel on the analytics page.
+Decisions: **D-060** (signed URL, never a storage key), **D-061** (the job names
+a row and carries no parameters), **D-062** (CSV now; PDF is a dependency
+decision).
+
+No new permissions — `report:generate` and `report:export` already existed and
+are used as the separation they were written to be: generating is one right,
+handing the file to somebody is another.
+
+### T4.1 → T4.5 shipped — Phase 4 P1 (AI)
+
+| Shipped | Where | Tests |
+|---|---|---|
+| Brand Brain — storage, API, brand page | `features/brand-voice/`, `app/(app)/orgs/[orgSlug]/brands/[brandId]/` | covered below |
+| `packages/ai` — interface, Gemini over `fetch`, mock, prompt assembler | `packages/ai/` | 30 unit |
+| Metering + credit ceiling | `features/ai/service.ts` | 15 integration |
+| `caption` · `rewrite` · `hashtags` · `usage` endpoints | `app/api/v1/orgs/[orgSlug]/ai/` | (same suite) |
+| Writing assistant in the composer | `features/ai/ui/ai-assist.tsx` | typecheck + build |
+
+Decisions: **D-065** (untrusted text is fenced, and the fence cannot be closed
+from inside), **D-066** (one request is one credit; a failed call still counts),
+**D-067** (AI suggests, a person acts; banned terms warn and never block),
+**D-068** (Gemini over `fetch`; mock when there is no key).
+
+**No migration and no new permission were needed.** `BrandVoice`, `AIUsage`,
+`ai:generate` and `ai:view_usage` all predated this work.
+
+**Configuration:** `GEMINI_API_KEY` is optional. Absent, the mock answers
+locally and production refuses at first use. `GEMINI_MODEL` defaults to
+`gemini-2.0-flash`.
+
+### Outstanding from this phase
+
+- **PDF export.** See D-062: a dependency choice, not a formatting one.
+- **`MetricStrip` metric prioritisation.** Held; see below.
+- **Phase 4 P2, untouched by design:** content ideas and planning, repurposing,
+  and performance-informed suggestions. `ContentIdea` exists in the schema with
+  `Post.sourceIdeaId` wired, and `docs/API.md` §2.10 specifies `/ai/ideas`,
+  `/ai/repurpose` and `/ai/generations/{id}`. None are implemented. A long
+  generation is the case the `ai` queue was described for in
+  `docs/ARCHITECTURE.md` §7 — **that queue does not exist yet**, deliberately,
+  because P1 runs synchronously in the request and adding a queue nobody
+  consumes is a catalogue entry and a doc to keep true for no gain.
+- **`AIProvider` implements three of §7's methods.** `changeTone`, `generateCTA`,
+  `adaptForPlatform`, `generateIdeas`, `repurposeContent` and
+  `analyzeHistoricalPerformance` are absent rather than stubbed, so nothing can
+  call a method that quietly returns nothing. (`tone` is reachable today as a
+  `rewrite` mode.)
+- **The trial AI allowance changed from 500 to 50 credits/month.** It governs
+  organizations created *after* the change only — an existing subscription
+  carries its own `limits` on the row, so nobody on a trial lost credits.
+
+### T3.6 shipped — retention and cleanup
+
+`apps/worker/src/maintenance/retention.ts`, wired to the `retention`
+maintenance task and scheduled nightly at 03:20. Removes `PostAnalytics` and
+`AnalyticsSnapshot` beyond a 13-month window, and `Report` rows past
+`expiresAt` together with their S3 objects. Decisions **D-063** (per-tenant
+deletes; every boundary rounds toward keeping) and **D-064** (object before
+row).
+
+It never touches `Post`, `PostVariant`, `PublishingJob`, `PublishingAttempt` or
+`AuditLog`, and there is a test for each of those that matters.
+- **`MetricStrip` metric prioritisation.** It shows the first four metrics of
+  whatever the platform returned, in insertion order — behaviour left unchanged
+  on purpose. Which four matter per platform is a product decision, and picking
+  them silently would bake an opinion into what every client sees first.
+
+---
+
+## 9b. Phase 3 background — verified provider facts
+
+Per `docs/00-ANALYSIS.md` §302-306 the phases are: 0 Foundation, 1 MVP
+publishing, 2 Agency operations, **3 Intelligence**, 4 AI. Phase 3 is analytics
+and reporting: pulling post-level insights back from the providers, rolling
+them up, and putting them in front of both the agency and the client.
+
+**The API-version question is settled.** `FACEBOOK_GRAPH_VERSION` now defaults
+to `v25.0`, and the v22→v25 changelogs were audited rather than assumed: nothing
+in that range touches this product's publishing path (**D-056**). The metric
+work that *does* matter was done up front —
+
+- Instagram's play-and-impression family (`impressions`, `plays`,
+  `clips_replays_count`, `ig_reels_aggregated_all_plays_count`) was replaced by
+  a single **`views`** on 2025-04-21. `views` is now the claimed metric.
+- The v26.0 deprecation wave announced in the v25.0 changelog is already listed
+  in the Facebook descriptor's `DEPRECATED_METRICS`, before it breaks.
+
+So the metric names in `packages/providers/src/*/capabilities.ts` are the
+starting point, and `docs/SOCIAL_PROVIDERS.md` §3 is the reference.
+
+**`analytics-rollup` already exists as a declared maintenance task** that logs
+"not yet implemented" (`apps/worker/src/processors/maintenance.ts`). It is the
+intended home for the aggregation, and the queue plumbing around it is done.
+
+What already exists and must not be reimplemented: the capability descriptor
+system (which is where per-provider metric support belongs), the audit trail
+(now readable — see §7), and the `PostVariant` rows that carry `externalPostId`,
+which is the join key any insights fetch needs.
+
+---
+
+## 10. Repository knowledge you need before editing
 
 ### Package boundaries (enforced by `eslint.config.mjs`)
 
@@ -757,7 +907,7 @@ Heredocs in Git Bash work; watch for apostrophes breaking quoting in long chains
 
 ---
 
-## 10. Handoff instructions for the next Claude
+## 11. Handoff instructions for the next Claude
 
 1. **Read this document first**, then `docs/DECISIONS.md`, `docs/RBAC.md`,
    `docs/ARCHITECTURE.md` §5, and `docs/BUILD-PLAN.md` for your task.

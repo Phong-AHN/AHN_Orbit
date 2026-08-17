@@ -124,10 +124,25 @@ export const serverEnvSchema = z.object({
   // ── Social providers (SRS §7) ─────────────────────────────────────────────
   FACEBOOK_APP_ID: optionalString,
   FACEBOOK_APP_SECRET: optionalString,
+  /**
+   * The Graph API version every provider call is made against.
+   *
+   * v25.0 (released 2026-02-18). Meta keeps a version alive for roughly two
+   * years and v21.0 was within months of expiry; more to the point, Insights
+   * **metric names change between versions**, so pinning this before the
+   * analytics work begins is what stops the rollup being written twice
+   * (docs/SOCIAL_PROVIDERS.md §3).
+   *
+   * Nothing in the publishing path changed across v22–v25: `/feed`, `/photos`,
+   * `/me/accounts`, `/debug_token`, `/oauth/access_token`, `/media` and
+   * `/media_publish` are untouched by those changelogs. The breaking changes in
+   * that range are Marketing API, Live Video, and Certificate Transparency —
+   * none of which this product calls.
+   */
   FACEBOOK_GRAPH_VERSION: z
     .string()
     .regex(/^v\d+\.\d+$/)
-    .default('v21.0'),
+    .default('v25.0'),
   FACEBOOK_WEBHOOK_VERIFY_TOKEN: optionalString,
 
   /**
@@ -165,7 +180,18 @@ export const serverEnvSchema = z.object({
   // ── Observability (SRS §33) ───────────────────────────────────────────────
   SENTRY_DSN: optionalUrl,
 
-  // ── Email (SRS §22) ───────────────────────────────────────────────────────
+  /**
+   * ── Email (SRS §18, §22) ────────────────────────────────────────────────
+   *
+   * `RESEND_API_KEY` absent means email notifications are **not written at
+   * all** — `channelsFor` returns in-app only, so the outbox stays empty rather
+   * than filling with messages nothing will ever send. The in-app record is
+   * unaffected either way, which is what stops a mail outage costing a
+   * notification.
+   *
+   * `EMAIL_FROM` must be a sender the provider has verified, or every send is
+   * refused.
+   */
   EMAIL_FROM: z.string().email().default('orbit@example.com'),
   RESEND_API_KEY: optionalString,
 });

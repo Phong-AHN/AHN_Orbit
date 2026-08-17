@@ -20,6 +20,7 @@ import { audit, type AuditInput } from '@/server/audit';
 import { openGateFor, voidOpenGates } from '@/features/approvals/records';
 import type { CreatePostInput, UpdatePostInput, UpdateVariantInput } from './contracts';
 import { validatePost } from './validation';
+import { assertNoBlockingTasks } from '../tasks/service';
 
 /**
  * Post and variant management (T1.9).
@@ -633,6 +634,17 @@ export async function transitionPost(
 
     return { post: found, rule: transition };
   });
+
+  /**
+   * A blocking production task holds the post in DRAFT (SRS §11).
+   *
+   * Checked here, next to validation, and shaped as a refusal — the task layer
+   * never writes a status. Leaving DRAFT is the only move it guards: once the
+   * work is with a reviewer, the pipeline has done its job.
+   */
+  if (post.status === 'DRAFT' && to !== 'CANCELED') {
+    await withTenant(ctx, (db) => assertNoBlockingTasks(db, postId));
+  }
 
   // Submitting for review must not be possible while the content cannot be
   // published; validating here is cheaper than discovering it at publish time.

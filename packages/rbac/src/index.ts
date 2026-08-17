@@ -19,6 +19,7 @@ export {
 
 export {
   can,
+  canSomewhere,
   canPlatform,
   decide,
   decidePlatform,

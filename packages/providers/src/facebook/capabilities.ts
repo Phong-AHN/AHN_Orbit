@@ -28,7 +28,9 @@ export const FACEBOOK_DEFAULT_SCOPES = [...FACEBOOK_PUBLISH_SCOPES] as const;
  * `page_impressions` and `page_fans` were withdrawn on 2025-11-15 and now
  * return an invalid-metric *error* rather than an empty result — an
  * implementation written from older tutorials simply fails at runtime.
- * A further wave landed 2026-06-15 (docs/SOCIAL_PROVIDERS.md §3).
+ * A further wave landed 2026-06-15 (docs/SOCIAL_PROVIDERS.md §3), and the
+ * v25.0 changelog announces another for v26.0 — those names are listed as
+ * deprecated below *before* they break, so nothing gets built on one.
  */
 const AVAILABLE_METRICS = [
   'page_media_view',
@@ -56,6 +58,17 @@ const DEPRECATED_METRICS = [
   'post_impressions_fan',
   'page_engaged_users',
   'page_positive_feedback_by_type',
+
+  // Announced in the v25.0 changelog as going when v26.0 ships later in 2026.
+  // Listed now rather than when they break: the whole point of this array is
+  // that Phase 3 can see which names are a dead end before building on one.
+  // The stated replacement for the `*_impressions_unique` pair is
+  // `page_total_media_view_unique` / `post_total_media_view_unique`, both of
+  // which are already in AVAILABLE_METRICS above.
+  'page_posts_impressions',
+  'post_video_views_unique',
+  'total_video_impressions',
+  'total_video_impressions_unique',
 ] as const;
 
 export function facebookPageCapabilities(apiVersion: string): PlatformCapabilities {

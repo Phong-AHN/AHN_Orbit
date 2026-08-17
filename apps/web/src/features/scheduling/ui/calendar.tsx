@@ -2,10 +2,17 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import type { PostStatus } from '@orbit/core';
 import { Badge, Button, Card, CardBody, Empty, ErrorState, Loading, cn } from '@orbit/ui';
 import { ApiError } from '@/features/posts/ui/api';
-import { STATUS_LABEL, STATUS_TONE } from '@/features/posts/ui/status';
+import {
+  STATUS_LABEL,
+  STATUS_TONE,
+  dayKeyIn,
+  reschedulePost,
+  timeIn,
+  wallPartsIn,
+  type CalendarPost,
+} from './calendar-shared';
 
 /**
  * The month calendar (SRS §12).
@@ -21,16 +28,7 @@ import { STATUS_LABEL, STATUS_TONE } from '@/features/posts/ui/status';
  *     refused — a silent revert would leave the user believing it worked.
  */
 
-export interface CalendarPost {
-  id: string;
-  title: string | null;
-  body: string;
-  status: PostStatus;
-  scheduledFor: string | null;
-  /** The zone the schedule was expressed in. */
-  timezone: string | null;
-  variants: Array<{ id: string; platform: string; status: string; accountName: string }>;
-}
+export type { CalendarPost };
 
 export interface CalendarProps {
   orgSlug: string;
@@ -85,35 +83,16 @@ export function Calendar(props: CalendarProps) {
     setError(null);
 
     try {
-      const response = await fetch(
-        `/api/v1/orgs/${encodeURIComponent(props.orgSlug)}/posts/${postId}/schedule`,
-        {
-          method: 'PATCH',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            localTime: {
-              year: target.year,
-              month: target.month,
-              day: target.day,
-              // The hour and minute keep their meaning in the post's own zone,
-              // which is the workspace's — the server resolves it there.
-              hour: wall.hour,
-              minute: wall.minute,
-            },
-          }),
-        },
-      );
+      const result = await reschedulePost(props.orgSlug, postId, {
+        year: target.year,
+        month: target.month,
+        day: target.day,
+        // The hour and minute keep their meaning in the post's own zone, which
+        // is the workspace's — the server resolves it there.
+        hour: wall.hour,
+        minute: wall.minute,
+      });
 
-      if (!response.ok) {
-        const body: unknown = await response.json().catch(() => null);
-        const envelope =
-          body && typeof body === 'object' && 'error' in body
-            ? (body as { error: ConstructorParameters<typeof ApiError>[1] }).error
-            : {};
-        throw new ApiError(response.status, envelope);
-      }
-
-      const result = (await response.json()) as { scheduledFor: string };
       setPosts((current) =>
         current.map((p) => (p.id === postId ? { ...p, scheduledFor: result.scheduledFor } : p)),
       );
@@ -316,38 +295,6 @@ function PostChip({
 // Hanoi lands on the day the viewer would call it — which is the whole point of
 // the display zone being separate from the scheduling zone.
 
-function timeIn(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    timeZone,
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).format(date);
-}
-
-function wallPartsIn(date: Date, timeZone: string) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date);
-
-  const read = (type: Intl.DateTimeFormatPartTypes) =>
-    Number(parts.find((part) => part.type === type)?.value ?? '0');
-
-  return {
-    year: read('year'),
-    month: read('month'),
-    day: read('day'),
-    hour: read('hour'),
-    minute: read('minute'),
-  };
-}
-
 /** The same clock time, on a different date. */
 function shiftDate(original: Date, targetDay: Date): Date {
   const shifted = new Date(original);
@@ -357,11 +304,6 @@ function shiftDate(original: Date, targetDay: Date): Date {
     targetDay.getUTCDate(),
   );
   return shifted;
-}
-
-function dayKeyIn(date: Date, timeZone: string): string {
-  const parts = wallPartsIn(date, timeZone);
-  return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
 }
 
 /**

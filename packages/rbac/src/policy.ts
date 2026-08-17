@@ -220,6 +220,36 @@ export function decidePlatform(
     : { allowed: false, reason: 'NOT_PLATFORM_ADMIN' };
 }
 
+/**
+ * Could this principal ever exercise this permission *somewhere*?
+ *
+ * **For navigation and menus only — never for authorization.**
+ *
+ * `can()` answers "may they do this to *that* resource", and a workspace-scoped
+ * grant asked without a workspace correctly answers no. Navigation has no
+ * resource to name: the question a menu asks is whether Analytics is part of
+ * this person's product at all, and answering that with `can()` would hide
+ * every workspace-scoped destination from exactly the roles built around them —
+ * an Account Manager would lose Analytics, Media and Approvals in one go.
+ *
+ * So this checks the grant exists for the role and the membership is active,
+ * and deliberately ignores scope. It is safe because it guards nothing: the
+ * route re-checks with the real resource, and the API re-checks again. Showing
+ * a link somebody's next click might still refuse is a far smaller harm than a
+ * product that looks empty to the people who use it most.
+ */
+export function canSomewhere(ctx: TenantContext, permission: Permission): boolean {
+  if (UNGRANTABLE.has(permission)) return false;
+
+  const principal = ctx.principal;
+
+  if (principal.kind === 'SYSTEM') return principal.capabilities.includes(permission);
+  if (PLATFORM_ONLY.has(permission)) return false;
+  if (principal.membershipStatus !== 'ACTIVE') return false;
+
+  return Boolean(ROLE_GRANTS[principal.organizationRole][permission]);
+}
+
 export function canPlatform(user: { isPlatformAdmin: boolean }, permission: Permission): boolean {
   return decidePlatform(user, permission).allowed;
 }

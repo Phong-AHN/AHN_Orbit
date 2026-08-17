@@ -47,6 +47,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.717.0
         version: 3.1108.0
+      '@orbit/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@orbit/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -144,6 +147,18 @@ importers:
       '@orbit/storage':
         specifier: workspace:*
         version: link:../../packages/storage
+
+  packages/ai:
+    dependencies:
+      '@orbit/core':
+        specifier: workspace:*
+        version: link:../core
+      '@orbit/observability':
+        specifier: workspace:*
+        version: link:../observability
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
 
   packages/auth:
     dependencies:

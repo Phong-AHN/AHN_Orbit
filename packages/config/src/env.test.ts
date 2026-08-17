@@ -18,7 +18,7 @@ describe('parseServerEnv', () => {
     const env = parseServerEnv(valid);
 
     expect(env.APP_ENV).toBe('development');
-    expect(env.FACEBOOK_GRAPH_VERSION).toBe('v21.0');
+    expect(env.FACEBOOK_GRAPH_VERSION).toBe('v25.0');
     expect(env.LOG_LEVEL).toBe('info');
   });
 

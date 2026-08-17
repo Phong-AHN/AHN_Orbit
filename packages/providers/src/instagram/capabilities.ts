@@ -78,17 +78,79 @@ export const INSTAGRAM_LOGIN_SCOPES = [
  * we do not claim simply is not offered, which is recoverable; a metric we
  * claim and cannot fetch reads as a broken integration.
  */
-const AVAILABLE_METRICS = ['reach', 'likes', 'comments', 'saved', 'shares'] as const;
+/**
+ * Media metrics, at v25.0.
+ *
+ * `views` is the one that matters and it is *new*: Meta introduced it in the
+ * v22.0 changelog as the single replacement for the play-and-impression family,
+ * and deprecated that whole family on 2025-04-21. Reading Instagram performance
+ * on this version means reading `views` — an implementation carried over from a
+ * pre-v22 tutorial asks for `impressions` and gets an error, not a zero.
+ */
+const AVAILABLE_METRICS = ['views', 'reach', 'likes', 'comments', 'saved', 'shares'] as const;
 
-/** Withdrawn for media objects; kept so a stored snapshot stays explicable. */
-const DEPRECATED_METRICS = ['impressions', 'engagement'] as const;
+/**
+ * Account-level metrics, which are **not** the media-level ones (verified
+ * 2026-08-14 against Meta's Instagram User Insights reference).
+ *
+ * Two differences matter enough to spell out, because assuming parity with
+ * either Facebook or with `AVAILABLE_METRICS` above produces a call that fails:
+ *
+ * 1. **The spelling differs by level.** Media insights use `saved`; account
+ *    insights use `saves`. The same concept, two names, and asking the wrong
+ *    one is an invalid-metric error rather than an empty result.
+ * 2. **Account metrics need `metric_type=total_value`.** Without it Graph
+ *    returns a time series, and several of these have no time-series form at
+ *    all.
+ *
+ * Deliberately excluded, and why — this list is short on purpose:
+ *
+ * - `follower_demographics`, `engaged_audience_demographics` — `lifetime`
+ *   period with a `timeframe` parameter, a different call shape entirely, and
+ *   they carry a **100-follower minimum**.
+ * - `follows_and_unfollows` — same 100-follower minimum. A new client account
+ *   with forty followers would error, and one bad metric in a batch fails the
+ *   whole request, which would leave that account with *no* analytics rather
+ *   than one missing number.
+ * - `replies`, `reposts` — story and DM oriented; nothing in the product reads
+ *   them yet, and an unread metric is still a quota cost on every poll.
+ */
+const ACCOUNT_METRICS = [
+  'reach',
+  'views',
+  'likes',
+  'saves',
+  'shares',
+  'comments',
+  'total_interactions',
+  'profile_links_taps',
+  'accounts_engaged',
+] as const;
+
+export const INSTAGRAM_ACCOUNT_METRICS = ACCOUNT_METRICS;
+
+/**
+ * Withdrawn for media objects; kept so a stored snapshot stays explicable.
+ *
+ * The last four went on 2025-04-21 with v22.0. `impressions` is a special case:
+ * Meta continues to return it for media created on or before 2024-07-01, which
+ * makes it exactly the kind of metric that looks alive in a spot check and is
+ * dead for anything published since.
+ */
+const DEPRECATED_METRICS = [
+  'impressions',
+  'engagement',
+  'plays',
+  'clips_replays_count',
+  'ig_reels_aggregated_all_plays_count',
+] as const;
 
 export function instagramCapabilities(apiVersion: string): PlatformCapabilities {
   return defineCapabilities({
     platform: 'INSTAGRAM',
     accountType: 'INSTAGRAM_BUSINESS',
     apiVersion,
-    verifiedOn: '2026-08-13',
+    verifiedOn: '2026-08-14',
 
     text: {
       supported: true,

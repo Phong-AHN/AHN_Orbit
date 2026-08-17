@@ -8,7 +8,7 @@ import {
 } from '@orbit/core';
 import { PERMISSIONS, UNGRANTABLE_PERMISSIONS, type Permission } from './permissions.js';
 import { ROLE_GRANTS } from './matrix.js';
-import { assertCan, can, decide, effectivePermissions } from './policy.js';
+import { assertCan, can, canSomewhere, decide, effectivePermissions } from './policy.js';
 
 const ORG = '018f0000-0000-7000-8000-0000000000aa';
 const WS_A = '018f0000-0000-7000-8000-0000000000w1';
@@ -439,6 +439,68 @@ describe('effectivePermissions', () => {
       );
       for (const ungrantable of UNGRANTABLE_PERMISSIONS) {
         expect(permissions as Permission[]).not.toContain(ungrantable);
+      }
+    }
+  });
+});
+
+/**
+ * `canSomewhere` — the navigation predicate.
+ *
+ * It exists because `can()` correctly denies a workspace-scoped grant asked
+ * without a workspace, which would have hidden Analytics, Media and Approvals
+ * from an Account Manager — the role built around them. These tests pin both
+ * halves: that it is permissive enough to be useful, and that it never becomes
+ * a way around the real check.
+ */
+describe('canSomewhere (navigation only)', () => {
+  it('allows a workspace-scoped grant with no resource named', () => {
+    const manager = ctx({ organizationRole: 'ACCOUNT_MANAGER', workspaces: [] });
+
+    // The real check denies — correctly, there is no workspace to test.
+    expect(can(manager, 'analytics:read')).toBe(false);
+    // The menu question is a different one.
+    expect(canSomewhere(manager, 'analytics:read')).toBe(true);
+  });
+
+  it('still says no when the role has no grant at all', () => {
+    // A Content Creator cannot manage social connections, at any scope.
+    expect(
+      canSomewhere(ctx({ organizationRole: 'CONTENT_CREATOR' }), 'social_account:connect'),
+    ).toBe(false);
+  });
+
+  it('never grants an ungrantable permission', () => {
+    expect(
+      canSomewhere(ctx({ organizationRole: 'OWNER' }), 'social_credential:read_plaintext'),
+    ).toBe(false);
+  });
+
+  it('never grants a platform permission to a tenant principal', () => {
+    expect(canSomewhere(ctx({ organizationRole: 'OWNER' }), 'admin:orgs_read')).toBe(false);
+  });
+
+  it('refuses a suspended membership, exactly as the real check does', () => {
+    const suspended = ctx({ organizationRole: 'ADMIN', membershipStatus: 'SUSPENDED' });
+
+    expect(can(suspended, 'post:read')).toBe(false);
+    expect(canSomewhere(suspended, 'post:read')).toBe(false);
+  });
+
+  /**
+   * The property that makes it safe to use in a menu: it is a *superset* of
+   * `can`, never a bypass. Anything the real check allows, this allows; nothing
+   * this allows is thereby permitted — the route and the API still decide.
+   */
+  it('is a superset of can, for every permission a Client holds', () => {
+    const client = ctx({
+      organizationRole: 'CLIENT',
+      workspaces: [{ workspaceId: WS_A, role: 'CLIENT_APPROVER' }],
+    });
+
+    for (const permission of PERMISSIONS) {
+      if (can(client, permission, { workspaceId: WS_A, brandId: BRAND_A })) {
+        expect(canSomewhere(client, permission)).toBe(true);
       }
     }
   });

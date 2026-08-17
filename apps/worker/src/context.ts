@@ -33,7 +33,7 @@ export interface JobTenant {
 
 export interface SubjectLookup {
   /** Model to resolve on. Its row carries the authoritative tenant. */
-  subjectType: 'postVariant' | 'mediaAsset' | 'socialAccount' | 'post';
+  subjectType: 'postVariant' | 'mediaAsset' | 'socialAccount' | 'post' | 'report';
   subjectId: string;
 }
 
@@ -87,6 +87,8 @@ async function lookupSubject(subject: SubjectLookup): Promise<{ organizationId: 
       return platformDb.socialAccount.findUnique({ where, select });
     case 'post':
       return platformDb.post.findUnique({ where, select });
+    case 'report':
+      return platformDb.report.findUnique({ where, select });
     default: {
       const exhaustive: never = subject.subjectType;
       throw new Error(`Unhandled job subject type: ${String(exhaustive)}`);

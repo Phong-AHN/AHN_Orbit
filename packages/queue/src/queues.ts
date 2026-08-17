@@ -95,6 +95,7 @@ export const notificationPayloadSchema = jobEnvelopeSchema.extend({
 export const maintenancePayloadSchema = z.object({
   correlationId: z.string().min(1).max(200),
   task: z.enum([
+    'drain-email-outbox',
     'retention',
     'analytics-rollup',
     'cleanup-staged-accounts',
@@ -115,12 +116,26 @@ export const schedulerPayloadSchema = z.object({
   task: z.enum(['sweep-due', 'report-stale']),
 });
 
+/**
+ * Rendering a client report (SRS §19, T3.5).
+ *
+ * The payload names the row and nothing else. What the report *contains* — its
+ * range, its filters — lives in `Report.parameters`, written when the request
+ * was authorised, so a job cannot widen its own scope by carrying different
+ * arguments than the ones that were approved.
+ */
+export const reportPayloadSchema = jobEnvelopeSchema.extend({
+  reportId: z.string().uuid(),
+});
+
 // ── The catalogue ───────────────────────────────────────────────────────────
 
 export const QUEUE_DEFINITIONS = {
   publish: { schema: publishPayloadSchema, concurrency: 8 },
   media: { schema: mediaPayloadSchema, concurrency: 5 },
   analytics: { schema: analyticsPayloadSchema, concurrency: 3 },
+  // Low: a render reads a lot of rows and nobody is blocked on the second one.
+  reports: { schema: reportPayloadSchema, concurrency: 2 },
   'account-health': { schema: accountHealthPayloadSchema, concurrency: 2 },
   notifications: { schema: notificationPayloadSchema, concurrency: 10 },
   maintenance: { schema: maintenancePayloadSchema, concurrency: 1 },

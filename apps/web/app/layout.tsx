@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { ToastProvider } from '@orbit/ui';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -44,7 +45,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         >
           Skip to content
         </a>
-        {children}
+        {/* At the root so every surface — agency, portal and admin — gets the
+            same feedback. `useToast` no-ops without it rather than throwing, so
+            a page still works if this is ever removed. */}
+        <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
   );

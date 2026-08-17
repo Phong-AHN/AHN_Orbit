@@ -147,6 +147,18 @@ export interface PublishContext {
   correlationId: string;
   /** Abort signal so a hung provider call cannot pin a worker slot. */
   signal?: AbortSignal | undefined;
+  /**
+   * Persist an opaque handle *before* making a call whose outcome could be
+   * ambiguous, so reconciliation can later ask the platform a direct question
+   * instead of inferring the answer from a listing.
+   *
+   * The shape is the provider's own business — the engine stores it and hands
+   * it back verbatim in `ReconcileContext.providerRef`, and no code outside the
+   * adapter that wrote it may interpret it. Awaiting the call is the point: a
+   * handle written after the ambiguous request would not exist in the case it
+   * was written for.
+   */
+  recordProviderRef?: ((ref: Record<string, unknown>) => Promise<void>) | undefined;
 }
 
 export interface PublishResult {
@@ -163,6 +175,11 @@ export interface ReconcileContext {
   contentHash: string;
   /** Body we attempted, for platforms where matching must fall back to text. */
   body: string;
+  /**
+   * Whatever the adapter stored through `recordProviderRef` on the attempt
+   * being reconciled, verbatim, or undefined if it never wrote one.
+   */
+  providerRef?: Record<string, unknown> | undefined;
   /** Window to search, bracketing the ambiguous attempt. */
   attemptedAt: Date;
   windowMs: number;

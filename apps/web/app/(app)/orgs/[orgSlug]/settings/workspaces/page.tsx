@@ -101,7 +101,22 @@ export default async function WorkspacesPage({ params, searchParams }: PageProps
                       {workspace.clientCompanyName ? ` · ${workspace.clientCompanyName}` : ''}
                     </p>
                   </div>
-                  {workspace.status === 'ARCHIVED' ? <Badge tone="neutral">Archived</Badge> : null}
+                  <div className="flex items-center gap-2">
+                    {workspace.status === 'ARCHIVED' ? (
+                      <Badge tone="neutral">Archived</Badge>
+                    ) : null}
+
+                    {/* The queue had no entry point at all, so "add to queue"
+                        resolved against slots nobody could see or create. */}
+                    {pageCan(ctx, 'post:read', { workspaceId: workspace.id }) ? (
+                      <Link
+                        href={`/orgs/${orgSlug}/settings/workspaces/${workspace.id}/queue`}
+                        className="rounded text-sm text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+                      >
+                        Posting times
+                      </Link>
+                    ) : null}
+                  </div>
                 </CardHeader>
 
                 <CardBody className="space-y-3">
@@ -127,9 +142,15 @@ export default async function WorkspacesPage({ params, searchParams }: PageProps
                                   style={{ backgroundColor: brand.primaryColor }}
                                 />
                               ) : null}
-                              <span className="truncate text-sm font-medium text-ink">
+                              {/* The brand's own page, which is where its
+                                  Brand Brain lives (T4.1). The name is the
+                                  obvious thing to click and had nowhere to go. */}
+                              <Link
+                                href={`/orgs/${orgSlug}/brands/${brand.id}`}
+                                className="truncate text-sm font-medium text-ink hover:underline"
+                              >
                                 {brand.name}
-                              </span>
+                              </Link>
                               <Badge tone={connected > 0 ? 'success' : 'warning'}>
                                 {connected > 0
                                   ? `${connected} account${connected === 1 ? '' : 's'}`

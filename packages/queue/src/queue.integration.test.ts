@@ -145,6 +145,7 @@ describe('queue depth and age', () => {
         'media',
         'notifications',
         'publish',
+        'reports',
         'scheduler',
       ].sort(),
     );

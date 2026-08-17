@@ -100,6 +100,65 @@ error rather than degrading quietly.
 | Reels unique impressions | **2026-06-15** | Reels **play count** only |
 | Various unique-impression and 3-second-video-view metrics | **2026-06-15** | no direct replacement |
 
+### Announced for v26.0 (from the v25.0 changelog, verified 2026-08-14)
+
+Not broken yet. Listed here — and marked deprecated in the capability descriptor
+— *before* they break, so the Phase 3 rollup is never built on one.
+
+| Metric | Replacement |
+|---|---|
+| `page_posts_impressions` | `page_total_media_view_unique` |
+| `post_video_views_unique` | no direct replacement |
+| `total_video_impressions` / `total_video_impressions_unique` | no direct replacement |
+| `PAGE_STORY_IMPRESSIONS_BY_STORY_ID` (+ `_UNIQUE`) | no direct replacement |
+
+### Instagram media metrics (verified 2026-08-14)
+
+Instagram's deprecation is a different shape and easy to miss: the whole
+play-and-impression family went on **2025-04-21** with v22.0, replaced by a
+single `views`.
+
+| Deprecated metric | Replacement |
+|---|---|
+| `impressions` | **`views`** |
+| `plays` | **`views`** |
+| `clips_replays_count` | **`views`** |
+| `ig_reels_aggregated_all_plays_count` | **`views`** |
+
+> `impressions` continues to return data for media created **on or before
+> 2024-07-01**. It looks alive in a spot check and is dead for anything
+> published since — which is worse than a clean failure, because it produces a
+> number rather than an error.
+
+### Instagram **account** insights are not Instagram **media** insights (verified 2026-08-14)
+
+A separate endpoint with separate rules. Assuming parity — with Facebook, or
+even with Instagram's own media metrics — produces a call that errors rather
+than one that degrades.
+
+| Difference | Media (`/{ig-media-id}/insights`) | Account (`/{ig-user-id}/insights`) |
+|---|---|---|
+| The save metric | `saved` | **`saves`** |
+| Shape | `values` series | `total_value` object, with `metric_type=total_value` |
+| Period | lifetime totals | `day` |
+
+**Requested:** `reach`, `views`, `likes`, `saves`, `shares`, `comments`,
+`total_interactions`, `profile_links_taps`, `accounts_engaged`.
+
+**Deliberately not requested, and this is a real limitation rather than an
+oversight** (**D-059**):
+
+| Excluded | Why |
+|---|---|
+| `follows_and_unfollows` | 100-follower minimum |
+| `follower_demographics`, `engaged_audience_demographics` | 100-follower minimum, `lifetime` period, and a `timeframe` parameter — a different call shape |
+| `replies`, `reposts` | Story/DM oriented; nothing reads them, and an unread metric is still quota on every poll |
+
+> One invalid metric fails the **whole batch**. Including a follower-gated
+> metric would leave a new client account with forty followers holding *no*
+> analytics at all, rather than one missing number. That is why the gated ones
+> are out rather than merely marked unavailable.
+
 **Consequences for the design:**
 
 - The metric list is **provider-versioned configuration**, never string literals scattered through

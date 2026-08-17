@@ -32,10 +32,21 @@ interface PlanLimits {
   [key: string]: number | undefined;
 }
 
+/**
+ * What a trial gets.
+ *
+ * `aiCreditsPerMonth` is **one credit per AI request**, not per token (T4.3).
+ * A per-request count is the one a person can reason about — "fifty
+ * suggestions this month" — and it does not change meaning when the model does.
+ *
+ * Note this constant only governs organizations created *after* it changes:
+ * an existing subscription carries its own `limits` on the row, so lowering
+ * this does not take credits away from anybody already on a trial.
+ */
 const DEFAULT_TRIAL_LIMITS: PlanLimits = {
   workspaces: 3,
   socialAccounts: 5,
-  aiCreditsPerMonth: 500,
+  aiCreditsPerMonth: 50,
   storageBytes: 5 * 1024 ** 3,
 };
 

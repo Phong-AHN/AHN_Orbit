@@ -23,6 +23,7 @@ export {
   resetS3,
   presignUpload,
   presignDownload,
+  putObject,
   headObject,
   readRange,
   deleteObject,

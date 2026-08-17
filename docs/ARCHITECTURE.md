@@ -232,7 +232,8 @@ Full schema in `DATABASE.md`. Architectural stance:
 | `analytics` | repeatable | 3 | Pull post/account metrics |
 | `account-health` | repeatable (hourly) | 2 | Token validity & permission probe |
 | `notifications` | domain events | 10 | In-app + email fan-out |
-| `maintenance` | repeatable (nightly) | 1 | Retention, snapshot rollups, cleanup |
+| `reports` | a person asking for one | 2 | Render a client report and store it |
+| `maintenance` | repeatable | 1 | Retention (nightly), analytics rollup (hourly), cleanup |
 
 A **repeatable scheduler job** runs every 30s, selects `PostVariant`s whose `scheduledFor <= now()`
 and status is `SCHEDULED`, and enqueues them (**C10**, ±60s tolerance). Scheduling is *not* done with
@@ -242,8 +243,13 @@ database stops being the source of truth.
 **Implemented in T1.11** (`packages/queue`, `apps/worker`). Every queue above is declared with a zod
 payload schema in `queues.ts`; a payload that does not parse never reaches a processor, on either
 side of the queue. The runtime plus the `maintenance` processor shipped there; `publish` landed with
-T1.13, `account-health` with T1.7 and `notifications` with T1.15. `media` and `analytics` land with
-their features.
+T1.13, `account-health` with T1.7, `notifications` with T1.15, `analytics` with T3.1 and `reports`
+with T3.5. `media` lands with its feature.
+
+`reports` is the only queue a **person** produces to directly, and its payload is deliberately thin:
+it names a `Report` row and nothing else. What the report covers lives in `Report.parameters`,
+written when the request was authorised, so a job cannot widen its own scope by carrying different
+arguments than the ones that were approved.
 
 The `notifications` payload names a **subject**, never an audience — recipients are resolved by the
 processor from live memberships and the real policy engine (**D-035**). It carries one identity

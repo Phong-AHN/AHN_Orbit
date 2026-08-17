@@ -34,9 +34,17 @@ export function loadRootEnv(): void {
   const root = findWorkspaceRoot();
   if (!root) return;
 
-  // Order matters: the first file to define a key owns it, so the test
-  // overrides are read before the ambient `.env`.
-  const files = process.env.NODE_ENV === 'test' ? ['.env.test', '.env'] : ['.env'];
+  /**
+   * Order matters: the first file to define a key owns it, so the overrides are
+   * read before the ambient `.env`.
+   *
+   * `.env.local` is the per-machine override — the file that says "on *this*
+   * laptop, `APP_URL` is localhost" without editing a file anyone else shares.
+   * It is deliberately absent from the test list, following the same convention
+   * Next.js uses: a personal override that silently changed what the test suite
+   * asserts would make a green run on one machine mean nothing on another.
+   */
+  const files = process.env.NODE_ENV === 'test' ? ['.env.test', '.env'] : ['.env.local', '.env'];
 
   for (const name of files) {
     const file = join(root, name);

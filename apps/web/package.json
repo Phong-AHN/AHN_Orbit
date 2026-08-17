@@ -17,6 +17,7 @@
     "@orbit/db": "workspace:*",
     "@orbit/notifications": "workspace:*",
     "@orbit/observability": "workspace:*",
+    "@orbit/ai": "workspace:*",
     "@orbit/providers": "workspace:*",
     "@orbit/queue": "workspace:*",
     "@orbit/rbac": "workspace:*",

@@ -9,7 +9,7 @@ import {
   type AuthenticatedUser,
   type OrganizationSummary,
 } from '@orbit/auth';
-import { can, type Permission, type ResourceScope } from '@orbit/rbac';
+import { can, canSomewhere, type Permission, type ResourceScope } from '@orbit/rbac';
 
 /**
  * The server-component counterpart to `withAuth`.
@@ -65,6 +65,18 @@ export async function requirePageContext(organizationRef: string): Promise<PageC
 }
 
 /** Non-throwing permission check for deciding what a page renders. */
+/**
+ * "Is this part of their product at all?" — for navigation only.
+ *
+ * See `canSomewhere` in @orbit/rbac: a workspace-scoped grant asked without a
+ * workspace correctly denies, so building a menu with `pageCan` would hide
+ * Analytics, Media and Approvals from an Account Manager. This guards nothing;
+ * the page and the API each check properly with the real resource.
+ */
+export function pageCanSomewhere(ctx: TenantContext, permission: Permission): boolean {
+  return canSomewhere(ctx, permission);
+}
+
 export function pageCan(
   ctx: TenantContext,
   permission: Permission,

@@ -89,6 +89,10 @@ const OWNER: RoleGrants = {
   'post:update': { scope: 'ORG', requiresEditable: true },
   'post:delete': ORG,
   'post:assign': ORG,
+  'task:create': ORG,
+  'task:read': ORG,
+  'task:update': ORG,
+  'task:delete': ORG,
   'post:submit_internal_review': ORG,
   'post:approve_internal': ORG,
   'post:submit_client_review': ORG,
@@ -158,6 +162,10 @@ const ACCOUNT_MANAGER: RoleGrants = {
   'post:update': { scope: 'WORKSPACE', requiresEditable: true },
   'post:delete': WS,
   'post:assign': WS,
+  'task:create': WS,
+  'task:read': WS,
+  'task:update': WS,
+  'task:delete': WS,
   'post:submit_internal_review': WS,
   'post:approve_internal': WS,
   'post:submit_client_review': WS,
@@ -201,6 +209,11 @@ const CONTENT_CREATOR: RoleGrants = {
   'post:delete': { scope: 'OWN', requiresEditable: true },
   'post:submit_internal_review': OWN,
 
+  'task:read': BRAND,
+  // A contributor moves the task they were given; adding or removing stages is
+  // a manager's decision about how the work is organised, not their own.
+  'task:update': { scope: 'OWN', note: 'tasks assigned to them' },
+
   'comment:create': BRAND,
   'comment:read_internal': BRAND,
   'comment:resolve': OWN,
@@ -229,6 +242,8 @@ const APPROVER: RoleGrants = {
   'post:approve_internal': { scope: 'BRAND', requiresApprovalRight: true },
   'post:submit_client_review': { scope: 'BRAND', requiresApprovalRight: true },
   'post:request_changes': BRAND,
+
+  'task:read': BRAND,
 
   'comment:create': BRAND,
   'comment:read_internal': BRAND,

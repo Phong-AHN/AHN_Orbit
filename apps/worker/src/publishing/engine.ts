@@ -10,6 +10,7 @@ import {
 } from '@orbit/core';
 import { PUBLISH_WORKER_CAPABILITIES, systemContext } from '@orbit/auth';
 import { platformDb } from '@orbit/db';
+import type { Prisma } from '@orbit/db';
 import { logger, logError, recordProviderError, recordPublishOutcome } from '@orbit/observability';
 import {
   LOCK_UNAVAILABLE,
@@ -280,6 +281,22 @@ async function attemptPublish(run: ClaimedRun, subject: PublishSubject): Promise
       contentHash: subject.contentHash,
       correlationId: run.correlationId,
       signal: controller.signal,
+      /**
+       * A provider handle, written straight through to the row before the
+       * adapter makes a call it may not get an answer to.
+       *
+       * Awaited, and deliberately not batched with the outcome write: the whole
+       * value of this handle is that it is durable at the moment the process
+       * could die, and anything deferred to the end would not be there in the
+       * only case that matters. What is inside it is the adapter's business —
+       * this stores an opaque object and never reads it (**D-055**).
+       */
+      recordProviderRef: async (ref) => {
+        await platformDb.postVariant.update({
+          where: { id: subject.variantId },
+          data: { providerRef: ref as Prisma.InputJsonValue },
+        });
+      },
     });
 
     const outcome: AttemptOutcome = {
@@ -391,6 +408,19 @@ async function reconcile(
   try {
     const provider = getProvider(subject.platform);
 
+    // Read fresh rather than from `subject`, which was loaded before the
+    // attempt: the handle is written *during* publishing, so a copy taken
+    // beforehand would never have it.
+    const row = await platformDb.postVariant.findUnique({
+      where: { id: subject.variantId },
+      select: { providerRef: true },
+    });
+
+    const providerRef =
+      row?.providerRef && typeof row.providerRef === 'object' && !Array.isArray(row.providerRef)
+        ? (row.providerRef as Record<string, unknown>)
+        : undefined;
+
     const result = await provider.reconcile({
       credential: subject.credential,
       account: {
@@ -399,6 +429,7 @@ async function reconcile(
       },
       contentHash: subject.contentHash,
       body: subject.draft.body,
+      ...(providerRef ? { providerRef } : {}),
       attemptedAt,
       windowMs: RECONCILE_WINDOW_MS,
       correlationId: run.correlationId,

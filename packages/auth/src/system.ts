@@ -38,6 +38,18 @@ export const ANALYTICS_WORKER_CAPABILITIES = [
 ] as const satisfies readonly Permission[];
 
 /**
+ * The report renderer reads published posts and their stored analytics.
+ *
+ * `analytics:read` and `post:read` and nothing else. It writes only to the
+ * `Report` row it was given — a renderer that could change a post would make
+ * generating a document a way to alter the record it documents.
+ */
+export const REPORT_WORKER_CAPABILITIES = [
+  'post:read',
+  'analytics:read',
+] as const satisfies readonly Permission[];
+
+/**
  * The notification worker reads a subject to describe it and resolves who may
  * see it. It holds no permission to *change* anything — a fan-out that could
  * mutate a post would be a strange kind of fan-out (T1.15).

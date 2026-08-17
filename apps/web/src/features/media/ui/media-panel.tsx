@@ -4,6 +4,7 @@ import * as React from 'react';
 import { Button, Card, CardBody, CardHeader, CardTitle, Input } from '@orbit/ui';
 import { ApiError } from '@/features/posts/ui/api';
 import { completeUpload, presignUpload, putToStorage, viewUrl } from './api';
+import { LibraryPicker } from './library-picker';
 
 /**
  * Attaching images and video to a post.
@@ -182,8 +183,30 @@ export function MediaPanel({
             disabled={disabled || busy}
             onClick={() => inputRef.current?.click()}
           >
-            Add files
+            Upload
           </Button>
+
+          {/* Reuse before re-upload: the same photograph attached twice used to
+              mean two objects in the bucket and two rows in the library. */}
+          <LibraryPicker
+            orgSlug={orgSlug}
+            brandId={brandId}
+            attachedIds={items.map((item) => item.mediaAssetId)}
+            disabled={disabled || busy}
+            onPick={(picked) =>
+              onChange([
+                ...items,
+                ...picked
+                  .filter((asset) => !items.some((item) => item.mediaAssetId === asset.id))
+                  .map((asset) => ({
+                    mediaAssetId: asset.id,
+                    kind: asset.kind,
+                    mimeType: asset.mimeType,
+                    altText: '',
+                  })),
+              ])
+            }
+          />
 
           <span className="text-xs text-ink-muted">
             JPEG, PNG, GIF or WebP. Instagram accepts JPEG only.

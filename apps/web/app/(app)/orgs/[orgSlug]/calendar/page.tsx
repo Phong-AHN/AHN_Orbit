@@ -5,7 +5,9 @@ import { CLIENT_VISIBLE_STATUSES } from '@orbit/rbac';
 import { PageHeader, PermissionDenied, cn } from '@orbit/ui';
 import { pageCan, requirePageContext } from '@/server/page-context';
 import { listCalendar } from '@/features/scheduling/service';
-import { Calendar, CalendarList, type CalendarPost } from '@/features/scheduling/ui/calendar';
+import { Calendar, CalendarList } from '@/features/scheduling/ui/calendar';
+import { CalendarWeek } from '@/features/scheduling/ui/calendar-week';
+import type { CalendarPost } from '@/features/scheduling/ui/calendar-shared';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,7 +79,13 @@ export default async function CalendarPage({ params, searchParams }: PageProps) 
 
   const viewerTimeZone = user.timezone || organization.timezone || 'UTC';
   const month = resolveMonth(readParam(query, 'month'), viewerTimeZone);
-  const view = readParam(query, 'view') === 'list' ? 'list' : 'month';
+  const requested = readParam(query, 'view');
+  const view: 'month' | 'week' | 'list' =
+    requested === 'list' ? 'list' : requested === 'week' ? 'week' : 'month';
+
+  // Week is anchored on a Monday, taken from the URL or from today. Month
+  // navigation still drives the window, so switching views keeps your place.
+  const weekStart = resolveWeekStart(readParam(query, 'week'), month, viewerTimeZone);
 
   const [year, monthNumber] = month.split('-').map(Number);
   // A month grid shows six weeks, so the window is padded either side rather
@@ -137,6 +145,7 @@ export default async function CalendarPage({ params, searchParams }: PageProps) 
 
         <span className="ml-auto flex gap-1.5">
           <ViewLink orgSlug={orgSlug} month={month} view="month" active={view === 'month'} />
+          <ViewLink orgSlug={orgSlug} month={month} view="week" active={view === 'week'} />
           <ViewLink orgSlug={orgSlug} month={month} view="list" active={view === 'list'} />
         </span>
       </nav>
@@ -144,6 +153,17 @@ export default async function CalendarPage({ params, searchParams }: PageProps) 
       <div className="mt-6">
         {view === 'list' ? (
           <CalendarList posts={posts} orgSlug={orgSlug} viewerTimeZone={viewerTimeZone} />
+        ) : view === 'week' ? (
+          <CalendarWeek
+            orgSlug={orgSlug}
+            posts={posts}
+            weekStart={weekStart}
+            viewerTimeZone={viewerTimeZone}
+            todayKey={new Intl.DateTimeFormat('en-CA', { timeZone: viewerTimeZone }).format(
+              clock.now(),
+            )}
+            canReschedule={canReschedule}
+          />
         ) : (
           <Calendar
             orgSlug={orgSlug}
@@ -196,7 +216,7 @@ function ViewLink({
 }: {
   orgSlug: string;
   month: string;
-  view: 'month' | 'list';
+  view: 'month' | 'week' | 'list';
   active: boolean;
 }) {
   return (
@@ -211,4 +231,27 @@ function ViewLink({
       {view}
     </Link>
   );
+}
+
+/**
+ * The Monday anchoring the week view.
+ *
+ * Taken from `?week=` when present, otherwise from today if today falls inside
+ * the month being browsed, otherwise the first Monday of that month — so
+ * switching from month to week lands somewhere related to what you were looking
+ * at rather than snapping back to this week.
+ */
+function resolveWeekStart(requested: string | undefined, month: string, timeZone: string): string {
+  if (requested && /^\d{4}-\d{2}-\d{2}$/.test(requested)) return requested;
+
+  const todayKey = new Intl.DateTimeFormat('en-CA', { timeZone }).format(clock.now());
+  const anchor = todayKey.startsWith(month) ? todayKey : `${month}-01`;
+
+  const [year, monthNumber, day] = anchor.split('-').map(Number);
+  const date = new Date(Date.UTC(year ?? 1970, (monthNumber ?? 1) - 1, day ?? 1, 12));
+
+  // Monday = 0.
+  date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
+
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
 }

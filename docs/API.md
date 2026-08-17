@@ -140,7 +140,8 @@ of clients, accounts or posts (**D-042**).
 | `GET` `POST` | `/orgs/{orgId}/workspaces/{wsId}/brands` | `brand:read` / `brand:create` |
 | `GET` `PATCH` `DELETE` | `/orgs/{orgId}/brands/{brandId}` | `brand:read` / `:update` / `:delete` |
 | `GET` `PUT` | `/orgs/{orgId}/brands/{brandId}/voice` | `brand_voice:read` / `:update` — Brand Brain (§24) |
-| `GET` `POST` `PATCH` `DELETE` | `/orgs/{orgId}/workspaces/{wsId}/queue-slots[/{id}]` | `workspace:update` — §12 posting slots |
+| `GET` `POST` | `/orgs/{orgId}/queue-slots?workspaceId=` | `post:read` / `post:schedule` — §7 posting slots (**D-083**) |
+| `PATCH` `DELETE` | `/orgs/{orgId}/queue-slots/{id}` | `post:schedule` — `PATCH` pauses or resumes; deleting moves nothing already scheduled |
 
 ### 2.4 Social accounts (§7)
 
@@ -247,7 +248,16 @@ stored on the row, and is audited as `approval.approved_on_behalf_of` plus a
 | `POST` | `/orgs/{orgId}/media/{assetId}/complete` | `media:upload` | Enqueues server-side verification of the **actual bytes**; asset stays `PENDING` until it passes |
 | `GET` | `/orgs/{orgId}/media/{assetId}` | `media:read` | Metadata + short-lived signed `GET` URL |
 | `PATCH` `DELETE` | `/orgs/{orgId}/media/{assetId}` | `media:update` / `:delete` | |
-| `GET` `POST` `PATCH` `DELETE` | `/orgs/{orgId}/media/folders[/{id}]` | `media:*` | |
+| `GET` | `/orgs/{orgId}/media/folders?workspaceId` | `media:read` | ✅ |
+| `POST` | `/orgs/{orgId}/media/folders` | `media:upload` | ✅ Optional `parentId`, 5 levels deep |
+| `PATCH` | `/orgs/{orgId}/media/folders/{id}` | `media:update` | ✅ Rename |
+| `DELETE` | `/orgs/{orgId}/media/folders/{id}` | **`media:update`** | ✅ The folder goes; contents move up. **Nothing is deleted** (**D-081**) |
+| `POST` | `/orgs/{orgId}/media/move` | `media:update` | ✅ Returns how many actually moved |
+
+Folders are scoped to a **workspace**, not a brand — agencies file by campaign and by shoot, and
+both span the brands belonging to one client. An asset from another workspace is silently not moved,
+so `moved` can be lower than the number asked for. `GET /media` accepts `folderId`: omitted means
+anywhere, present means that folder, and `workspaceId` alone means the root specifically.
 
 ### 2.8 Publishing & logs (§14)
 
@@ -285,8 +295,14 @@ guess the design forbids.
 | `GET` | `/orgs/{orgId}/analytics/accounts/{accountId}?from&to&compareTo` | `analytics:read` |
 | `GET` | `/orgs/{orgId}/analytics/posts?from&to&brandId&platform&sort=-engagementRate` | `analytics:read` |
 | `GET` | `/orgs/{orgId}/analytics/overview?workspaceId&from&to` | `analytics:read` |
-| `POST` | `/orgs/{orgId}/reports` | `report:generate` — async; returns a `reportId` |
-| `GET` | `/orgs/{orgId}/reports/{id}` | `report:generate` — status + signed download URL |
+| `GET` | `/orgs/{orgId}/reports` | `report:generate` — the organization's reports |
+| `POST` | `/orgs/{orgId}/reports` | `report:generate` — async; returns a queued report |
+| `GET` | `/orgs/{orgId}/reports/{id}` | `report:generate` — status only |
+| `GET` | `/orgs/{orgId}/reports/{id}/download` | **`report:export`** — a 5-minute signed URL |
+
+Download is a separate route on a separate permission, and **no response on any of these carries a
+storage key** — the service's select omits it entirely (**D-060**). Generating a document and
+handing the file to somebody are different acts, which is why the matrix has always had two rights.
 
 Every analytics response carries an `availability` map alongside `metrics`, so the UI can render
 "not provided by Facebook" instead of a misleading zero (§18, `SOCIAL_PROVIDERS.md` §3).
@@ -295,17 +311,26 @@ Every analytics response carries an `availability` map alongside `metrics`, so t
 
 | Method | Path | Permission | Notes |
 |---|---|---|---|
-| `POST` | `/orgs/{orgId}/ai/caption` | `ai:generate` | Body carries `brandId` + intent — **never brand context**; the server loads it (§24) |
-| `POST` | `/orgs/{orgId}/ai/rewrite` | `ai:generate` | `mode: shorten \| expand \| rephrase \| tone` |
-| `POST` | `/orgs/{orgId}/ai/hashtags` · `/ai/cta` · `/ai/adapt` | `ai:generate` | |
+| `POST` | `/orgs/{orgId}/ai/caption` | `ai:generate` | ✅ Body carries `brandId` + intent — **never brand context**; the server loads it (§24) |
+| `POST` | `/orgs/{orgId}/ai/rewrite` | `ai:generate` | ✅ `mode: shorten \| expand \| rephrase \| tone` |
+| `POST` | `/orgs/{orgId}/ai/hashtags` | `ai:generate` | ✅ |
+| `POST` | `/orgs/{orgId}/ai/cta` | `ai:generate` | Not implemented (Phase 4 P2) |
 | `POST` | `/orgs/{orgId}/ai/ideas` | `ai:generate` | Async for monthly plans; returns a `generationId` |
-| `POST` | `/orgs/{orgId}/ai/repurpose` | `ai:generate` | Source text treated strictly as data (R11) |
+| `POST` | `/orgs/{orgId}/ai/repurpose` | `ai:generate` | ✅ Source text treated strictly as data (R11). Length cap and link support come from the target's capability descriptor, never the body (**D-079**) |
 | `GET` | `/orgs/{orgId}/ai/generations/{id}` | `ai:generate` | Poll async results |
-| `GET` `POST` `PATCH` | `/orgs/{orgId}/content-ideas[/{id}]` | `post:create` | `POST /{id}/convert` creates a draft post |
-| `GET` | `/orgs/{orgId}/ai/usage` | `ai:view_usage` | Credits consumed vs. plan limit |
+| `GET` `POST` | `/orgs/{orgId}/content-ideas` | `post:read` / `post:create` | ✅ Filters: `workspaceId`, `brandId`, `state`, `q` |
+| `GET` `PATCH` | `/orgs/{orgId}/content-ideas/{id}` | `post:read` / `post:update` | ✅ `state` accepts SUGGESTED · ACCEPTED · DISMISSED — **not** CONVERTED |
+| `POST` | `/orgs/{orgId}/content-ideas/{id}/convert` | `post:create` | ✅ Creates a **DRAFT** post, once. A second attempt is a 409 (**D-076**) |
+| `GET` | `/orgs/{orgId}/ai/usage` | `ai:view_usage` | ✅ Credits consumed vs. plan limit. **One request = one credit** (**D-066**) |
 
-Every AI response is a **suggestion object** — text plus model id, token usage, and `bannedTermHits`.
-No AI endpoint writes to a post, and none can trigger publishing (§25).
+Every AI response is a **suggestion object** — text plus model id and `bannedTermHits`. No AI
+endpoint writes to a post, and none can trigger publishing (§25).
+
+`bannedTermHits` is a **warning, never a rejection** (**D-067**): the suggestion is returned either
+way and the surface names the words. Rows marked ✅ are implemented; the rest are Phase 4 P2.
+
+Brand context is never accepted from a request body. The body names a `brandId`; the server loads
+that brand's material and fences it as data (**D-065**, §24).
 
 ### 2.11 Notifications (§22)
 

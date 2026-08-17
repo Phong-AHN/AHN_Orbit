@@ -23,7 +23,10 @@ import type { CapabilitySummary } from './capability-summary';
 import { STATUS_LABEL, STATUS_TONE } from './status';
 import { ScheduleForm } from './schedule-form';
 import { MediaPanel, type MediaItem } from '@/features/media/ui/media-panel';
+import { AssigneeSelect } from './assignee-select';
+import { AIAssist } from '@/features/ai/ui/ai-assist';
 import { PublishNowButton } from './publish-now-button';
+import { PostPreview } from './preview';
 
 /**
  * The composer (SRS §9, §31).
@@ -68,6 +71,11 @@ export interface ComposerProps {
   workspaceTimezone: string;
   /** Owner, Admin and Account Manager only (docs/RBAC.md §4.4). */
   canPublishNow: boolean;
+  /** Team members who can own this post; empty when the viewer cannot see them. */
+  members: Array<{ id: string; name: string | null; email: string }>;
+  canAssign: boolean;
+  /** Whether this principal holds `ai:generate` for this brand. */
+  canUseAI: boolean;
 }
 
 type SaveState =
@@ -302,8 +310,37 @@ export function Composer(props: ComposerProps) {
               variants={post.variants}
               capabilities={props.capabilities}
             />
+
+            {props.canUseAI && !readOnly ? (
+              <AIAssist
+                orgSlug={props.orgSlug}
+                brandId={post.brandId}
+                body={body}
+                disabled={readOnly}
+                // Accepting is the only way text reaches the editor, and it goes
+                // through the same setter a keystroke does — so it autosaves,
+                // and it is undoable by typing (SRS §25).
+                onAccept={(text) => {
+                  setBody(text);
+                }}
+              />
+            ) : null}
           </CardBody>
         </Card>
+
+        {props.canAssign && props.members.length > 0 ? (
+          <Card>
+            <CardBody>
+              <AssigneeSelect
+                orgSlug={props.orgSlug}
+                postId={post.id}
+                assignedToId={post.assignedToId}
+                members={props.members}
+                disabled={busy}
+              />
+            </CardBody>
+          </Card>
+        ) : null}
 
         <MediaPanel
           orgSlug={props.orgSlug}
@@ -334,6 +371,7 @@ export function Composer(props: ComposerProps) {
             orgSlug={props.orgSlug}
             post={post}
             capabilities={props.capabilities}
+            media={media}
             activeVariantId={activeVariantId ?? post.variants[0]?.id ?? null}
             onSelect={setActiveVariantId}
             readOnly={readOnly}
@@ -562,6 +600,7 @@ function VariantEditor({
   orgSlug,
   post,
   capabilities,
+  media,
   activeVariantId,
   onSelect,
   readOnly,
@@ -570,6 +609,8 @@ function VariantEditor({
   orgSlug: string;
   post: PostDetail;
   capabilities: Record<string, CapabilitySummary>;
+  /** The composer's live attachments, so the preview matches what is on screen. */
+  media: MediaItem[];
   activeVariantId: string | null;
   onSelect: (id: string) => void;
   readOnly: boolean;
@@ -710,6 +751,28 @@ function VariantEditor({
             Save override
           </Button>
         ) : null}
+
+        {/* Follows the open tab, and reads the *unsaved* text — the question it
+            answers is "does this read well", which is only useful while typing.
+            It has no authority: validity still comes from `/validate`. */}
+        <div className="border-t border-line pt-4">
+          <p className="mb-2 text-sm font-medium text-ink">
+            In the feed{' '}
+            <span className="font-normal text-ink-muted">— a sketch, not a guarantee</span>
+          </p>
+          <div className="max-w-sm">
+            <PostPreview
+              orgSlug={orgSlug}
+              platform={active.platform}
+              accountName={active.socialAccount.displayName}
+              handle={active.socialAccount.handle}
+              text={counted}
+              media={media}
+              firstComment={cap?.supportsFirstComment ? firstComment : ''}
+              capability={cap}
+            />
+          </div>
+        </div>
       </CardBody>
     </Card>
   );

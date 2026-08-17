@@ -77,6 +77,34 @@ what catches the deployment mistake of running the wrong bundle (**D-022**).
 Optional: `FACEBOOK_APP_ID`/`FACEBOOK_APP_SECRET` (absent ⇒ the mock provider, which the registry
 refuses in production), `SENTRY_DSN`, `WORKER_HEALTH_PORT` (3100), `S3_ENDPOINT` for MinIO.
 
+### `FACEBOOK_GRAPH_VERSION` — set it explicitly on every deployed surface
+
+| Variable | Value | Where |
+|---|---|---|
+| `FACEBOOK_GRAPH_VERSION` | `v25.0` | **Vercel** (web) **and Railway** (worker) — both call the Graph API |
+
+The code default is already `v25.0`, so an unset variable is not broken. It is set explicitly
+anyway because the *previous* value is what is dangerous: an environment still carrying `v21.0`
+from before 2026-08-14 silently pins that surface to an old version, and the web app and the worker
+would then be talking to Meta on **different versions** — publishing on one, reading insights on
+another, with different metric names (**D-056**).
+
+`.env.vercel.production` in the repo is a **reference document, not a deployment mechanism.**
+Nothing reads it. Editing it changes nothing until the value is entered in the platform's own
+environment settings.
+
+Check what is actually live rather than trusting the file. `/api/health/deep` will not answer
+this — it reports configuration by *presence* only, never a value, and that invariant is worth more
+than the convenience (SRS §33). Ask the platforms:
+
+```bash
+vercel env ls production | grep FACEBOOK_GRAPH_VERSION
+railway variables --service worker | grep FACEBOOK_GRAPH_VERSION
+```
+
+After a publish, the version actually used is on the row: `PublishingAttempt.providerMeta`
+carries `apiVersion`, which is the after-the-fact proof of what each surface really called.
+
 **`loadRootEnv()` deliberately does not read `.env` in production.** Configuration comes from the
 platform. `SKIP_ENV_VALIDATION=true` is the designed seam for `next build`, which sets
 `NODE_ENV=production` before any real variable exists.
@@ -88,6 +116,27 @@ platform. `SKIP_ENV_VALIDATION=true` is the designed seam for `next build`, whic
 **Migrations → worker → web.** In that order, and it matters:
 
 1. `pnpm db:migrate:deploy` — additive migrations only; the app must tolerate both schemas briefly.
+
+   **Outstanding as of 2026-08-14: `20260814000000_variant_provider_ref`.** Adds
+   `PostVariant.providerRef JSONB`, nullable, no backfill. Instagram writes a container id there
+   *before* the ambiguous `media_publish` call so reconciliation can ask the platform directly
+   instead of guessing from captions (**D-055**).
+
+   It is additive and safe to apply ahead of the code — the previous version of the app simply
+   never writes the column. **Deploying the new worker without it is the failure case:** every
+   Instagram publish attempts to write `providerRef` and fails with *"The column
+   PostVariant.providerRef does not exist"*, so publishing stops for that platform.
+
+   Applies to **every** database that runs the app, which in practice means production and any
+   staging copy. The local test database needs it too, or the integration suite fails the same way.
+
+   **Also outstanding: `20260814010000_report`.** Creates the `Report` table plus the
+   `ReportStatus` and `ReportFormat` enums, with RLS and a composite tenant foreign key. Additive
+   and safe ahead of the code. Without it, requesting a report fails; publishing is unaffected.
+
+   The worker gains a `reports` queue with this release. It needs no configuration — queues are
+   declared in code — but a worker deployed **before** the migration will fail every render job it
+   picks up.
 2. **Worker.** It drains on SIGTERM and reports `outcome: DRAINED`. **Do not set the grace period
    below 90s** — a publish may be mid-call with a 60s timeout, and killing it produces a variant
    stuck in `PUBLISHING` whose outcome nobody knows (`RUNBOOK.md` §3.3).
@@ -187,3 +236,57 @@ SKIP_ENV_VALIDATION=true pnpm build
 ```
 
 `pnpm verify:full` runs everything except the build.
+
+---
+
+## 10. Production readiness checklist
+
+Run through this before the first real agency is let in. Every line is
+verifiable — none of it is "looks fine".
+
+### Before the first deploy
+
+- [ ] **Migrations applied**, in order, to every database the app will touch —
+      production and any staging copy. See §3 for the outstanding ones.
+- [ ] `FACEBOOK_GRAPH_VERSION=v25.0` set explicitly on **Vercel and Railway**
+      (§2). An environment still carrying `v21.0` pins that surface to a version
+      whose Insights metric names differ (**D-056**).
+- [ ] `GEMINI_API_KEY` set, or the writing assistant is expected to be off. With
+      no key, production **refuses at first use** rather than silently answering
+      from a mock (**D-068**).
+- [ ] `CREDENTIAL_ENCRYPTION_KEY` and `STATE_SIGNING_SECRET` are 32 random bytes,
+      base64, and **backed up**. Losing the first loses every social connection.
+- [ ] `ORBIT_ROLE=worker` on the worker and **nowhere else**. `assertWorkerProcess()`
+      refuses to consume without it, which is what catches the wrong bundle.
+- [ ] Worker grace period **≥ 90s** (§3).
+- [ ] S3 bucket blocks all public access; every read is a signed URL.
+- [ ] Redis is `noeviction`. BullMQ losing keys to an eviction policy loses jobs.
+
+### Verify after deploying
+
+- [ ] `GET /api/health/deep` reports database, Redis and storage reachable, and
+      **`worker: true`** — the web app produces jobs and never consumes them, so
+      "Redis is reachable" says nothing about work being done.
+- [ ] A real publish end to end, to a real Page, and confirm the post appears.
+- [ ] The repeatable jobs registered: `cron:reconcile-stuck-jobs` (5m),
+      `cron:cleanup-staged-accounts` (hourly), `cron:sweep-account-health`
+      (hourly), `cron:analytics-rollup` (hourly), `cron:retention` (03:20 daily).
+- [ ] Sentry receiving events, if `SENTRY_DSN` is configured.
+
+### First week
+
+- [ ] An `AuditLog` row with `action = 'retention.swept'` after the first night
+      (RUNBOOK §4). Its absence means the nightly sweep is not running and
+      analytics will accumulate indefinitely.
+- [ ] Analytics rows appearing for published posts within a few hours.
+- [ ] `AIUsage` rows matching the Gemini console's request count, if AI is on.
+
+### Known operational limits
+
+| Limit | Value | Where |
+|---|---|---|
+| Analytics retention | 13–14 months | `ANALYTICS_RETENTION_MONTHS` |
+| Report download life | 7 days | `REPORT_TTL_MS` |
+| Signed report URL | 5 minutes | `DOWNLOAD_URL_TTL_SECONDS` |
+| Trial AI allowance | 50 requests/month | `DEFAULT_TRIAL_LIMITS` |
+| Analytics backfill on connect | 30 days | `BACKFILL_WINDOW_MS` |

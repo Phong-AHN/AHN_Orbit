@@ -101,7 +101,7 @@ function provider(graph: FakeGraph): InstagramProvider {
   return new InstagramProvider({
     appId: 'app-123',
     appSecret: 'secret-abc',
-    apiVersion: 'v21.0',
+    apiVersion: 'v25.0',
     fetchImpl: graph.fetch,
     baseUrl: 'https://graph.test',
   });
@@ -199,7 +199,7 @@ describe('Business Login for Instagram', () => {
     new InstagramProvider({
       appId: 'app-123',
       appSecret: 'secret-abc',
-      apiVersion: 'v21.0',
+      apiVersion: 'v25.0',
       fetchImpl: graph.fetch,
       baseUrl: 'https://graph.test',
       login: { appId: 'ig-app-9', appSecret: 'ig-secret-9' },
@@ -447,6 +447,128 @@ describe('reconciliation', () => {
   });
 });
 
+/**
+ * Reconciling from the container rather than from the caption (**D-055**).
+ *
+ * The caption match is a guess that two posts with the same words can defeat,
+ * and defeating it double-posts to a client's followers. `status_code` is the
+ * platform answering about *this attempt*, so it is asked first — and every one
+ * of its five values has to map to the right outcome, because only NOT_FOUND
+ * lets the engine try again.
+ */
+describe('reconciliation by container status', () => {
+  function withStatus(status: string, media: unknown[] = []) {
+    return new FakeGraph()
+      .on(/\/container-1\?/, { body: { status_code: status } })
+      .on(/\/media(\?|$)/, { body: { data: media } });
+  }
+
+  const ctx = (overrides: Record<string, unknown> = {}) =>
+    ({
+      account: { externalId: 'ig-user-1' },
+      credential,
+      body: 'Ambiguous one',
+      providerRef: { containerId: 'container-1' },
+      attemptedAt: new Date(),
+      windowMs: 10 * 60 * 1000,
+      correlationId: 'corr-1',
+      ...overrides,
+    }) as never;
+
+  it('records the container id before publishing, not after', async () => {
+    const seen: unknown[] = [];
+
+    await provider(graph).publish(
+      publishContext({
+        recordProviderRef: async (ref: unknown) => {
+          // The store has not been published to yet at this point; if this
+          // fired afterwards the id would be useless in the one case it exists
+          // for — a `media_publish` that never returned.
+          expect(graph.media).toHaveLength(0);
+          seen.push(ref);
+        },
+      }),
+    );
+
+    expect(seen).toEqual([{ containerId: 'container-1' }]);
+  });
+
+  it('reports FOUND when the container published and the post is on the timeline', async () => {
+    const graphWith = withStatus('PUBLISHED', [
+      {
+        id: 'ig-media-9',
+        caption: 'Ambiguous one',
+        timestamp: new Date().toISOString(),
+        permalink: 'https://www.instagram.com/p/ig-media-9/',
+      },
+    ]);
+
+    const result = await provider(graphWith).reconcile(ctx());
+
+    expect(result).toMatchObject({ outcome: 'FOUND', externalPostId: 'ig-media-9' });
+  });
+
+  /**
+   * The case the caption match gets wrong. Instagram says it published; the
+   * timeline does not show it yet. NOT_FOUND would retry a post that is live.
+   */
+  it('parks rather than retrying when it published but cannot be located', async () => {
+    const result = await provider(withStatus('PUBLISHED', [])).reconcile(ctx());
+
+    expect(result.outcome).toBe('INCONCLUSIVE');
+  });
+
+  it.each(['ERROR', 'EXPIRED'])('treats %s as a definite NOT_FOUND, safe to retry', async (s) => {
+    const graphWith = withStatus(s);
+
+    const result = await provider(graphWith).reconcile(ctx());
+
+    expect(result.outcome).toBe('NOT_FOUND');
+
+    // And on the container's word alone. An empty timeline also yields
+    // NOT_FOUND, so without this the assertion above would pass even if the
+    // container status were being ignored entirely.
+    expect(
+      graphWith.calls.some((call) => call.method === 'GET' && /\/ig-user-1\/media/.test(call.url)),
+    ).toBe(false);
+  });
+
+  it.each(['IN_PROGRESS', 'FINISHED'])('parks while the container is still %s', async (s) => {
+    const result = await provider(withStatus(s)).reconcile(ctx());
+
+    // Retrying now could publish the very container that is mid-flight.
+    expect(result.outcome).toBe('INCONCLUSIVE');
+  });
+
+  it('never asks about a container when none was recorded', async () => {
+    const graphWith = withStatus('PUBLISHED', []);
+
+    await provider(graphWith).reconcile(ctx({ providerRef: undefined }));
+
+    expect(graphWith.calls.some((call) => call.url.includes('container-1'))).toBe(false);
+  });
+
+  it('falls back to the caption match when the container cannot be read', async () => {
+    const graphWith = new FakeGraph()
+      .on(/\/container-1\?/, { status: 400, body: { error: {} } })
+      .on(/\/media(\?|$)/, {
+        body: {
+          data: [
+            {
+              id: 'ig-media-4',
+              caption: 'Ambiguous one',
+              timestamp: new Date().toISOString(),
+            },
+          ],
+        },
+      });
+
+    const result = await provider(graphWith).reconcile(ctx());
+
+    expect(result).toMatchObject({ outcome: 'FOUND', externalPostId: 'ig-media-4' });
+  });
+});
+
 describe('lifecycle', () => {
   it('explains that Instagram has no delete instead of failing obscurely', async () => {
     await expect(
@@ -497,5 +619,92 @@ describe('lifecycle', () => {
 
     expect(health.status).toBe('NEEDS_RECONNECT');
     expect(health.missingScopes).toContain('instagram_content_publish');
+  });
+});
+
+/**
+ * Account insights are a different API from media insights wearing the same
+ * name (verified 2026-08-14 against Meta's Instagram User Insights reference).
+ *
+ * Both differences here have already cost a live integration somewhere: the
+ * metric spelled `saved` on a media object is `saves` on an account, and the
+ * account endpoint answers in `total_value` rather than `values` once
+ * `metric_type` is set. Getting either wrong does not degrade — it produces an
+ * invalid-metric error or a metric recorded as broken when it arrived fine.
+ */
+describe('account-level insights', () => {
+  const accountGraph = () =>
+    new FakeGraph().on(/\/insights/, {
+      body: {
+        data: [
+          { name: 'reach', total_value: { value: 1234 } },
+          { name: 'views', total_value: { value: 5678 } },
+          { name: 'saves', total_value: { value: 42 } },
+        ],
+      },
+    });
+
+  it('asks for metric_type=total_value, which these metrics require', async () => {
+    const graphWith = accountGraph();
+
+    await provider(graphWith).fetchAccountAnalytics({ externalId: 'ig-user-1' }, credential, {
+      from: new Date('2026-08-01'),
+      to: new Date('2026-08-14'),
+    } as never);
+
+    const call = graphWith.calls.at(-1);
+    expect(call?.url).toContain('metric_type=total_value');
+  });
+
+  it('reads total_value rather than the values series', async () => {
+    const result = await provider(accountGraph()).fetchAccountAnalytics(
+      { externalId: 'ig-user-1' },
+      credential,
+      { from: new Date('2026-08-01'), to: new Date('2026-08-14') } as never,
+    );
+
+    expect(result.metrics['reach']).toBe(1234);
+    expect(result.availability['reach']).toBe('AVAILABLE');
+  });
+
+  it('spells it saves at account level and saved at media level', async () => {
+    const graphWith = accountGraph();
+
+    await provider(graphWith).fetchAccountAnalytics({ externalId: 'ig-user-1' }, credential, {
+      from: new Date('2026-08-01'),
+      to: new Date('2026-08-14'),
+    } as never);
+
+    const account = graphWith.calls.at(-1)?.url ?? '';
+    expect(account).toMatch(/saves/);
+    expect(account).not.toMatch(/saved/);
+
+    const mediaGraph = new FakeGraph().on(/\/insights/, { body: { data: [] } });
+    await provider(mediaGraph).fetchPostAnalytics(
+      { externalPostId: 'ig-media-1', accountExternalId: 'ig-user-1' },
+      credential,
+      { from: new Date(), to: new Date() } as never,
+    );
+
+    expect(mediaGraph.calls.at(-1)?.url ?? '').toMatch(/saved/);
+  });
+
+  /**
+   * One bad metric in a batch fails the whole request, so a follower-gated
+   * metric would leave a small account with no analytics at all rather than one
+   * missing number.
+   */
+  it('never asks for the metrics that carry a 100-follower minimum', async () => {
+    const graphWith = accountGraph();
+
+    await provider(graphWith).fetchAccountAnalytics({ externalId: 'ig-user-1' }, credential, {
+      from: new Date('2026-08-01'),
+      to: new Date('2026-08-14'),
+    } as never);
+
+    const url = graphWith.calls.at(-1)?.url ?? '';
+    expect(url).not.toMatch(/follows_and_unfollows/);
+    expect(url).not.toMatch(/follower_demographics/);
+    expect(url).not.toMatch(/engaged_audience_demographics/);
   });
 });

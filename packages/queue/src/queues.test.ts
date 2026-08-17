@@ -21,6 +21,9 @@ describe('the queue catalogue', () => {
         'media',
         'notifications',
         'publish',
+        // Produced by a person rather than a schedule (T3.5). Rendering reads
+        // a lot of rows, and nobody is blocked on the second report.
+        'reports',
         // The 30s sweep (T1.12). Its own queue rather than sharing
         // `maintenance`, which runs at concurrency 1 — a slow retention pass
         // would delay the sweep, and a late sweep means posts publish late.

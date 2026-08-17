@@ -47,6 +47,13 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
 
+      # The build is a real check, not a formality: `next build` type-checks
+      # route handlers and page props in ways `tsc --noEmit` does not, and it is
+      # where a bad server/client boundary shows up. Without it, a green CI can
+      # still be undeployable.
+      - name: Production build
+        run: SKIP_ENV_VALIDATION=true pnpm build
+
   integration:
     name: integration tests
     runs-on: ubuntu-latest
@@ -83,3 +90,9 @@ jobs:
         run: pnpm db:migrate:deploy
       - name: Integration tests
         run: pnpm test:integration
+
+      # E2E shares the same Postgres and Redis, so it costs one extra step
+      # rather than another job. It is the §32 publishing flow end to end —
+      # the one suite that would catch an idempotency regression.
+      - name: End-to-end tests
+        run: pnpm test:e2e

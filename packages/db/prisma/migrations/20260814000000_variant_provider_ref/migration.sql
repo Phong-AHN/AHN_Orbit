@@ -1,0 +1,15 @@
+-- A place to record a provider handle *before* an ambiguous call.
+--
+-- Instagram publishes in two steps: a container is created, then published.
+-- If the second call times out, the outcome is genuinely unknown — and until
+-- now the only way to find out was to read the account's recent media and match
+-- on the caption. Two posts with the same caption make that guess wrong, and a
+-- wrong guess in this direction double-posts to a client's followers.
+--
+-- With the container id recorded before the publish call, reconciliation can
+-- ask the platform the actual question instead (D-055).
+--
+-- Nullable with no default and no backfill: a variant published before this
+-- migration simply has no handle, and reconciliation falls back to the listing
+-- exactly as it does today.
+ALTER TABLE "PostVariant" ADD COLUMN "providerRef" JSONB;

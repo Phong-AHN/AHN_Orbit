@@ -38,20 +38,59 @@ export interface DeliveryPreferences {
 
 /** Always delivered. There is no opting out of the in-app record. */
 const IN_APP_ONLY: readonly NotificationChannel[] = ['IN_APP'];
+const IN_APP_AND_EMAIL: readonly NotificationChannel[] = ['IN_APP', 'EMAIL'];
+
+/**
+ * Which types earn an email, and which do not (**D-080**).
+ *
+ * The test is simple and it is not "is this important": it is **would somebody
+ * want to be interrupted, away from the product, to know this?**
+ *
+ * Four qualify, and each fails silently if nobody is told:
+ *
+ * - `social_account.needs_reconnect` — publishing to that account is broken
+ *   until a human signs in again, and nothing else will surface it.
+ * - `publishing.failed` and `publishing.needs_review` — a client's post did not
+ *   go out. At 2am, in-app means nobody knows until morning.
+ * - `post.approval_requested` — the whole approval workflow stalls on somebody
+ *   who may not open the product that day. This is the one that makes the
+ *   product usable by clients who log in weekly.
+ *
+ * `post.changes_requested` and `social_account.reconnected` stay in-app.
+ * The first reaches somebody already working in the product; the second is good
+ * news about a thing they just did, and an email for it is noise.
+ */
+const EMAIL_WORTHY: ReadonlySet<NotificationType> = new Set([
+  'social_account.needs_reconnect',
+  'publishing.failed',
+  'publishing.needs_review',
+  'post.approval_requested',
+]);
 
 export function channelsFor(
-  _type: NotificationType,
-  _preferences: DeliveryPreferences = {},
+  type: NotificationType,
+  preferences: DeliveryPreferences = {},
 ): readonly NotificationChannel[] {
-  // Email is intentionally not returned yet. See the note above.
-  return IN_APP_ONLY;
+  if (!EMAIL_DELIVERY_ENABLED) return IN_APP_ONLY;
+  if (!EMAIL_WORTHY.has(type)) return IN_APP_ONLY;
+
+  // An explicit `false` opts out; absent means "not opted out", so the default
+  // posture stays on and a user who has never touched preferences still hears
+  // about a failed publish.
+  if (preferences.email?.[type] === false) return IN_APP_ONLY;
+
+  return IN_APP_AND_EMAIL;
 }
 
 /**
  * Whether email is wired at all.
  *
+ * Reads the environment rather than a constant: a deployment with no mail
+ * provider configured writes no `EMAIL` rows at all, so the outbox stays empty
+ * instead of filling with messages nothing will ever send.
+ *
  * Exported so the UI can tell the truth rather than offering preference toggles
  * that do nothing — a settings screen that silently ignores you is worse than
  * one that admits the feature is not built.
  */
-export const EMAIL_DELIVERY_ENABLED = false;
+export const EMAIL_DELIVERY_ENABLED = Boolean(process.env['RESEND_API_KEY']);

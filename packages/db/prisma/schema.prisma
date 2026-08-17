@@ -236,6 +236,7 @@ model User {
   assignedPosts           Post[]                   @relation("PostAssignee")
   productionTasks         ProductionTask[]
   requestedApprovals      Approval[]               @relation("ApprovalRequester")
+  requestedReports        Report[]                 @relation("ReportRequester")
   decidedApprovals        Approval[]               @relation("ApprovalDecider")
   comments                Comment[]                @relation("CommentAuthor")
   resolvedComments        Comment[]                @relation("CommentResolver")
@@ -290,6 +291,7 @@ model Organization {
   notifications      Notification[]
   auditLogs          AuditLog[]
   invitations        Invitation[]
+  reports            Report[]
   subscription       Subscription?
 
   @@index([slug])
@@ -342,6 +344,7 @@ model Workspace {
   posts        Post[]
   queueSlots   QueueSlot[]
   contentIdeas ContentIdea[]
+  reports      Report[]
 
   @@unique([organizationId, slug])
   /// Target for composite foreign keys from tenant-scoped children. Every
@@ -567,6 +570,11 @@ model PostVariant {
   externalPermalink String?
   publishedAt       DateTime?   @db.Timestamptz(3)
   lastError         Json?
+  /// An opaque handle the provider recorded *before* a call whose outcome could
+  /// be ambiguous, so reconciliation can ask the platform directly instead of
+  /// inferring from a listing. Written and read only by the adapter that owns
+  /// it; nothing else may interpret its shape.
+  providerRef       Json?
   /// Reconciliation fingerprint (layer 4).
   contentHash       String?
   createdAt         DateTime    @default(now()) @db.Timestamptz(3)
@@ -1016,6 +1024,52 @@ model AuditLog {
   @@index([organizationId, createdAt])
   @@index([resourceType, resourceId])
   @@index([actorUserId, createdAt])
+}
+
+/// A generated client report (SRS §19). Rendered by the worker, stored in S3,
+/// handed back only as a short-lived signed URL — the storage key never leaves
+/// the server.
+model Report {
+  id             String       @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId String       @db.Uuid
+  /// Optional: a report may cover the whole organization or one client.
+  workspaceId    String?      @db.Uuid
+  status         ReportStatus @default(QUEUED)
+  format         ReportFormat @default(CSV)
+  /// What was asked for — range, filters, sections. Validated on the way in.
+  parameters     Json         @default("{}")
+  /// Where the rendered file lives. Server-side only; never serialised to a
+  /// client, which receives a signed URL instead.
+  storageKey     String?
+  sizeBytes      Int?
+  /// Set when the render fails. A code for us, a sentence for the person.
+  failureCode    String?
+  failureMessage String?
+  /// After this the object is unreachable: the download route refuses, and the
+  /// row is a record that the report existed rather than a way to fetch it.
+  expiresAt      DateTime     @db.Timestamptz(3)
+  requestedById  String?      @db.Uuid
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace?   @relation(fields: [organizationId, workspaceId], references: [organizationId, id], onDelete: NoAction, onUpdate: NoAction)
+  requestedBy  User?        @relation("ReportRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, createdAt])
+  @@index([status, expiresAt])
+}
+
+enum ReportStatus {
+  QUEUED
+  RENDERING
+  READY
+  FAILED
+}
+
+enum ReportFormat {
+  CSV
 }
 
 model Subscription {

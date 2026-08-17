@@ -25,6 +25,7 @@ import type {
 import { GraphClient, type GraphClientOptions } from '../facebook/client.js';
 import { reauthorizationReason } from '../facebook/errors.js';
 import {
+  INSTAGRAM_ACCOUNT_METRICS,
   INSTAGRAM_DEFAULT_SCOPES,
   INSTAGRAM_LOGIN_SCOPES,
   INSTAGRAM_PUBLISH_SCOPES,
@@ -649,6 +650,11 @@ export class InstagramProvider implements SocialProvider {
         ? await this.createImageContainer(ctx, igUserId, images[0]!, caption)
         : await this.createCarouselContainer(ctx, igUserId, images, caption);
 
+    // Before the ambiguous call, not after. If `media_publish` times out, this
+    // id is the only thing that can answer whether the post went out — and an
+    // id written after the call would not exist in exactly that case.
+    await ctx.recordProviderRef?.({ containerId });
+
     const published = await this.call<{ id: string }>(ctx.credential, {
       path: `/${igUserId}/media_publish`,
       method: 'POST',
@@ -739,11 +745,54 @@ export class InstagramProvider implements SocialProvider {
   /**
    * Did the post we are unsure about actually go out?
    *
-   * Reads the account's recent media and matches on the caption, exactly as the
-   * Facebook adapter matches on the message. This is what stands between an
-   * ambiguous `media_publish` and a duplicate reaching a client's followers.
+   * This is what stands between an ambiguous `media_publish` and a duplicate
+   * reaching a client's followers, and it asks in two ways.
+   *
+   * **First, the container.** If `publish` got as far as recording a container
+   * id, `GET /{ig-container-id}?fields=status_code` answers the question
+   * directly: `PUBLISHED` means the media object went out, `ERROR` and
+   * `EXPIRED` mean it did not, and the in-flight states mean it is too early to
+   * say. That is an answer from the platform about *this* attempt, which no
+   * amount of reading the account's timeline can give you.
+   *
+   * **Then, the caption.** Matching recent media on the caption is the
+   * fallback, used when no container id was recorded — a variant published
+   * before this existed, or an attempt that died before the container call
+   * returned. It is a fallback rather than the method because two posts sharing
+   * a caption make it wrong, and wrong in the direction that double-posts.
+   *
+   * `PUBLISHED` without a locatable media id is deliberately INCONCLUSIVE, not
+   * NOT_FOUND: we know it published and cannot name what published, and only
+   * NOT_FOUND licenses a retry.
    */
   async reconcile(ctx: ReconcileContext): Promise<ReconcileResult> {
+    const containerId = ctx.providerRef?.['containerId'];
+
+    if (typeof containerId === 'string' && containerId.length > 0) {
+      const byContainer = await this.reconcileByContainer(ctx, containerId);
+      if (byContainer) return byContainer;
+    }
+
+    const found = await this.findRecentMedia(ctx);
+
+    // `undefined` means we could not look. NOT_FOUND here would licence a retry
+    // that might duplicate; INCONCLUSIVE parks it for a human instead.
+    return (
+      found ?? {
+        outcome: 'INCONCLUSIVE',
+        reason: 'Could not read the Instagram account to confirm whether the post went out.',
+      }
+    );
+  }
+
+  /**
+   * Look for the post on the account's timeline, matched by caption.
+   *
+   * `undefined` is reserved for "could not read the account" and is distinct
+   * from `NOT_FOUND`, which means the timeline was read and the post is not on
+   * it. Only the latter may ever lead to a retry.
+   */
+  private async findRecentMedia(ctx: ReconcileContext): Promise<ReconcileResult | undefined> {
     try {
       const response = await this.call<{
         data?: Array<{ id: string; caption?: string; timestamp?: string; permalink?: string }>;
@@ -775,16 +824,65 @@ export class InstagramProvider implements SocialProvider {
       }
 
       return { outcome: 'NOT_FOUND' };
-    } catch (error) {
-      // We could not look. NOT_FOUND here would licence a retry that might
-      // duplicate; INCONCLUSIVE parks it for a human instead.
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Ask the container what happened to it.
+   *
+   * Returns `undefined` — rather than INCONCLUSIVE — when the container cannot
+   * settle the question, so the caller falls through to the caption match
+   * instead of parking something the timeline could still resolve.
+   */
+  private async reconcileByContainer(
+    ctx: ReconcileContext,
+    containerId: string,
+  ): Promise<ReconcileResult | undefined> {
+    let status: string | undefined;
+
+    try {
+      const container = await this.call<{ status_code?: string }>(ctx.credential, {
+        path: `/${containerId}`,
+        params: { fields: 'status_code' },
+        signal: ctx.signal,
+      });
+      status = container.status_code;
+    } catch {
+      // The container is gone, or unreadable. Says nothing either way, so let
+      // the caption match have its turn.
+      return undefined;
+    }
+
+    // Not published, and the platform is certain. This is the one branch that
+    // may licence a retry, which is why it takes an explicit status rather than
+    // an absence of one.
+    if (status === 'ERROR' || status === 'EXPIRED') return { outcome: 'NOT_FOUND' };
+
+    // Still moving. Retrying now could publish the very container that is
+    // mid-flight, so this parks rather than guessing either way.
+    if (status === 'IN_PROGRESS' || status === 'FINISHED') {
       return {
         outcome: 'INCONCLUSIVE',
-        reason: `Could not read the Instagram account to confirm: ${
-          (error as { code?: string }).code ?? 'unknown error'
-        }`,
+        reason: `Instagram still reports the media container as ${status.toLowerCase()}; publishing it again could double-post.`,
       };
     }
+
+    if (status !== 'PUBLISHED') return undefined;
+
+    // It published. Find what it published — the status alone carries no media
+    // id, so the timeline still has to name it.
+    const found = await this.findRecentMedia(ctx);
+    if (found?.outcome === 'FOUND') return found;
+
+    // We know it went out and cannot name it. NOT_FOUND would be a licence to
+    // retry something the platform has just told us succeeded.
+    return {
+      outcome: 'INCONCLUSIVE',
+      reason:
+        'Instagram confirms the media container was published, but the post could not be located to record its id.',
+    };
   }
 
   async getPostStatus(
@@ -851,12 +949,26 @@ export class InstagramProvider implements SocialProvider {
     );
   }
 
+  /**
+   * Account-level insights.
+   *
+   * A different metric list from media, and a different call shape: these need
+   * `metric_type=total_value`, and one of them is spelled `saves` where media
+   * spells the same idea `saved`. The list and the reasoning for what is left
+   * out live in `INSTAGRAM_ACCOUNT_METRICS`.
+   */
   async fetchAccountAnalytics(
     account: { externalId: string },
     credential: DecryptedCredential,
     range: DateRange,
   ): Promise<MetricSet> {
-    return this.fetchInsights(`/${account.externalId}/insights`, ['reach'], credential, range);
+    return this.fetchInsights(
+      `/${account.externalId}/insights`,
+      INSTAGRAM_ACCOUNT_METRICS,
+      credential,
+      range,
+      { totalValue: true },
+    );
   }
 
   /**
@@ -869,6 +981,7 @@ export class InstagramProvider implements SocialProvider {
     metricNames: readonly string[],
     credential: DecryptedCredential,
     range?: DateRange,
+    options: { totalValue?: boolean } = {},
   ): Promise<MetricSet> {
     const availability: MetricSet['availability'] = {};
 
@@ -877,11 +990,16 @@ export class InstagramProvider implements SocialProvider {
     }
 
     const response = await this.call<{
-      data?: Array<{ name: string; values?: Array<{ value: unknown }> }>;
+      data?: Array<{
+        name: string;
+        values?: Array<{ value: unknown }>;
+        total_value?: { value?: unknown };
+      }>;
     }>(credential, {
       path,
       params: {
         metric: metricNames.join(','),
+        ...(options.totalValue ? { metric_type: 'total_value' } : {}),
         ...(range
           ? {
               period: 'day',
@@ -894,7 +1012,12 @@ export class InstagramProvider implements SocialProvider {
 
     const metrics: Record<string, number> = {};
     for (const entry of response.data ?? []) {
-      const value = entry.values?.at(-1)?.value;
+      // Two response shapes, chosen by `metric_type`: `total_value` carries one
+      // number for the window, `values` carries a series. Reading the wrong one
+      // yields undefined, which would be recorded as ERROR — a metric that
+      // arrived fine, reported as broken.
+      const value = options.totalValue ? entry.total_value?.value : entry.values?.at(-1)?.value;
+
       if (typeof value === 'number') {
         metrics[entry.name] = value;
         availability[entry.name] = 'AVAILABLE';

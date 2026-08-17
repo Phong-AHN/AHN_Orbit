@@ -156,5 +156,21 @@ export type PostSource = (typeof POST_SOURCES)[number];
 export const CONTENT_IDEA_STATES = ['SUGGESTED', 'ACCEPTED', 'DISMISSED', 'CONVERTED'] as const;
 export type ContentIdeaState = (typeof CONTENT_IDEA_STATES)[number];
 
+/**
+ * A generated report's lifecycle (SRS §19).
+ *
+ * `FAILED` is a real state rather than a deletion: the person who asked is
+ * watching a status, and a report that vanished tells them nothing about why.
+ */
+export const REPORT_STATUSES = ['QUEUED', 'RENDERING', 'READY', 'FAILED'] as const;
+export type ReportStatus = (typeof REPORT_STATUSES)[number];
+
+/**
+ * One member on purpose. PDF is in the roadmap and is not implemented; an enum
+ * that listed it would let a request be accepted for a format nothing renders.
+ */
+export const REPORT_FORMATS = ['CSV'] as const;
+export type ReportFormat = (typeof REPORT_FORMATS)[number];
+
 export const WORKSPACE_STATUSES = ['ACTIVE', 'ARCHIVED'] as const;
 export type WorkspaceStatus = (typeof WORKSPACE_STATUSES)[number];

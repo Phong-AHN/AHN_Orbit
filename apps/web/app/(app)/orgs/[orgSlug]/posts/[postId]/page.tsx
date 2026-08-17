@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { isAppError, isEditLocked, isUserPrincipal } from '@orbit/core';
+import { clock, isAppError, isEditLocked, isUserPrincipal } from '@orbit/core';
 import { allowedTransitions } from '@orbit/rbac';
-import { PageHeader, PermissionDenied } from '@orbit/ui';
+import { Badge, Card, CardBody, PageHeader, PermissionDenied } from '@orbit/ui';
 import { pageCan, requirePageContext } from '@/server/page-context';
 import { ensureProvidersRegistered } from '@/server/providers';
 import { getPost } from '@/features/posts/service';
@@ -15,6 +15,15 @@ import {
 import { serialisePost } from '@/features/posts/ui/serialise';
 import { listApprovalsForPost } from '@/features/approvals/service';
 import { ReviewPanel } from '@/features/approvals/ui/review-panel';
+import { listTasks } from '@/features/tasks/service';
+import { listActivity } from '@/features/activity/service';
+import { listPostAnalytics } from '@/features/analytics/service';
+import { MetricGrid } from '@/features/analytics/ui/metric-grid';
+import { ActivityList } from '@/features/activity/ui/activity-list';
+import { listComments } from '@/features/comments/service';
+import { CommentThread } from '@/features/comments/ui/comment-thread';
+import { listMembers } from '@/features/tenancy/members';
+import { TaskPanel } from '@/features/tasks/ui/task-panel';
 import { serialiseApprovals } from '@/features/approvals/ui/serialise';
 import { getPublishingStatus } from '@/features/publishing/service';
 import { AttemptTimeline } from '@/features/publishing/ui/attempt-timeline';
@@ -121,6 +130,42 @@ export default async function ComposerPage({ params }: PageProps) {
 
   const canResolve = pageCan(ctx, 'post:retry_failed', { ...scope, intent: 'TRANSITION' });
 
+  /**
+   * The pipeline and the member list, fetched only when this principal may see
+   * them. A Client reaching a post through the agency surface should not learn
+   * who works at the agency, and an empty list here is what enforces that
+   * alongside the permission check the API makes anyway.
+   */
+  const canReadTasks = pageCan(ctx, 'task:read', scope);
+  const canSeeTeam = pageCan(ctx, 'member:list');
+  const canReadAudit = pageCan(ctx, 'audit:read', scope);
+  const canReadAnalytics = pageCan(ctx, 'analytics:read', scope);
+  const [tasks, members, comments, auditTrail, measured] = await Promise.all([
+    canReadTasks ? listTasks(ctx, post.id) : Promise.resolve([]),
+    canSeeTeam ? listMembers(ctx) : Promise.resolve([]),
+    listComments(ctx, post.id),
+    // The same reader as the org-wide feed, narrowed to this post — a second
+    // query shaped for "history of one thing" would be a second answer to the
+    // same question, free to drift from it.
+    canReadAudit
+      ? listActivity(ctx, { resourceId: post.id, resourceType: 'Post', limit: 20 })
+      : Promise.resolve({ entries: [], nextCursor: null }),
+    // The same reader the analytics page uses, narrowed to this post's own
+    // window. A published post is the only kind with anything to show, so the
+    // range is opened wide rather than guessed at.
+    canReadAnalytics && post.publishedAt
+      ? listPostAnalytics(ctx, { from: post.publishedAt, to: clock.now() }, { limit: 20 })
+      : Promise.resolve([]),
+  ]);
+
+  const readings = measured.filter((row) => row.post.id === post.id);
+
+  const team = members.map((member) => ({
+    id: member.user.id,
+    name: member.user.name,
+    email: member.user.email,
+  }));
+
   return (
     <main id="main" className="mx-auto max-w-6xl px-6 py-10">
       <PageHeader
@@ -147,8 +192,54 @@ export default async function ComposerPage({ params }: PageProps) {
           editLocked={isEditLocked(post.status)}
           workspaceTimezone={post.workspace.timezone}
           canPublishNow={pageCan(ctx, 'post:publish_now', scope)}
+          members={team}
+          canAssign={pageCan(ctx, 'post:assign', scope)}
+          canUseAI={pageCan(ctx, 'ai:generate', scope)}
         />
       </div>
+
+      <div className="mt-8">
+        <CommentThread
+          orgSlug={orgSlug}
+          postId={post.id}
+          comments={comments.map((comment) => ({
+            id: comment.id,
+            body: comment.body,
+            visibility: comment.visibility,
+            mentionedUserIds: comment.mentionedUserIds,
+            resolvedAt: comment.resolvedAt?.toISOString() ?? null,
+            createdAt: comment.createdAt.toISOString(),
+            author: comment.author,
+          }))}
+          members={team}
+          canComment={pageCan(ctx, 'comment:create', scope)}
+          canResolve={pageCan(ctx, 'comment:resolve', scope)}
+          // A Client has no `comment:read_internal`, which is what keeps agency
+          // chatter out of the portal — so they never get the choice either.
+          canWriteInternal={pageCan(ctx, 'comment:read_internal', scope)}
+        />
+      </div>
+
+      {canReadTasks ? (
+        <div className="mt-8">
+          <TaskPanel
+            orgSlug={orgSlug}
+            postId={post.id}
+            tasks={tasks.map((task) => ({
+              id: task.id,
+              stage: task.stage,
+              state: task.state,
+              assigneeId: task.assigneeId,
+              dueAt: task.dueAt?.toISOString() ?? null,
+              blocking: task.blocking,
+              assignee: task.assignee,
+            }))}
+            members={team}
+            canManage={pageCan(ctx, 'task:create', scope)}
+            canUpdate={pageCan(ctx, 'task:update', scope)}
+          />
+        </div>
+      ) : null}
 
       {publishing.variants.some((variant) => variant.status !== 'DRAFT') ? (
         <section className="mt-8 space-y-6" aria-labelledby="publishing-heading">
@@ -192,6 +283,51 @@ export default async function ComposerPage({ params }: PageProps) {
               />
             ) : null,
           )}
+        </section>
+      ) : null}
+
+      {canReadAnalytics && readings.length > 0 ? (
+        <section className="mt-8 space-y-4" aria-labelledby="results-heading">
+          <h2 id="results-heading" className="text-sm font-semibold text-ink">
+            Results
+          </h2>
+
+          {readings.map((row) => (
+            <Card key={row.variantId}>
+              <CardBody className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone="neutral">{row.platform}</Badge>
+                  <span className="text-sm text-ink-secondary">{row.account.displayName}</span>
+                </div>
+
+                {row.reading ? (
+                  <MetricGrid
+                    metrics={row.reading.metrics}
+                    availability={row.reading.availability}
+                    apiVersion={row.reading.providerApiVersion}
+                  />
+                ) : (
+                  <p className="text-sm text-ink-muted">
+                    Not measured yet. Figures arrive within a few hours of publishing.
+                  </p>
+                )}
+              </CardBody>
+            </Card>
+          ))}
+        </section>
+      ) : null}
+
+      {canReadAudit && auditTrail.entries.length > 0 ? (
+        <section className="mt-8" aria-labelledby="history-heading">
+          <h2 id="history-heading" className="mb-2 text-sm font-semibold text-ink">
+            History
+          </h2>
+          <ActivityList
+            entries={auditTrail.entries.map((entry) => ({
+              ...entry,
+              createdAt: entry.createdAt.toISOString(),
+            }))}
+          />
         </section>
       ) : null}
 

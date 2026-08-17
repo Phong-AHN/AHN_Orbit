@@ -41,3 +41,5 @@ export {
   type ListNotificationsOptions,
   type NotificationView,
 } from './read.js';
+export { ResendMailer, LogMailer, type Mailer, type Email, type ResendOptions } from './mailer.js';
+export { renderEmail, type EmailNotification } from './email-content.js';

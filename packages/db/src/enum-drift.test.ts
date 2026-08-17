@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import * as core from '@orbit/core';
@@ -44,6 +45,8 @@ const PAIRS: ReadonlyArray<[string, readonly string[]]> = [
   ['ActorType', core.ACTOR_TYPES],
   ['SubscriptionStatus', core.SUBSCRIPTION_STATUSES],
   ['ContentIdeaState', core.CONTENT_IDEA_STATES],
+  ['ReportStatus', core.REPORT_STATUSES],
+  ['ReportFormat', core.REPORT_FORMATS],
 ];
 
 describe('enum parity between @orbit/core and schema.prisma', () => {
@@ -84,20 +87,25 @@ describe('tenant discriminator coverage', () => {
   });
 
   it('RLS is declared for every tenant-scoped model', () => {
-    const rlsPath = fileURLToPath(
-      new URL(
-        '../prisma/migrations/20260811000200_constraints_and_rls/migration.sql',
-        import.meta.url,
-      ),
-    );
-    const rls = readFileSync(rlsPath, 'utf8');
+    // Every migration, not just the original one. A table added later declares
+    // its own policy in its own migration — that is correct, and reading a
+    // single file would report it as missing RLS when it has it.
+    const migrations = fileURLToPath(new URL('../prisma/migrations', import.meta.url));
+    const rls = readdirSync(migrations)
+      .map((dir) => join(migrations, dir, 'migration.sql'))
+      .filter((file) => existsSync(file))
+      .map((file) => readFileSync(file, 'utf8'))
+      .join('\n');
 
     const models = [...schema.matchAll(/^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)];
     const tenantModels = models
       .filter(([, , body]) => /^\s*organizationId\s/m.test(body ?? ''))
       .map(([, name]) => name!);
 
-    const missing = tenantModels.filter((m) => !rls.includes(`'${m}'`));
+    const missing = tenantModels.filter(
+      (m) =>
+        !rls.includes(`'${m}'`) && !rls.includes(`ALTER TABLE "${m}" ENABLE ROW LEVEL SECURITY`),
+    );
     expect(missing).toEqual([]);
   });
 });

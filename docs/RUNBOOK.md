@@ -146,6 +146,43 @@ See `DEPLOYMENT.md`. In short: migrations first, then the worker, then the web a
 drains on SIGTERM (`outcome: DRAINED` in the log) — do not shorten the grace period below the
 publish timeout of 60s, or a publish can be killed mid-call and become a §3.3.
 
+### Retention — what the nightly sweep deletes, and how to check it
+
+Runs at **03:20 UTC** on the `maintenance` queue. It removes:
+
+- `PostAnalytics` and `AnalyticsSnapshot` older than **13 months**;
+- `Report` rows past `expiresAt`, **and** their S3 objects.
+
+It never touches posts, variants, publishing jobs or attempts, or the audit log.
+
+To see what it did, ask the tenant's own trail rather than the logs — the sweep
+writes one row per organization, only when something was removed:
+
+```sql
+SELECT "organizationId", "after", "createdAt"
+FROM "AuditLog"
+WHERE action = 'retention.swept'
+ORDER BY "createdAt" DESC
+LIMIT 20;
+```
+
+`after` carries the counts and the cutoff that was applied.
+
+**If storage is unreachable**, expired report rows are left in place on purpose
+— the row is the only record that the object may still exist (**D-064**). Look
+for `could not remove a report object` in the worker log; the next night's run
+clears them once S3 is reachable. Nothing needs doing by hand.
+
+**To stop it entirely** — during an incident, or before a migration you are
+unsure of — remove the repeatable job. It is one entry and re-registers on the
+next worker boot:
+
+```
+bull:maintenance:repeat:cron:retention
+```
+
+Nothing depends on it having run. Skipping a night costs a night of storage.
+
 ### Rotating the credential encryption key
 
 `CREDENTIAL_ENCRYPTION_KEY_VERSION` exists so keys rotate without a migration. Add the new key,

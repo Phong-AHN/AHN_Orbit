@@ -3,6 +3,10 @@ import { platformDb } from '@orbit/db';
 import { logger } from '@orbit/observability';
 import type { JobContext } from '@orbit/queue';
 import { sweepAccountHealth } from '../health/sweep.js';
+import { sweepAnalytics } from '../analytics/sweep.js';
+import { sweepRetention } from '../maintenance/retention.js';
+import { drainEmailOutbox } from '../notifications/outbox.js';
+import { mailer } from '../notifications/mailer.js';
 
 /**
  * Housekeeping (SRS §13, §40).
@@ -34,16 +38,30 @@ export async function processMaintenance({ payload }: JobContext<'maintenance'>)
     case 'cleanup-staged-accounts':
       await cleanupStagedAccounts();
       return;
+    case 'drain-email-outbox':
+      // The notification row is the outbox; this is the only thing that sends.
+      // Kept out of the notifications processor deliberately — a mail API call
+      // inside the fan-out transaction would be a third-party HTTP request in
+      // the slowest possible place, and a timeout would roll back notifications
+      // that ought to exist.
+      await drainEmailOutbox(mailer());
+      return;
     case 'sweep-account-health':
       // Queues the probes; it does not perform them. The provider calls run on
       // the `account-health` queue, so a slow platform cannot stall housekeeping.
       await sweepAccountHealth(payload.correlationId);
       return;
-    case 'retention':
     case 'analytics-rollup':
-      // Land with their features (T1.14 retention, T1.19 rollups). Named in the
-      // schema now so the repeatable schedule does not change shape later.
-      logger.info('maintenance task not yet implemented', { task: payload.task });
+      // Queues the pulls; it does not perform them. The provider calls run on
+      // the `analytics` queue, so a slow platform cannot stall housekeeping —
+      // the same split as the health sweep, and for the same reason.
+      await sweepAnalytics(payload.correlationId);
+      return;
+    case 'retention':
+      // The one task that deletes data nobody asked to delete. It is scoped per
+      // tenant, batched, and rounds every boundary in the direction of keeping
+      // things — see the module for what it will and will not touch.
+      await sweepRetention(payload.correlationId);
       return;
     default: {
       const exhaustive: never = payload.task;
