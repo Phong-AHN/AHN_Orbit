@@ -1,4 +1,10 @@
-import { ProviderErrorMap, parseRetryAfter, toAppError } from '../errors.js';
+import {
+  ProviderErrorMap,
+  classifyHttpStatus,
+  parseRetryAfter,
+  toAppError,
+  type ProviderErrorKind,
+} from '../errors.js';
 import type { AppError } from '@orbit/core';
 
 /**
@@ -23,6 +29,26 @@ export interface TikTokErrorBody {
     message?: string;
     log_id?: string;
   };
+}
+
+/**
+ * The OAuth endpoints answer in a different shape from everything else.
+ *
+ * `/v2/oauth/token/` returns its fields at the **top level** — no `data`
+ * wrapper — and reports failure as flat OAuth 2.0 strings rather than a nested
+ * error object. Treating it like the rest of the API is not a cosmetic mistake:
+ * unwrapping a `data` that is not there yields an empty object, the access
+ * token comes back `undefined`, and the adapter reports "TikTok returned no
+ * access token" — an authentication error for a request that in fact succeeded.
+ *
+ * That is exactly the bug this type exists to prevent, and it survived a green
+ * test suite because the fake wrapped every response in `data` — the fixture
+ * was wrong in the same way the code was.
+ */
+export interface TikTokOAuthErrorBody {
+  error?: string;
+  error_description?: string;
+  log_id?: string;
 }
 
 /** `error.code` on a successful response. Not a failure. */
@@ -127,6 +153,62 @@ export function normalizeTikTokError(
       // ask for.
       ...(error.log_id ? { logId: error.log_id } : {}),
       ...(standing ? { clientStanding: true } : {}),
+    },
+  });
+}
+
+/**
+ * Standard OAuth 2.0 failure codes, as TikTok's token endpoint returns them.
+ *
+ * `invalid_grant` covers both an authorization code that was already used and a
+ * refresh token TikTok no longer honours — different causes, same remedy: the
+ * account has to be connected again.
+ */
+const OAUTH_KINDS: Record<string, ProviderErrorKind> = {
+  invalid_client: 'AUTHENTICATION',
+  invalid_grant: 'AUTHENTICATION',
+  unauthorized_client: 'PERMISSION',
+  access_denied: 'PERMISSION',
+  invalid_request: 'VALIDATION',
+  invalid_scope: 'VALIDATION',
+  unsupported_grant_type: 'VALIDATION',
+  slow_down: 'RATE_LIMIT',
+};
+
+/** Whether an OAuth response reports failure. */
+export function isTikTokOAuthFailure(body: TikTokOAuthErrorBody, httpStatus: number): boolean {
+  return Boolean(body.error) || httpStatus >= 400;
+}
+
+/**
+ * Turn an OAuth failure into a taxonomy error.
+ *
+ * `error_description` is carried into the developer message, and it earns its
+ * place: TikTok writes genuinely diagnostic text there — *"Redirect_uri is not
+ * matched with the uri when requesting code"* names the problem outright, where
+ * the code alone (`invalid_request`) names a category. Losing it is what turns
+ * a five-minute fix into an afternoon (**D-085**).
+ *
+ * It stays a *developer* message. The user-facing copy is ours, because the
+ * person who sees it can only ever do one thing about any of these.
+ */
+export function normalizeTikTokOAuthError(
+  body: TikTokOAuthErrorBody,
+  httpStatus: number,
+): AppError {
+  const code = body.error ?? 'unknown';
+  const kind = OAUTH_KINDS[code] ?? classifyHttpStatus(httpStatus);
+
+  return toAppError('TIKTOK', {
+    kind,
+    message: `TikTok OAuth refused: ${code}${body.error_description ? ` — ${body.error_description}` : ''}`,
+    providerCode: code,
+    httpStatus,
+    meta: {
+      ...(body.log_id ? { logId: body.log_id } : {}),
+      // Says which half of the API answered, so a reader is not left wondering
+      // why the shape differs from every other TikTok failure in the log.
+      surface: 'oauth',
     },
   });
 }

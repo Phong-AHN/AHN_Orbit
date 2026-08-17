@@ -341,6 +341,9 @@ export class TikTokProvider implements SocialProvider {
     return this.client.request<TokenResponse>({
       path: '/v2/oauth/token/',
       method: 'POST',
+      // Top-level fields, flat error strings — not the `data` envelope the
+      // rest of the API uses.
+      oauth: true,
       form: {
         client_key: this.client.clientKey,
         client_secret: this.client.clientSecret,
@@ -473,6 +476,7 @@ export class TikTokProvider implements SocialProvider {
       .request({
         path: '/v2/oauth/revoke/',
         method: 'POST',
+        oauth: true,
         form: {
           client_key: this.client.clientKey,
           client_secret: this.client.clientSecret,

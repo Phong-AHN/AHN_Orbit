@@ -36,6 +36,19 @@ class FakeTikTok {
     return this.on(match, { body: { data, error: { code: 'ok', message: '', log_id: 'log-1' } } });
   }
 
+  /**
+   * The OAuth endpoints, which answer in a different shape from everything
+   * else: fields at the top level, no `data` wrapper.
+   *
+   * This helper exists because its absence hid a real bug. Every fixture went
+   * through `ok()`, which wraps in `data`, so the client's unwrapping looked
+   * correct against a fake that was wrong in exactly the same way — and the
+   * token exchange failed the first time it met the real TikTok.
+   */
+  oauth(match: RegExp, body: unknown): this {
+    return this.on(match, { body });
+  }
+
   fail(match: RegExp, code: string, status = 400): this {
     return this.on(match, {
       status,
@@ -234,7 +247,8 @@ describe('authorization', () => {
 describe('tokens', () => {
   const tokenApi = () =>
     new FakeTikTok()
-      .ok(/oauth\/token/, {
+      // Top level, exactly as TikTok returns it. Not wrapped in `data`.
+      .oauth(/oauth\/token/, {
         access_token: 'act.new',
         expires_in: 86_400,
         refresh_token: 'rft.new',
@@ -314,6 +328,50 @@ describe('tokens', () => {
 
     expect(outcome.status).toBe('STILL_VALID');
     expect(local.called(/oauth\/token/)).toBe(0);
+  });
+
+  /**
+   * The regression this whole shape exists for.
+   *
+   * `/v2/oauth/token/` puts its fields at the top level. Unwrapping a `data`
+   * that is not there yields `{}`, the access token reads `undefined`, and the
+   * adapter reports "TikTok returned no access token" — an authentication
+   * failure for a call that succeeded. It reached production.
+   */
+  it('reads the token from the top level, where TikTok actually puts it', async () => {
+    const local = new FakeTikTok()
+      .oauth(/oauth\/token/, { access_token: 'act.flat', expires_in: 86_400, open_id: 'o-1' })
+      .ok(/user\/info/, { user: { open_id: 'o-1', display_name: 'Flat' } });
+
+    const { accounts } = await provider(local).exchangeCode({
+      code: 'c',
+      redirectUri: 'https://app.test/cb',
+    });
+
+    expect(accounts[0]!.credential.accessToken).toBe('act.flat');
+  });
+
+  /** And the failure shape is flat too: `error` is a string, not an object. */
+  it('reads a flat OAuth failure, keeping the description that names the cause', async () => {
+    const local = new FakeTikTok().on(/oauth\/token/, {
+      status: 400,
+      body: {
+        error: 'invalid_request',
+        error_description: 'Redirect_uri is not matched with the uri when requesting code.',
+        log_id: 'log-oauth',
+      },
+    });
+
+    await provider(local)
+      .exchangeCode({ code: 'c', redirectUri: 'https://app.test/cb' })
+      .catch((error: unknown) => {
+        const failure = error as { message: string; context: Record<string, unknown> };
+        // Without the description, `invalid_request` names a category and
+        // nothing else (D-085).
+        expect(failure.message).toContain('Redirect_uri is not matched');
+        expect(failure.context['providerCode']).toBe('invalid_request');
+        expect(failure.context['logId']).toBe('log-oauth');
+      });
   });
 
   it('asks for a reconnect once the refresh token itself has expired', async () => {

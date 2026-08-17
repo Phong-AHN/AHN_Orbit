@@ -1,5 +1,12 @@
 import { normalizeUnknownError, toAppError } from '../errors.js';
-import { isTikTokFailure, normalizeTikTokError, type TikTokErrorBody } from './errors.js';
+import {
+  isTikTokFailure,
+  isTikTokOAuthFailure,
+  normalizeTikTokError,
+  normalizeTikTokOAuthError,
+  type TikTokErrorBody,
+  type TikTokOAuthErrorBody,
+} from './errors.js';
 
 /**
  * Thin TikTok Open API client.
@@ -44,6 +51,16 @@ export interface TikTokRequest {
   form?: Record<string, string | undefined> | undefined;
   params?: Record<string, string | number | undefined> | undefined;
   signal?: AbortSignal | undefined;
+  /**
+   * True for `/v2/oauth/*`, which answers in a different shape from the rest of
+   * the API: fields at the top level with no `data` wrapper, and failures as
+   * flat OAuth 2.0 strings rather than a nested error object.
+   *
+   * Explicit rather than inferred from the path, because the caller knows which
+   * half of the API it is talking to and a path-sniffing rule is the kind that
+   * silently stops matching when a URL changes.
+   */
+  oauth?: boolean | undefined;
 }
 
 export class TikTokClient {
@@ -103,17 +120,33 @@ export class TikTokClient {
     });
 
     const text = await response.text();
-    const parsed = text ? (safeJson(text) as TikTokErrorBody & { data?: T }) : {};
+    const parsed = text ? (safeJson(text) as Record<string, unknown>) : {};
+
+    if (request.oauth) {
+      const oauthBody = parsed as TikTokOAuthErrorBody;
+
+      if (isTikTokOAuthFailure(oauthBody, response.status)) {
+        throw normalizeTikTokOAuthError(oauthBody, response.status);
+      }
+
+      // **Returned whole, deliberately.** The OAuth endpoints put their fields
+      // at the top level, and unwrapping a `data` that does not exist yields an
+      // empty object — which surfaces as "TikTok returned no access token" for
+      // a call that in fact succeeded.
+      return parsed as T;
+    }
+
+    const envelope = parsed as TikTokErrorBody & { data?: T };
 
     // Body before status. A 200 with `error.code: "spam_risk_too_many_posts"`
     // is a failure, and reading `response.ok` first would miss it entirely.
-    if (isTikTokFailure(parsed, response.status)) {
-      throw normalizeTikTokError(parsed, response.status, response.headers);
+    if (isTikTokFailure(envelope, response.status)) {
+      throw normalizeTikTokError(envelope, response.status, response.headers);
     }
 
-    // Every TikTok payload is wrapped in `data`. Returning the envelope would
-    // push that detail into every caller.
-    return (parsed.data ?? {}) as T;
+    // Everything outside /v2/oauth/ is wrapped in `data`. Returning the
+    // envelope would push that detail into every caller.
+    return (envelope.data ?? {}) as T;
   }
 
   /**
