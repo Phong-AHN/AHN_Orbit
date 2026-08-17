@@ -3,6 +3,7 @@ import {
   RECONCILE_WINDOW_MS,
   accountStatusForErrorCode,
   clock,
+  isClientStandingFailure,
   isAppError,
   type AttemptOutcome,
   type ErrorCode,
@@ -342,7 +343,7 @@ async function classifyAndMaybeReconcile(
 
     const outcome: AttemptOutcome = retryable
       ? { kind: 'RETRYABLE', code }
-      : { kind: 'FAILED', code };
+      : { kind: 'FAILED', code, clientStanding: isClientStandingFailure(error) };
 
     await closeAttempt(attempt, outcome, {
       message,
@@ -567,7 +568,7 @@ async function applyOutcome(
       await rollUpPost(subject.postId);
 
       // Some failures are about the post; two are about the connection (T1.7).
-      await demoteAccountIfCredentialFailed(run, subject, outcome.code);
+      await demoteAccountIfCredentialFailed(run, subject, outcome.code, outcome.clientStanding);
       await raiseNotification(run, subject, 'publishing.failed');
 
       return { kind: 'FAILED', variantId: subject.variantId, reason: outcome.code };
@@ -682,9 +683,29 @@ async function demoteAccountIfCredentialFailed(
   run: ClaimedRun,
   subject: PublishSubject,
   code: string,
+  clientStanding: boolean | undefined,
 ): Promise<void> {
   const status = accountStatusForErrorCode(code as ErrorCode);
   if (!status) return;
+
+  /**
+   * Some permission failures are about our app, not this connection.
+   *
+   * TikTok refuses a public post from an unaudited client with a 403 that maps
+   * to `PROVIDER_PERMISSION_ERROR` — and the account is fine. Demoting it takes
+   * a working connection out of service and tells somebody to reconnect it,
+   * which resolves nothing: the remedy lives in the developer portal, with a
+   * different person entirely.
+   */
+  if (clientStanding) {
+    logger.warn('publish failed on client standing; the account is untouched', {
+      socialAccountId: subject.socialAccountId,
+      organizationId: run.organizationId,
+      variantId: subject.variantId,
+      errorCode: code,
+    });
+    return;
+  }
 
   try {
     const change = await recordHealthVerdict({

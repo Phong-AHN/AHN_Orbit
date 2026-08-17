@@ -3,6 +3,7 @@ import {
   HEALTH_PROBE_INTERVAL_MS,
   accountStatusForErrorCode,
   classifyHealthChange,
+  isClientStandingFailure,
   isProbeDue,
 } from './account-health.js';
 import { ERROR_CODES } from './errors.js';
@@ -46,6 +47,40 @@ describe('isProbeDue', () => {
     expect(isProbeDue(ago(1_000), NOW, 0)).toBe(true);
     // Even a check from this very instant is due when the caller asked for one.
     expect(isProbeDue(NOW, NOW, 0)).toBe(true);
+  });
+});
+
+/**
+ * A failure about the *application* must leave the account alone.
+ *
+ * TikTok refuses a public post from an unaudited client with a 403 that maps to
+ * `PROVIDER_PERMISSION_ERROR`, and the connection is perfectly healthy. Demoting
+ * on it takes a working account out of service and tells an account manager to
+ * reconnect — an OAuth round trip that resolves nothing, because the remedy is
+ * in a developer portal and belongs to somebody else. It happened in
+ * production, to a sandbox TikTok app.
+ */
+describe('isClientStandingFailure', () => {
+  it('recognises a failure an adapter marked as being about the app', () => {
+    expect(isClientStandingFailure({ context: { clientStanding: true } })).toBe(true);
+  });
+
+  it('does not treat an ordinary permission failure as one', () => {
+    expect(isClientStandingFailure({ context: { platform: 'TIKTOK' } })).toBe(false);
+    expect(isClientStandingFailure({ context: {} })).toBe(false);
+    expect(isClientStandingFailure(new Error('nope'))).toBe(false);
+  });
+
+  /** A truthy-but-not-true value is not a signal. Only the flag counts. */
+  it('demands the flag exactly, so a stray value cannot suppress a demotion', () => {
+    expect(isClientStandingFailure({ context: { clientStanding: 'yes' } })).toBe(false);
+    expect(isClientStandingFailure({ context: { clientStanding: 1 } })).toBe(false);
+  });
+
+  it('is safe on anything that is not an error object', () => {
+    expect(isClientStandingFailure(null)).toBe(false);
+    expect(isClientStandingFailure(undefined)).toBe(false);
+    expect(isClientStandingFailure('boom')).toBe(false);
   });
 });
 

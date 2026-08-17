@@ -123,3 +123,29 @@ export function classifyHealthChange(
  * way. `packages/core` keeps only the health *decisions* — which is the split
  * that lets `@orbit/notifications` depend on core rather than the reverse.
  */
+
+/**
+ * Whether a failure is about **our application** rather than this account.
+ *
+ * Some platform refusals arrive as permission errors and are nothing to do with
+ * the connection: TikTok's `unaudited_client_can_only_post_to_private_accounts`
+ * and `reached_active_user_cap` are properties of the API client, identical for
+ * every account on the platform, and no amount of reconnecting will change
+ * either.
+ *
+ * Demoting on one of these does active harm. It takes a perfectly good account
+ * out of service, tells an account manager to reconnect it, and sends them
+ * through an OAuth round trip that resolves nothing — while the real remedy
+ * sits with an administrator and the developer portal. It happened: a sandbox
+ * TikTok app failed one post and left the account marked NEEDS_RECONNECT.
+ *
+ * Adapters signal it by setting `clientStanding: true` in the error context.
+ * The flag is a cross-provider convention rather than a TikTok detail — any
+ * platform that distinguishes "your app may not do this" from "this connection
+ * is broken" reports it the same way.
+ */
+export function isClientStandingFailure(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const context = (error as { context?: Record<string, unknown> }).context;
+  return context?.['clientStanding'] === true;
+}

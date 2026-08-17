@@ -625,6 +625,33 @@ describe('failure classification', () => {
     expect(audits).toHaveLength(1);
   });
 
+  /**
+   * The distinction this test exists for: a permission failure about **our app**
+   * is not a broken connection.
+   *
+   * TikTok refuses a public post from an unaudited client with a 403 that maps
+   * to `PROVIDER_PERMISSION_ERROR` — and the account is perfectly healthy.
+   * Demoting on it took a working TikTok account out of service in production
+   * and told an account manager to reconnect it, which resolves nothing.
+   */
+  it('leaves the account alone when the refusal was about the app, not the connection', async () => {
+    await seedScheduled();
+    mock.fault = 'CLIENT_STANDING';
+
+    expect((await publishVariant(jobContext())).kind).toBe('FAILED');
+
+    const account = await platformDb.socialAccount.findUniqueOrThrow({ where: { id: ACCOUNT } });
+    expect(account.status).toBe('ACTIVE');
+    expect(account.healthError).toBeNull();
+
+    // And nobody is told to reconnect something that is not broken.
+    expect(
+      await platformDb.notification.count({
+        where: { organizationId: ORG, type: 'social_account.needs_reconnect' },
+      }),
+    ).toBe(0);
+  });
+
   it('does not retry a validation error', async () => {
     await seedScheduled();
     mock.fault = 'VALIDATION';

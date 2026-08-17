@@ -44,7 +44,9 @@ export type MockFault =
   | 'TIMEOUT_THEN_PUBLISHED'
   | 'TIMEOUT_NOT_PUBLISHED'
   | 'UNAVAILABLE'
-  | 'VALIDATION';
+  | 'VALIDATION'
+  /** A refusal about the *app* rather than the connection. See below. */
+  | 'CLIENT_STANDING';
 
 interface MockPost {
   externalPostId: string;
@@ -242,6 +244,23 @@ export class MockProvider implements SocialProvider {
     if (this.consumeFault('UNAVAILABLE')) {
       throw toAppError(this.platform, { kind: 'UNAVAILABLE', message: 'Mock platform is down' });
     }
+    /**
+     * A permission refusal that says nothing about this connection.
+     *
+     * Stands in for TikTok's `unaudited_client_can_only_post_to_private_accounts`
+     * — a 403 about the API client's standing, identical for every account on
+     * the platform. The engine must record the failure and leave the account
+     * ACTIVE; demoting it would send somebody through an OAuth round trip for a
+     * problem that lives in a developer portal.
+     */
+    if (this.consumeFault('CLIENT_STANDING')) {
+      throw toAppError(this.platform, {
+        kind: 'PERMISSION',
+        message: 'Mock client is not audited',
+        meta: { clientStanding: true },
+      });
+    }
+
     if (this.consumeFault('VALIDATION')) {
       throw toAppError(this.platform, { kind: 'VALIDATION', message: 'Mock rejected the content' });
     }

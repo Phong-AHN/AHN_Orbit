@@ -495,6 +495,27 @@ describe('error handling', () => {
       });
   });
 
+  /**
+   * TikTok names a category, never the value it objected to. Without this, a
+   * sandbox refusal cannot be told apart from a user who picked "Everyone" —
+   * and those have completely different remedies.
+   */
+  it('records which visibility was asked for, since TikTok will not say', async () => {
+    const local = happyApi().fail(
+      /video\/init/,
+      'unaudited_client_can_only_post_to_private_accounts',
+      403,
+    );
+
+    await provider(local)
+      .publish(publishContext())
+      .catch((error: unknown) => {
+        const context = (error as { context: Record<string, unknown> }).context;
+        expect(context['requestedPrivacyLevel']).toBe('PUBLIC_TO_EVERYONE');
+        expect(context['requestedPostMode']).toBe('DIRECT_POST');
+      });
+  });
+
   it('treats a daily post cap as a rate limit rather than a refusal', async () => {
     const local = happyApi().fail(/video\/init/, 'spam_risk_too_many_posts', 403);
 

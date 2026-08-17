@@ -59,8 +59,17 @@ export type AttemptOutcome =
   | { kind: 'PUBLISHED'; externalPostId: string; permalink?: string | undefined; publishedAt: Date }
   /** Confirmed not published, and worth trying again. */
   | { kind: 'RETRYABLE'; code: string }
-  /** Confirmed not published, and retrying cannot help. */
-  | { kind: 'FAILED'; code: string }
+  /**
+   * Confirmed not published, and retrying cannot help.
+   *
+   * `clientStanding` marks the failures that are about **our application**
+   * rather than this connection — a platform refusing what an unaudited or
+   * capped API client may do. They arrive as permission errors and must not
+   * demote the account: reconnecting resolves nothing, and taking a working
+   * connection out of service sends somebody through an OAuth round trip for a
+   * problem that lives in a developer portal.
+   */
+  | { kind: 'FAILED'; code: string; clientStanding?: boolean | undefined }
   /** The provider never answered. Reconciliation decides, never a retry. */
   | { kind: 'AMBIGUOUS'; code: string }
   /** Reconciliation ran and could not tell. A human decides. */

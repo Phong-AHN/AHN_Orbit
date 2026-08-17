@@ -606,10 +606,11 @@ export class TikTokProvider implements SocialProvider {
 
     if (creator) assertSettingsMatchCreator(settings, creator, videos[0]);
 
-    const init =
-      videos.length === 1
-        ? await this.initVideo(ctx, videos[0]!, caption, settings)
-        : await this.initPhotos(ctx, images, caption, settings);
+    // Attached to whatever the init call throws. TikTok's refusals name a
+    // category — `unaudited_client_can_only_post_to_private_accounts` — without
+    // saying which visibility was actually asked for, and that is the one fact
+    // needed to tell "they picked public" from "even private is refused".
+    const init = await this.initWithContext(ctx, videos, images, caption, settings);
 
     if (!init.publishId) {
       throw toAppError('TIKTOK', {
@@ -647,6 +648,27 @@ export class TikTokProvider implements SocialProvider {
         awaitingCreator: settled.awaitingCreator,
       },
     };
+  }
+
+  private async initWithContext(
+    ctx: PublishContext,
+    videos: readonly PublishMedia[],
+    images: readonly PublishMedia[],
+    caption: string,
+    settings: TikTokPostSettings,
+  ): Promise<{ publishId?: string | undefined; uploadUrl?: string | undefined }> {
+    try {
+      return videos.length === 1
+        ? await this.initVideo(ctx, videos[0]!, caption, settings)
+        : await this.initPhotos(ctx, images, caption, settings);
+    } catch (error) {
+      const context = (error as { context?: Record<string, unknown> }).context;
+      if (context) {
+        context['requestedPrivacyLevel'] = settings.privacyLevel ?? 'unset';
+        context['requestedPostMode'] = settings.postMode;
+      }
+      throw error;
+    }
   }
 
   private async initVideo(

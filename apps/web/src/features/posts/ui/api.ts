@@ -92,8 +92,15 @@ export interface PostVariantSummary {
   firstComment: string | null;
   status: string;
   externalPermalink: string | null;
-  /** Per-platform settings, opaque here. Only the platform's own panel reads them. */
-  platformOptions?: Record<string, unknown> | null;
+  /**
+   * Per-platform settings, opaque here. Only the platform's own panel reads
+   * their keys.
+   *
+   * **Required, not optional.** Optional is what let `serialisePost` omit it
+   * without a type error, which is how a saved TikTok visibility disappeared on
+   * every page load. `null` says "not set"; absence must not be expressible.
+   */
+  platformOptions: Record<string, unknown> | null;
   socialAccount: { id: string; displayName: string; handle: string | null; status: string };
 }
 
