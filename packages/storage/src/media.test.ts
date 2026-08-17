@@ -184,6 +184,81 @@ function mp4WithBrands(major: string, compatible: string[]): Uint8Array {
   return bytes;
 }
 
+/**
+ * An MP4 carrying a real sample table.
+ *
+ * `stts` is a run-length list of `(sample_count, sample_delta)` in the track's
+ * timescale. One entry is a constant frame rate; several distinct deltas is
+ * variable frame rate — which is what a phone records by default, and what
+ * TikTok rejects while the file's own label still says 30fps.
+ */
+function mp4WithSampleTable(
+  timescale: number,
+  entries: Array<[count: number, delta: number]>,
+  handler = 'vide',
+): Uint8Array {
+  const out: number[] = [];
+  const push32 = (t: number[], v: number) =>
+    t.push((v >>> 24) & 0xff, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff);
+  const pushType = (t: number[], s: string) => {
+    for (const ch of s) t.push(ch.charCodeAt(0));
+  };
+
+  const box = (type: string, payload: number[]): number[] => {
+    const b: number[] = [];
+    push32(b, 8 + payload.length);
+    pushType(b, type);
+    b.push(...payload);
+    return b;
+  };
+
+  // ftyp
+  push32(out, 16);
+  pushType(out, 'ftyp');
+  pushType(out, 'isom');
+  push32(out, 512);
+
+  const mvhd: number[] = [];
+  mvhd.push(0, 0, 0, 0);
+  push32(mvhd, 0);
+  push32(mvhd, 0);
+  push32(mvhd, 1000);
+  push32(mvhd, 4000);
+  while (mvhd.length < 100) mvhd.push(0);
+
+  // hdlr: version+flags, predefined, then handler_type.
+  const hdlr: number[] = [];
+  hdlr.push(0, 0, 0, 0);
+  push32(hdlr, 0);
+  pushType(hdlr, handler);
+  while (hdlr.length < 24) hdlr.push(0);
+
+  // mdhd v0: version+flags, creation, modification, timescale, duration.
+  const mdhd: number[] = [];
+  mdhd.push(0, 0, 0, 0);
+  push32(mdhd, 0);
+  push32(mdhd, 0);
+  push32(mdhd, timescale);
+  push32(mdhd, timescale * 4);
+  while (mdhd.length < 24) mdhd.push(0);
+
+  const stts: number[] = [];
+  stts.push(0, 0, 0, 0);
+  push32(stts, entries.length);
+  for (const [count, delta] of entries) {
+    push32(stts, count);
+    push32(stts, delta);
+  }
+
+  const stbl = box('stbl', box('stts', stts));
+  const minf = box('minf', stbl);
+  const mdia = box('mdia', [...box('hdlr', hdlr), ...box('mdhd', mdhd), ...minf]);
+  const trak = box('trak', mdia);
+  const moov = box('moov', [...box('mvhd', mvhd), ...trak]);
+
+  return new Uint8Array([...out, ...moov]);
+}
+
 // ── Sniffing ────────────────────────────────────────────────────────────────
 
 describe('sniff — identifies real types', () => {
@@ -314,6 +389,66 @@ describe('sniff — MP4 brands', () => {
     );
 
     expect(() => sniff(bytes)).toThrow();
+  });
+});
+
+/**
+ * Frame rate, read from the sample table rather than believed from a label.
+ *
+ * A video rejected by TikTok for `frame_rate_check_failed` while its owner is
+ * certain it is 30fps is almost always variable frame rate: the nominal figure
+ * is 30 and the real gaps between frames vary, with peaks well past the 60fps
+ * ceiling. Only the table says so.
+ */
+describe('probe — frame rate', () => {
+  it('reads a constant 30fps', () => {
+    // 600 ticks per second, one frame every 20 ticks → 30fps.
+    const probe = probeMedia('video/mp4', mp4WithSampleTable(600, [[120, 20]]));
+
+    expect(probe.frameRate).toBe(30);
+    expect(probe.peakFrameRate).toBe(30);
+    expect(probe.variableFrameRate).toBe(false);
+  });
+
+  /** The case that gets a "30fps" video refused. */
+  it('sees through a variable rate whose average still looks like 30', () => {
+    // Half the frames at 20 ticks (30fps), half at 5 ticks (120fps).
+    const probe = probeMedia(
+      'video/mp4',
+      mp4WithSampleTable(600, [
+        [60, 20],
+        [60, 5],
+      ]),
+    );
+
+    expect(probe.variableFrameRate).toBe(true);
+    // The average is unremarkable...
+    expect(probe.frameRate).toBeLessThan(60);
+    // ...and the peak is what a platform objects to.
+    expect(probe.peakFrameRate).toBe(120);
+  });
+
+  it('reads the video track, not the sound track', () => {
+    // A sound track's sample table has a completely different rate; using it
+    // gives a plausible wrong number instead of an obvious failure.
+    const probe = probeMedia('video/mp4', mp4WithSampleTable(44_100, [[1000, 1024]], 'soun'));
+
+    expect(probe.frameRate).toBeUndefined();
+  });
+
+  it('says nothing rather than guessing when there is no sample table', () => {
+    expect(probeMedia('video/mp4', mp4(7)).frameRate).toBeUndefined();
+  });
+
+  /** A length field is never trusted to size a loop. */
+  it('survives a sample table that claims more entries than it holds', () => {
+    const bytes = mp4WithSampleTable(600, [[120, 20]]);
+    const at = indexOfType(bytes, 'stts');
+    // Claim a million entries in a box that holds one.
+    new DataView(bytes.buffer).setUint32(at + 8, 1_000_000);
+
+    expect(() => probeMedia('video/mp4', bytes)).not.toThrow();
+    expect(probeMedia('video/mp4', bytes).frameRate).toBe(30);
   });
 });
 

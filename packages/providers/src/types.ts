@@ -131,6 +131,9 @@ export interface PublishMedia {
   width?: number | undefined;
   height?: number | undefined;
   durationMs?: number | undefined;
+  frameRate?: number | undefined;
+  /** Highest instantaneous rate — what a platform's own checker objects to. */
+  peakFrameRate?: number | undefined;
 }
 
 export interface PublishContext {

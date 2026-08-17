@@ -15,6 +15,26 @@ export interface MediaProbe {
   width?: number | undefined;
   height?: number | undefined;
   durationMs?: number | undefined;
+  /**
+   * Average frames per second of the video track.
+   *
+   * Read from the sample table rather than believed from a header, because the
+   * header is what lies: a phone records **variable frame rate** and labels the
+   * file 30fps while the actual gaps between frames vary. TikTok reads the real
+   * gaps and refuses the file, which is how a video "at 30fps" is rejected for
+   * `frame_rate_check_failed`.
+   */
+  frameRate?: number | undefined;
+  /**
+   * The highest instantaneous rate, from the shortest gap between two frames.
+   *
+   * On a constant-rate file this equals `frameRate`. On a variable-rate one it
+   * is higher — sometimes far higher — and it is the number platforms object
+   * to, so it is the one worth checking against a ceiling.
+   */
+  peakFrameRate?: number | undefined;
+  /** True when the frame gaps are not all identical. */
+  variableFrameRate?: boolean | undefined;
   /** True when the parser found the fields it expected. */
   complete: boolean;
 }
@@ -126,8 +146,13 @@ function probeMp4(bytes: Uint8Array): MediaProbe {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const result: MediaProbe = { complete: false };
 
+  /** The track currently being walked, so its boxes are read together. */
+  let track: TrackParts | undefined;
+
   const walk = (start: number, end: number, depth: number): void => {
-    if (depth > 5) return;
+    // moov → trak → mdia → minf → stbl → stts is six levels; the old limit of
+    // five stopped exactly one box short of the sample table.
+    if (depth > 6) return;
     let offset = start;
     let iterations = 0;
 
@@ -144,8 +169,32 @@ function probeMp4(bytes: Uint8Array): MediaProbe {
       const boxEnd = size === 0 ? end : size === 1 ? end : offset + size;
       if (size !== 0 && size !== 1 && size < 8) return;
 
-      if (type === 'moov' || type === 'trak' || type === 'mdia') {
+      if (type === 'trak') {
+        // A file has one trak per track. Frame rate belongs to the video one,
+        // and a sound track has its own sample table with a completely
+        // different rate — reading the wrong one gives a plausible, wrong
+        // number rather than an obvious failure.
+        track = { isVideo: false };
         walk(offset + 8, Math.min(boxEnd, end), depth + 1);
+        if (track.isVideo) applyTrack(result, track);
+        track = undefined;
+      } else if (type === 'moov' || type === 'mdia' || type === 'minf' || type === 'stbl') {
+        walk(offset + 8, Math.min(boxEnd, end), depth + 1);
+      } else if (type === 'hdlr' && track && offset + 24 <= end) {
+        // handler_type sits 8 bytes past the version/flags and predefined field.
+        track.isVideo =
+          String.fromCharCode(
+            bytes[offset + 16]!,
+            bytes[offset + 17]!,
+            bytes[offset + 18]!,
+            bytes[offset + 19]!,
+          ) === 'vide';
+      } else if (type === 'mdhd' && track && offset + 24 <= end) {
+        // Same layout as mvhd: the version widens the three time fields.
+        const version = bytes[offset + 8]!;
+        track.timescale = version === 1 ? view.getUint32(offset + 28) : view.getUint32(offset + 20);
+      } else if (type === 'stts' && track) {
+        track.samples = readTimeToSample(view, bytes, offset, Math.min(boxEnd, end));
       } else if (type === 'mvhd' && offset + 32 <= end) {
         const version = bytes[offset + 8]!;
         const timescale = version === 1 ? view.getUint32(offset + 28) : view.getUint32(offset + 20);
@@ -202,6 +251,78 @@ function probeMp4(bytes: Uint8Array): MediaProbe {
   result.complete = result.durationMs !== undefined;
   return result;
 }
+
+/** What a single track contributes, gathered while its boxes are walked. */
+interface TrackParts {
+  isVideo: boolean;
+  timescale?: number | undefined;
+  samples?: { count: number; totalDelta: number; minDelta: number; deltas: number } | undefined;
+}
+
+/**
+ * Read `stts`, the table that says how long each frame is held.
+ *
+ * It is a run-length list: `(sample_count, sample_delta)` pairs in the track's
+ * own timescale. A **constant** frame rate is one entry; more than one distinct
+ * delta means the gaps vary, which is what "variable frame rate" is.
+ *
+ * Bounded by the box and by the buffer — a truncated tail slice yields a partial
+ * table, and a partial average is still a usable answer, so it is not refused.
+ */
+function readTimeToSample(
+  view: DataView,
+  bytes: Uint8Array,
+  boxStart: number,
+  end: number,
+): TrackParts['samples'] {
+  // 8 header + 1 version + 3 flags + 4 entry_count.
+  let offset = boxStart + 16;
+  if (offset > end) return undefined;
+
+  const declared = view.getUint32(boxStart + 12);
+  // The buffer caps the count: never trust a length field to size a loop.
+  const entries = Math.min(declared, Math.floor((end - offset) / 8));
+
+  let count = 0;
+  let totalDelta = 0;
+  let minDelta = Number.POSITIVE_INFINITY;
+  const seen = new Set<number>();
+
+  for (let i = 0; i < entries; i += 1) {
+    const sampleCount = view.getUint32(offset);
+    const sampleDelta = view.getUint32(offset + 4);
+    offset += 8;
+
+    // A zero delta is not a frame duration; skip it rather than dividing by it.
+    if (sampleDelta === 0 || sampleCount === 0) continue;
+
+    count += sampleCount;
+    totalDelta += sampleCount * sampleDelta;
+    minDelta = Math.min(minDelta, sampleDelta);
+    seen.add(sampleDelta);
+  }
+
+  void bytes;
+  if (count === 0 || !Number.isFinite(minDelta)) return undefined;
+
+  return { count, totalDelta, minDelta, deltas: seen.size };
+}
+
+/** Fold a finished video track's numbers into the result. */
+function applyTrack(result: MediaProbe, track: TrackParts): void {
+  const { timescale, samples } = track;
+  if (!timescale || timescale <= 0 || !samples) return;
+
+  const averageDelta = samples.totalDelta / samples.count;
+  if (averageDelta <= 0) return;
+
+  result.frameRate = round2(timescale / averageDelta);
+  result.peakFrameRate = round2(timescale / samples.minDelta);
+  // One distinct gap is a constant rate; anything else varies.
+  result.variableFrameRate = samples.deltas > 1;
+}
+
+const round2 = (value: number): number => Math.round(value * 100) / 100;
 
 /**
  * Find where a named box starts, without assuming alignment.

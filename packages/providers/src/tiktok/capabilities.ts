@@ -214,6 +214,21 @@ export function tiktokCapabilities(apiVersion: string): PlatformCapabilities {
         mimeTypes: ['video/mp4', 'video/quicktime'],
         maxBytes: 4 * 1024 * 1024 * 1024,
         minDurationMs: 3_000,
+        /**
+         * Verified: TikTok accepts 23–60 fps and refuses anything else with
+         * `frame_rate_check_failed`.
+         *
+         * Checked against the **peak** rate, which is what catches the case
+         * that otherwise reaches production: a phone's variable-frame-rate
+         * clip, labelled 30fps, averaging about 30, and spiking past 60.
+         */
+        minFrameRate: 23,
+        maxFrameRate: 60,
+        // Verified: each side between 360 and 4096 pixels.
+        minWidth: 360,
+        minHeight: 360,
+        maxWidth: 4096,
+        maxHeight: 4096,
       },
 
       gif: null,

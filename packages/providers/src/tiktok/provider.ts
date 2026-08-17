@@ -567,6 +567,8 @@ export class TikTokProvider implements SocialProvider {
         width: item.width,
         height: item.height,
         durationMs: item.durationMs,
+        frameRate: item.frameRate,
+        peakFrameRate: item.peakFrameRate,
         altText: item.altText,
       })),
     });

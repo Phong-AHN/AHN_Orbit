@@ -367,6 +367,8 @@ export class FacebookProvider implements SocialProvider {
         width: m.width,
         height: m.height,
         durationMs: m.durationMs,
+        frameRate: m.frameRate,
+        peakFrameRate: m.peakFrameRate,
         altText: m.altText,
       })),
     });

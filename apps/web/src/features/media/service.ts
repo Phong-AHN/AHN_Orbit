@@ -251,6 +251,8 @@ export async function completeMediaUpload(
           mimeType: verified.mimeType,
           kind: verified.kind,
           sizeBytes: verified.sizeBytes,
+          frameRate: verified.frameRate ?? null,
+          peakFrameRate: verified.peakFrameRate ?? null,
           width: verified.width ?? null,
           height: verified.height ?? null,
           durationMs: verified.durationMs ?? null,
@@ -268,6 +270,8 @@ export async function completeMediaUpload(
         after: {
           mimeType: verified.mimeType,
           sizeBytes: verified.sizeBytes,
+          frameRate: verified.frameRate ?? null,
+          peakFrameRate: verified.peakFrameRate ?? null,
           width: verified.width,
           height: verified.height,
           durationMs: verified.durationMs,

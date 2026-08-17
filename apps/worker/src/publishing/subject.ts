@@ -85,6 +85,8 @@ export async function loadPublishSubject(
                 width: true,
                 height: true,
                 durationMs: true,
+                frameRate: true,
+                peakFrameRate: true,
                 storageKey: true,
                 status: true,
               },
@@ -185,6 +187,10 @@ export async function loadPublishSubject(
       ...(item.mediaAsset.width !== null ? { width: item.mediaAsset.width } : {}),
       ...(item.mediaAsset.height !== null ? { height: item.mediaAsset.height } : {}),
       ...(item.mediaAsset.durationMs !== null ? { durationMs: item.mediaAsset.durationMs } : {}),
+      ...(item.mediaAsset.frameRate !== null ? { frameRate: item.mediaAsset.frameRate } : {}),
+      ...(item.mediaAsset.peakFrameRate !== null
+        ? { peakFrameRate: item.mediaAsset.peakFrameRate }
+        : {}),
     })),
   );
 
@@ -207,6 +213,8 @@ export async function loadPublishSubject(
       ...(item.width !== undefined ? { width: item.width } : {}),
       ...(item.height !== undefined ? { height: item.height } : {}),
       ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
+      ...(item.frameRate !== undefined ? { frameRate: item.frameRate } : {}),
+      ...(item.peakFrameRate !== undefined ? { peakFrameRate: item.peakFrameRate } : {}),
       ...(item.altText !== undefined ? { altText: item.altText } : {}),
     })),
   };

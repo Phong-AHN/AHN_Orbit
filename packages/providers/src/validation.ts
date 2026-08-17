@@ -40,6 +40,10 @@ export interface DraftMedia {
   width?: number | undefined;
   height?: number | undefined;
   durationMs?: number | undefined;
+  /** Average frames per second, read from the file's own sample table. */
+  frameRate?: number | undefined;
+  /** Highest instantaneous rate. This is the figure platforms object to. */
+  peakFrameRate?: number | undefined;
   altText?: string | undefined;
 }
 
@@ -206,6 +210,46 @@ function validateMediaItem(
           durationMs: item.durationMs,
           maxDurationMs: constraint.maxDurationMs,
         }),
+      );
+    }
+  }
+
+  /**
+   * Frame rate, checked against the **peak** rather than the average.
+   *
+   * A phone records variable frame rate by default: the file is labelled 30fps,
+   * the average is about 30, and the instantaneous rate spikes far past any
+   * ceiling. The platform's checker reads the real gaps and refuses the file —
+   * leaving somebody certain their 30fps video was rejected for being 30fps.
+   * The average would agree with them and pass it through.
+   */
+  const effectiveRate = item.peakFrameRate ?? item.frameRate;
+  if (effectiveRate !== undefined) {
+    if (constraint.maxFrameRate !== undefined && effectiveRate > constraint.maxFrameRate) {
+      issues.push(
+        issue(
+          'ERROR',
+          'MEDIA_FRAME_RATE_TOO_HIGH',
+          field,
+          item.peakFrameRate !== undefined &&
+            item.frameRate !== undefined &&
+            item.peakFrameRate > item.frameRate + 1
+            ? `This video varies between frame rates, peaking at ${effectiveRate}fps — above the ${constraint.maxFrameRate}fps limit. Re-export it at a constant frame rate.`
+            : `This video is ${effectiveRate}fps, above the ${constraint.maxFrameRate}fps limit.`,
+          { frameRate: effectiveRate, maxFrameRate: constraint.maxFrameRate },
+        ),
+      );
+    }
+
+    if (constraint.minFrameRate !== undefined && effectiveRate < constraint.minFrameRate) {
+      issues.push(
+        issue(
+          'ERROR',
+          'MEDIA_FRAME_RATE_TOO_LOW',
+          field,
+          `This video is ${effectiveRate}fps, below the ${constraint.minFrameRate}fps minimum.`,
+          { frameRate: effectiveRate, minFrameRate: constraint.minFrameRate },
+        ),
       );
     }
   }

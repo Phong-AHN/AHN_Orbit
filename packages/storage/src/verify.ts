@@ -34,6 +34,10 @@ export interface VerifiedMedia {
   width?: number | undefined;
   height?: number | undefined;
   durationMs?: number | undefined;
+  /** Average frames per second of the video track. */
+  frameRate?: number | undefined;
+  /** Highest instantaneous rate — what a platform's own checker objects to. */
+  peakFrameRate?: number | undefined;
   /** True when the client's declared type disagreed with the bytes. */
   declaredTypeMismatch: boolean;
 }
@@ -126,6 +130,8 @@ export async function verifyUploadedObject(input: VerificationInput): Promise<Ve
     width: probe.width,
     height: probe.height,
     durationMs: probe.durationMs,
+    frameRate: probe.frameRate,
+    peakFrameRate: probe.peakFrameRate,
     declaredTypeMismatch,
   };
 }

@@ -634,6 +634,15 @@ model MediaAsset {
   width            Int?
   height           Int?
   durationMs       Int?
+  /// Average frames per second, read from the file's own sample table.
+  frameRate        Float?
+  /// Highest instantaneous rate — the figure platforms actually object to.
+  ///
+  /// A phone records variable frame rate by default: the file is labelled
+  /// 30fps, the average is about 30, and the instantaneous rate spikes past any
+  /// ceiling. TikTok refuses those with `frame_rate_check_failed`, leaving the
+  /// owner certain their 30fps video was rejected for being 30fps.
+  peakFrameRate    Float?
   checksum         String?
   originalFilename String?
   tags             String[]    @default([])

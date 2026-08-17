@@ -33,6 +33,18 @@ export const mediaConstraintSchema = z.object({
   /** Video only. */
   minDurationMs: z.number().int().nonnegative().optional(),
   maxDurationMs: z.number().int().positive().optional(),
+  /**
+   * Frames per second the platform will accept.
+   *
+   * Checked against the **peak** rate, not the average. A phone records
+   * variable frame rate by default: the file is labelled 30fps, the average is
+   * around 30, and the instantaneous rate spikes far past any ceiling — which
+   * is what the platform's own checker sees. TikTok refuses those with
+   * `frame_rate_check_failed`, and the owner is left certain their 30fps video
+   * was rejected for being 30fps.
+   */
+  minFrameRate: z.number().positive().optional(),
+  maxFrameRate: z.number().positive().optional(),
 });
 
 export type MediaConstraint = z.infer<typeof mediaConstraintSchema>;

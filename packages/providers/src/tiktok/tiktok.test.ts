@@ -664,6 +664,66 @@ describe('publishing a video', () => {
   });
 });
 
+/**
+ * Frame rate, refused before anything is uploaded.
+ *
+ * This is the failure that reached production four times: upload, schedule,
+ * publish, wait, and only then `frame_rate_check_failed` — for a video its
+ * owner was certain was 30fps. It was: on average. A phone records variable
+ * frame rate, so the instantaneous rate spikes past 60 while the label and the
+ * average both say 30.
+ */
+describe('frame rate, checked before sending', () => {
+  it('accepts an ordinary constant 30fps clip', async () => {
+    await expect(
+      provider(api).publish(
+        publishContext({ media: [{ ...video(), frameRate: 30, peakFrameRate: 30 }] }),
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  /** The exact case. The average passes; the peak is what TikTok objects to. */
+  it('refuses a variable-rate clip whose average still looks like 30', async () => {
+    await expect(
+      provider(api).publish(
+        publishContext({ media: [{ ...video(), frameRate: 30, peakFrameRate: 120 }] }),
+      ),
+    ).rejects.toMatchObject({
+      code: 'PROVIDER_VALIDATION_ERROR',
+      context: { validationCodes: 'MEDIA_FRAME_RATE_TOO_HIGH' },
+    });
+
+    // Nothing was sent. That is the whole point of checking here.
+    expect(api.called(/video\/init/)).toBe(0);
+  });
+
+  it('says the rate varies, rather than blaming a number the owner does not recognise', async () => {
+    await provider(api)
+      .publish(publishContext({ media: [{ ...video(), frameRate: 30, peakFrameRate: 120 }] }))
+      .catch((error: unknown) => {
+        const message = (error as { userMessage: string }).userMessage;
+        expect(message).toMatch(/varies/i);
+        expect(message).toMatch(/constant frame rate/i);
+      });
+  });
+
+  it('refuses a clip below the 23fps floor', async () => {
+    await expect(
+      provider(api).publish(
+        publishContext({ media: [{ ...video(), frameRate: 15, peakFrameRate: 15 }] }),
+      ),
+    ).rejects.toMatchObject({ context: { validationCodes: 'MEDIA_FRAME_RATE_TOO_LOW' } });
+  });
+
+  /**
+   * An asset uploaded before frame rate was read has no figure, and a check
+   * with no number must not refuse the post — an unknown is not a violation.
+   */
+  it('lets an older asset through when the rate was never read', async () => {
+    await expect(provider(api).publish(publishContext())).resolves.toBeDefined();
+  });
+});
+
 describe('upload mode', () => {
   const inboxApi = () =>
     happyApi().ok(/inbox\/video\/init/, {
