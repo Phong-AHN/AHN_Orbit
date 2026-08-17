@@ -24,6 +24,7 @@ import type {
   SocialProvider,
 } from '../types.js';
 import { TikTokClient, type TikTokClientOptions } from './client.js';
+import { tiktokPublishFailure } from './errors.js';
 import {
   TIKTOK_ANALYTICS_SCOPES,
   TIKTOK_CHUNK,
@@ -1156,12 +1157,10 @@ function settlementFor(
   const state = status.status as TikTokPublishStatus | undefined;
 
   if (state === 'FAILED') {
-    throw toAppError('TIKTOK', {
-      kind: 'MEDIA',
-      message: `TikTok rejected the publish: ${status.fail_reason ?? 'no reason given'}`,
-      userMessage: 'TikTok would not accept this video.',
-      meta: { publishId, ...(status.fail_reason ? { failReason: status.fail_reason } : {}) },
-    });
+    // Each `fail_reason` is a different kind of problem with a different
+    // remedy — and one of them, `internal`, is retryable. Collapsing them into
+    // one media error threw away a post because TikTok had a bad minute.
+    throw toAppError('TIKTOK', tiktokPublishFailure(status.fail_reason, publishId));
   }
 
   if (state === 'PUBLISH_COMPLETE') {

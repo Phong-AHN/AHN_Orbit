@@ -731,11 +731,72 @@ describe('when TikTok is still working', () => {
   it('fails outright when TikTok says it failed', async () => {
     const local = happyApi().ok(/status\/fetch/, {
       status: 'FAILED',
-      fail_reason: 'video too short',
+      fail_reason: 'file_format_check_failed',
     });
 
     await expect(provider(local).publish(publishContext())).rejects.toMatchObject({
       code: 'PROVIDER_MEDIA_ERROR',
+    });
+  });
+
+  /**
+   * `fail_reason` is not one kind of problem.
+   *
+   * The first version collapsed every one of them into a non-retryable media
+   * error saying "TikTok would not accept this video" — which threw away a post
+   * whenever TikTok's own servers hiccuped, and sent somebody re-exporting a
+   * perfectly good file when the creator had actually revoked access.
+   */
+  describe('the reason TikTok gives', () => {
+    const failing = (failReason: string) =>
+      provider(
+        happyApi().ok(/status\/fetch/, { status: 'FAILED', fail_reason: failReason }),
+      ).publish(publishContext());
+
+    it('treats an internal TikTok error as retryable, because TikTok says it is', async () => {
+      await expect(failing('internal')).rejects.toMatchObject({
+        code: 'PROVIDER_UNAVAILABLE',
+        retryable: true,
+      });
+    });
+
+    /** The one reason here where reconnecting genuinely is the fix. */
+    it('treats a revoked authorization as an authentication problem', async () => {
+      await expect(failing('auth_removed')).rejects.toMatchObject({
+        code: 'PROVIDER_AUTHENTICATION_ERROR',
+      });
+    });
+
+    it('treats a posting cap as a rate limit, not a broken file', async () => {
+      await expect(failing('spam_risk_too_many_posts')).rejects.toMatchObject({
+        code: 'PROVIDER_RATE_LIMIT',
+      });
+    });
+
+    it('blames the caption, not the video, when the caption is the problem', async () => {
+      await failing('spam_risk_text').catch((error: unknown) => {
+        expect((error as { userMessage: string }).userMessage).toMatch(/caption/i);
+      });
+    });
+
+    it('names the format when the format is wrong', async () => {
+      await failing('file_format_check_failed').catch((error: unknown) => {
+        expect((error as { userMessage: string }).userMessage).toMatch(/MP4/i);
+      });
+    });
+
+    /** An unknown reason must not loop, and must still say what TikTok said. */
+    it('keeps an unrecognised reason non-retryable, and repeats it', async () => {
+      await failing('something_new').catch((error: unknown) => {
+        const failure = error as {
+          retryable: boolean;
+          userMessage: string;
+          context: Record<string, unknown>;
+        };
+        expect(failure.retryable).toBe(false);
+        expect(failure.userMessage).toContain('something_new');
+        expect(failure.context['failReason']).toBe('something_new');
+      });
     });
   });
 });

@@ -3,6 +3,7 @@ import {
   classifyHttpStatus,
   parseRetryAfter,
   toAppError,
+  type NormalizedProviderFailure,
   type ProviderErrorKind,
 } from '../errors.js';
 import type { AppError } from '@orbit/core';
@@ -220,4 +221,101 @@ export function normalizeTikTokOAuthError(
       surface: 'oauth',
     },
   });
+}
+
+/**
+ * Why TikTok gave up on a publish it had already accepted.
+ *
+ * `status/fetch` reports `FAILED` with a `fail_reason`, and those reasons are
+ * genuinely different kinds of problem with genuinely different remedies. The
+ * first version of this collapsed all of them into one non-retryable media
+ * error saying "TikTok would not accept this video", which was wrong twice
+ * over:
+ *
+ *   • **`internal` is retryable.** TikTok says so outright. Treating it as a
+ *     permanent media failure throws away a post because their server had a bad
+ *     minute, and no retry ever happens.
+ *   • **`auth_removed` is the creator revoking access.** That is the one case
+ *     here where reconnecting *is* the fix — and reporting it as a bad file
+ *     sends somebody off to re-export a video that was never the problem.
+ *
+ * The reason is also carried into the user message, because "TikTok would not
+ * accept this video" tells whoever reads it nothing they can act on (**D-085**).
+ */
+const FAIL_REASONS: Record<string, { kind: ProviderErrorKind; userMessage: string }> = {
+  file_format_check_failed: {
+    kind: 'MEDIA',
+    userMessage: 'TikTok does not support this file format. Export it as MP4 with H.264 video.',
+  },
+  duration_check_failed: {
+    kind: 'MEDIA',
+    userMessage: 'This video is outside the length TikTok allows for this account.',
+  },
+  frame_rate_check_failed: {
+    kind: 'MEDIA',
+    userMessage: "TikTok does not support this video's frame rate. Re-export it at 30fps.",
+  },
+  picture_size_check_failed: {
+    kind: 'MEDIA',
+    userMessage: 'TikTok does not support these dimensions.',
+  },
+  video_pull_failed: {
+    kind: 'MEDIA',
+    userMessage: 'TikTok could not download the video in time.',
+  },
+  photo_pull_failed: {
+    kind: 'MEDIA',
+    userMessage: 'TikTok could not download the images in time.',
+  },
+  publish_cancelled: {
+    kind: 'VALIDATION',
+    userMessage: 'The upload to TikTok was cancelled before it finished.',
+  },
+  // The creator revoked our access mid-flight. Reconnecting is the fix, and
+  // this is the only reason here for which that is true.
+  auth_removed: {
+    kind: 'AUTHENTICATION',
+    userMessage: 'This TikTok account has removed access. Reconnect it to publish again.',
+  },
+  spam_risk_too_many_posts: {
+    kind: 'RATE_LIMIT',
+    userMessage: 'This account has posted too much through the API today. Try again tomorrow.',
+  },
+  spam_risk_user_banned_from_posting: {
+    kind: 'PERMISSION',
+    userMessage: 'TikTok has stopped this account from posting.',
+  },
+  spam_risk_text: {
+    kind: 'VALIDATION',
+    userMessage: 'TikTok flagged the caption as spam. Rewording it usually clears this.',
+  },
+  spam_risk: {
+    kind: 'VALIDATION',
+    userMessage: 'TikTok flagged this post as risky and would not publish it.',
+  },
+  // Verified: "Some parts of the TikTok server may currently be unavailable.
+  // This is a retryable error."
+  internal: {
+    kind: 'UNAVAILABLE',
+    userMessage: 'TikTok had a problem on their side. We will try again.',
+  },
+};
+
+export function tiktokPublishFailure(
+  failReason: string | undefined,
+  publishId: string,
+): NormalizedProviderFailure {
+  const known = failReason ? FAIL_REASONS[failReason] : undefined;
+
+  return {
+    // An unrecognised reason is treated as a media problem, which is the
+    // commonest cause and the safest guess: non-retryable, so an unknown
+    // failure never loops.
+    kind: known?.kind ?? 'MEDIA',
+    message: `TikTok rejected the publish: ${failReason ?? 'no reason given'}`,
+    userMessage:
+      known?.userMessage ?? `TikTok would not publish this${failReason ? ` (${failReason})` : ''}.`,
+    ...(failReason ? { providerCode: failReason } : {}),
+    meta: { publishId, ...(failReason ? { failReason } : {}) },
+  };
 }
