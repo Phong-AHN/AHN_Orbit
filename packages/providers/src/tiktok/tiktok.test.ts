@@ -469,7 +469,13 @@ describe('error handling', () => {
    * Some codes are about our app, not this post. Telling an account manager to
    * "try again later" when the app is unaudited costs somebody an afternoon.
    */
-  it('names the operator, not the account manager, when the app is unaudited', async () => {
+  /**
+   * An unaudited app is a real constraint, and the message has to name the fix
+   * somebody can actually apply. The first version said only "submit the app
+   * for audit" — true, and useless to an account manager, who now believes
+   * TikTok is blocked entirely rather than one setting away.
+   */
+  it('offers the immediate fix, not only the one that takes weeks', async () => {
     const local = happyApi().fail(
       /video\/init/,
       'unaudited_client_can_only_post_to_private_accounts',
@@ -480,6 +486,10 @@ describe('error handling', () => {
       .publish(publishContext())
       .catch((error: unknown) => {
         const failure = error as { userMessage: string; context: Record<string, unknown> };
+
+        // The two-second change, named.
+        expect(failure.userMessage).toMatch(/only this account/i);
+        // And the permanent one, still there.
         expect(failure.userMessage).toMatch(/audit/i);
         expect(failure.context['clientStanding']).toBe(true);
       });

@@ -243,6 +243,20 @@ export function TikTokOptionsPanel({
             </Select>
           </Field>
 
+          {/* Said before the choice, not after the failure.
+
+              Until TikTok audits the app, it refuses anything but "Only this
+              account" — and it refuses it at publish time, hours after the
+              choice was made and long after anyone is still looking. Naming the
+              constraint here costs one line and saves a failed post. */}
+          {value.privacyLevel && value.privacyLevel !== 'SELF_ONLY' ? (
+            <p className="text-xs text-ink-muted">
+              If this app is still in TikTok&rsquo;s sandbox or awaiting audit, only{' '}
+              <strong className="font-medium">Only this account</strong> will publish — anything
+              else is refused when the post goes out.
+            </p>
+          ) : null}
+
           {/* A stored choice can go stale: a creator who switches to a private
               account loses the public option, and TikTok would refuse the post
               rather than quietly downgrade it. */}

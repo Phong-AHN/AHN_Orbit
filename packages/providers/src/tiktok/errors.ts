@@ -105,8 +105,17 @@ export const tiktokErrorMap = new ProviderErrorMap({
  * afternoon.
  */
 const CLIENT_STANDING: Record<string, string> = {
+  /**
+   * Two remedies, and the order matters.
+   *
+   * The first version of this named only the audit — true, and useless to the
+   * person reading it, who cannot submit an app and now believes TikTok is
+   * blocked entirely. The immediate fix is a setting on this very post, and
+   * saying so first is the difference between a two-second change and a wait of
+   * several weeks.
+   */
   unaudited_client_can_only_post_to_private_accounts:
-    'TikTok has not audited this app yet, so it can only post privately. An administrator needs to submit the app for audit.',
+    'TikTok has not audited this app yet, so it can only publish privately. Set this post’s visibility to "Only this account" to publish now — making posts public needs an administrator to submit the app for TikTok’s audit.',
   reached_active_user_cap:
     "This app has reached TikTok's daily limit for publishing users. It resets tomorrow.",
 };
