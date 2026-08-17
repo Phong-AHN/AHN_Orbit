@@ -253,11 +253,16 @@ const FAIL_REASONS: Record<string, { kind: ProviderErrorKind; userMessage: strin
   },
   frame_rate_check_failed: {
     kind: 'MEDIA',
-    userMessage: "TikTok does not support this video's frame rate. Re-export it at 30fps.",
+    // The range matters more than the recommendation: somebody told to "use
+    // 30fps" does not know whether their 24fps file is also wrong, and the
+    // commonest cause is a 120fps slow-motion clip straight off a phone.
+    userMessage:
+      'TikTok only accepts 23–60 frames per second. Re-export this video in that range — 30fps is a safe choice, and 120fps slow-motion is the usual cause.',
   },
   picture_size_check_failed: {
     kind: 'MEDIA',
-    userMessage: 'TikTok does not support these dimensions.',
+    userMessage:
+      'TikTok does not support these dimensions. Each side has to be between 360 and 4096 pixels; 1080×1920 is the usual choice.',
   },
   video_pull_failed: {
     kind: 'MEDIA',

@@ -785,6 +785,19 @@ describe('when TikTok is still working', () => {
       });
     });
 
+    /**
+     * The range, not just the recommendation. Somebody told to "use 30fps" has
+     * no way to know whether their 24fps file is also wrong — and the usual
+     * culprit is a 120fps slow-motion clip off a phone, which is worth naming.
+     */
+    it('names the frame-rate range TikTok actually allows', async () => {
+      await failing('frame_rate_check_failed').catch((error: unknown) => {
+        const message = (error as { userMessage: string }).userMessage;
+        expect(message).toContain('23');
+        expect(message).toContain('60');
+      });
+    });
+
     /** An unknown reason must not loop, and must still say what TikTok said. */
     it('keeps an unrecognised reason non-retryable, and repeats it', async () => {
       await failing('something_new').catch((error: unknown) => {
