@@ -32,6 +32,7 @@ import {
   TIKTOK_UPLOAD_SCOPES,
   TIKTOK_VIDEO_METRICS,
   tiktokCapabilities,
+  tiktokUserFieldsFor,
   type TikTokPostMode,
   type TikTokPrivacyLevel,
   type TikTokPublishStatus,
@@ -261,7 +262,7 @@ export class TikTokProvider implements SocialProvider {
     });
 
     const issued = this.toIssuedCredential(token);
-    const profile = await this.fetchUserInfo(issued.accessToken);
+    const profile = await this.fetchUserInfo(issued.accessToken, issued.scopes);
 
     // `open_id` is the account's identity for every later call, and it comes
     // from the token response rather than needing a lookup.
@@ -377,14 +378,28 @@ export class TikTokProvider implements SocialProvider {
     };
   }
 
+  /**
+   * Read back who authorized, asking only for fields the grant covers.
+   *
+   * **The field list follows the granted scopes, not our wish list.** Asking
+   * for one field the user did not grant fails the entire request with
+   * `scope_not_authorized` — TikTok does not return the rest and omit that one.
+   * A fixed list therefore turns a partial grant into a connection that cannot
+   * complete, which is exactly how the first live attempt failed: `username`
+   * reads like basic profile data but sits behind `user.info.profile`.
+   *
+   * The upshot is that enabling `user.info.profile` on the TikTok app makes the
+   * @handle appear on its own, with no change here.
+   */
   private async fetchUserInfo(
     accessToken: string,
+    grantedScopes: readonly string[],
     signal?: AbortSignal | undefined,
   ): Promise<NonNullable<UserInfoResponse['user']>> {
     const response = await this.client.request<UserInfoResponse>({
       path: '/v2/user/info/',
       accessToken,
-      params: { fields: 'open_id,union_id,avatar_url,display_name,username' },
+      params: { fields: tiktokUserFieldsFor(grantedScopes) },
       ...(signal ? { signal } : {}),
     });
 
@@ -431,7 +446,7 @@ export class TikTokProvider implements SocialProvider {
     }
 
     try {
-      await this.fetchUserInfo(credential.accessToken);
+      await this.fetchUserInfo(credential.accessToken, credential.scopes);
     } catch (error) {
       const code = (error as { code?: string }).code;
       if (code === 'PROVIDER_AUTHENTICATION_ERROR' || code === 'PROVIDER_PERMISSION_ERROR') {

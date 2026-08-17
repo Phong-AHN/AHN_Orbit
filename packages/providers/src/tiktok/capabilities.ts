@@ -49,6 +49,44 @@ export const TIKTOK_UPLOAD_SCOPES = ['user.info.basic', 'video.upload'] as const
 export const TIKTOK_ANALYTICS_SCOPES = ['video.list'] as const;
 
 /**
+ * Which scope each `/v2/user/info/` field sits behind.
+ *
+ * Asking for a field the user did not grant fails the **whole request** with
+ * `scope_not_authorized` — it does not return the rest and omit that one. So
+ * the field list has to be built from what was actually granted, not from what
+ * was asked for: TikTok lets a user approve a subset at the consent screen, and
+ * a fixed list turns a partial grant into a connection that cannot complete.
+ *
+ * Verified against TikTok's Get User Info reference. The trap is `username`,
+ * which reads like basic profile data and is not — it needs
+ * `user.info.profile`, and requesting it under `user.info.basic` alone is what
+ * broke the first live connection attempt.
+ */
+export const TIKTOK_USER_FIELDS: ReadonlyArray<{ field: string; scope: string }> = [
+  { field: 'open_id', scope: 'user.info.basic' },
+  { field: 'union_id', scope: 'user.info.basic' },
+  { field: 'avatar_url', scope: 'user.info.basic' },
+  { field: 'display_name', scope: 'user.info.basic' },
+  { field: 'username', scope: 'user.info.profile' },
+];
+
+/**
+ * The fields these scopes actually permit.
+ *
+ * Never empty: `open_id` is the account's identity and is always requested, so
+ * a credential with an unexpected scope string still yields something to
+ * identify the account by rather than an empty `fields` parameter.
+ */
+export function tiktokUserFieldsFor(grantedScopes: readonly string[]): string {
+  const granted = new Set(grantedScopes);
+  const fields = TIKTOK_USER_FIELDS.filter((entry) => granted.has(entry.scope)).map(
+    (entry) => entry.field,
+  );
+
+  return fields.length > 0 ? fields.join(',') : 'open_id';
+}
+
+/**
  * Metrics the Display API serves per video.
  *
  * Verified against the `/v2/video/list/` and `/v2/video/query/` field list.

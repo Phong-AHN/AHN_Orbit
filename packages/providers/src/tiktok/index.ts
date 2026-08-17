@@ -10,7 +10,9 @@ export {
   TIKTOK_PUBLISH_STATUS,
   TIKTOK_UPLOAD_SCOPES,
   TIKTOK_VIDEO_METRICS,
+  TIKTOK_USER_FIELDS,
   tiktokCapabilities,
+  tiktokUserFieldsFor,
 } from './capabilities.js';
 export type { TikTokPostMode, TikTokPrivacyLevel, TikTokPublishStatus } from './capabilities.js';
 export { TikTokClient } from './client.js';

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { TikTokProvider, planChunks } from './provider.js';
-import { TIKTOK_CHUNK } from './capabilities.js';
+import { TIKTOK_CHUNK, tiktokUserFieldsFor } from './capabilities.js';
 import type { FetchLike } from './client.js';
 
 /**
@@ -372,6 +372,59 @@ describe('tokens', () => {
         expect(failure.context['providerCode']).toBe('invalid_request');
         expect(failure.context['logId']).toBe('log-oauth');
       });
+  });
+
+  /**
+   * The second bug a live connection found.
+   *
+   * `username` reads like basic profile data and is not — it sits behind
+   * `user.info.profile`. Asking for one ungranted field fails the **whole**
+   * request with `scope_not_authorized`; TikTok does not return the rest and
+   * omit that one. So the field list follows the grant.
+   */
+  it('asks only for fields the granted scopes cover', async () => {
+    const local = new FakeTikTok()
+      .oauth(/oauth\/token/, {
+        access_token: 'act.new',
+        expires_in: 86_400,
+        open_id: 'o-1',
+        // Basic only — no user.info.profile, which is the common case.
+        scope: 'user.info.basic,video.publish',
+      })
+      .ok(/user\/info/, { user: { open_id: 'o-1', display_name: 'AHN' } });
+
+    await provider(local).exchangeCode({ code: 'c', redirectUri: 'https://app.test/cb' });
+
+    const call = local.calls.find((candidate) => /user\/info/.test(candidate.url));
+    const fields = new URL(call!.url).searchParams.get('fields') ?? '';
+
+    expect(fields).toContain('display_name');
+    expect(fields).not.toContain('username');
+  });
+
+  it('asks for the handle once the profile scope is granted', async () => {
+    const local = new FakeTikTok()
+      .oauth(/oauth\/token/, {
+        access_token: 'act.new',
+        expires_in: 86_400,
+        open_id: 'o-1',
+        scope: 'user.info.basic,user.info.profile',
+      })
+      .ok(/user\/info/, { user: { open_id: 'o-1', display_name: 'AHN', username: 'ahnmedia' } });
+
+    const { accounts } = await provider(local).exchangeCode({
+      code: 'c',
+      redirectUri: 'https://app.test/cb',
+    });
+
+    const call = local.calls.find((candidate) => /user\/info/.test(candidate.url));
+    expect(new URL(call!.url).searchParams.get('fields')).toContain('username');
+    expect(accounts[0]!.handle).toBe('ahnmedia');
+  });
+
+  it('always asks for something, even on an unrecognised grant', () => {
+    expect(tiktokUserFieldsFor([])).toBe('open_id');
+    expect(tiktokUserFieldsFor(['video.publish'])).toBe('open_id');
   });
 
   it('asks for a reconnect once the refresh token itself has expired', async () => {
