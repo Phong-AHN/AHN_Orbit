@@ -152,6 +152,38 @@ function indexOfType(bytes: Uint8Array, type: string): number {
   return -1;
 }
 
+/**
+ * An `ftyp` box with an unusual major brand and a familiar compatible one.
+ *
+ * This is the shape a camera or an editor produces: something vendor-specific
+ * in the major slot, `isom`/`mp42` in the compatible list — which is precisely
+ * what the compatible list is for.
+ */
+function mp4WithBrands(major: string, compatible: string[]): Uint8Array {
+  const boxSize = 16 + compatible.length * 4;
+  const bytes = new Uint8Array(Math.max(64, boxSize));
+  const view = new DataView(bytes.buffer);
+
+  view.setUint32(0, boxSize);
+  bytes.set(
+    [...'ftyp'].map((c) => c.charCodeAt(0)),
+    4,
+  );
+  bytes.set(
+    [...major].map((c) => c.charCodeAt(0)),
+    8,
+  );
+  view.setUint32(12, 512);
+  compatible.forEach((brand, index) => {
+    bytes.set(
+      [...brand].map((c) => c.charCodeAt(0)),
+      16 + index * 4,
+    );
+  });
+
+  return bytes;
+}
+
 // ── Sniffing ────────────────────────────────────────────────────────────────
 
 describe('sniff — identifies real types', () => {
@@ -253,6 +285,38 @@ describe('declaredTypeMatches', () => {
  * `size - window` lands, which is never a box boundary, so the walk read the
  * first four bytes as a nonsense box size and gave up immediately.
  */
+describe('sniff — MP4 brands', () => {
+  it('accepts a familiar major brand', () => {
+    expect(sniff(mp4WithBrands('mp42', ['isom'])).mimeType).toBe('video/mp4');
+  });
+
+  /**
+   * The case that rejects ordinary camera footage as an unknown format:
+   * a vendor code in the major slot, with `isom` listed as compatible.
+   */
+  it('accepts an unfamiliar major brand that lists a familiar compatible one', () => {
+    expect(sniff(mp4WithBrands('XAVC', ['isom', 'mp42'])).mimeType).toBe('video/mp4');
+  });
+
+  /** Still refuses when nothing recognisable appears anywhere. */
+  it('refuses a container with no brand it knows', () => {
+    expect(() => sniff(mp4WithBrands('zzzz', ['yyyy', 'xxxx']))).toThrow();
+  });
+
+  it('does not read past the ftyp box looking for a brand', () => {
+    // A short box, with a familiar brand sitting *outside* it — beyond the box
+    // is other data, not a brand list, and treating it as one would accept
+    // anything with four lucky bytes.
+    const bytes = mp4WithBrands('zzzz', []);
+    bytes.set(
+      [...'isom'].map((c) => c.charCodeAt(0)),
+      32,
+    );
+
+    expect(() => sniff(bytes)).toThrow();
+  });
+});
+
 describe('probe — MP4 with the movie box at the end', () => {
   it('reads the duration from a tail slice that starts mid-file', () => {
     const file = mp4WithTrailingMoov(7, 400_000);

@@ -642,20 +642,17 @@ function VariantEditor({
   const inherits = override.length === 0;
   const counted = inherits ? post.body : override;
 
+  /**
+   * Persist the platform panel's settings.
+   *
+   * Deliberately does **not** catch: the panel shows the error next to the
+   * controls that produced it, which is nearer than this editor's shared error
+   * line and survives switching tabs. Rethrowing is how it gets there.
+   */
   async function savePlatformOptions(next: TikTokOptions) {
     if (!active) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const { variant } = await api.updateVariant(post.id, active.id, {
-        platformOptions: next,
-      });
-      onSaved(variant);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Those settings could not be saved.');
-    } finally {
-      setSaving(false);
-    }
+    const { variant } = await api.updateVariant(post.id, active.id, { platformOptions: next });
+    onSaved(variant);
   }
 
   async function saveOverride() {
@@ -778,9 +775,9 @@ function VariantEditor({
             orgSlug={orgSlug}
             socialAccountId={active.socialAccountId}
             accountName={active.socialAccount.displayName}
-            value={(active.platformOptions ?? {}) as TikTokOptions}
-            disabled={readOnly || saving}
-            onChange={(next) => void savePlatformOptions(next)}
+            saved={(active.platformOptions ?? {}) as TikTokOptions}
+            disabled={readOnly}
+            onSave={savePlatformOptions}
           />
         ) : null}
 

@@ -128,19 +128,18 @@ export function MediaPanel({
                   <Thumbnail orgSlug={orgSlug} item={item} />
 
                   <div className="min-w-0 flex-1 space-y-2">
-                    <Input
-                      aria-label="Alt text"
-                      placeholder="Describe this image for people using a screen reader"
+                    <AltTextInput
                       value={item.altText}
                       disabled={disabled || busy}
-                      maxLength={1000}
-                      onChange={(event) => update(index, { altText: event.target.value })}
+                      onCommit={(altText) => {
+                        if (altText !== item.altText) update(index, { altText });
+                      }}
                     />
 
                     {item.kind === 'VIDEO' ? (
                       <p className="text-xs text-warning">
-                        Video uploads and stores fine, but neither Facebook nor Instagram publishing
-                        is built for it yet — a post with video will not pass its checks.
+                        Video publishes to TikTok. Facebook and Instagram do not accept it yet — a
+                        post targeting those accounts will not pass its checks.
                       </p>
                     ) : null}
                   </div>
@@ -284,4 +283,60 @@ function describeFailure(error: unknown, filename: string): string {
   }
 
   return error instanceof Error ? error.message : `${filename} could not be uploaded.`;
+}
+
+/**
+ * Alt text that is typed locally and saved once.
+ *
+ * The field used to be driven straight from the parent, so every keystroke ran
+ * the whole attachment list through the update endpoint — a hundred-character
+ * description meant a hundred requests, each one deleting and recreating the
+ * post's media rows. It also made the caret jump whenever a response landed out
+ * of order.
+ *
+ * So the text lives here while it is being written and commits on blur, or on
+ * Enter for anyone who never leaves the keyboard. Escape abandons the edit.
+ *
+ * Deliberately **not** a debounce: a timer saves at an arbitrary moment mid-word
+ * and gives no signal about when the work is safe. Blur is a real boundary that
+ * a person can see, and it is the same moment they would expect a form field to
+ * settle.
+ */
+function AltTextInput({
+  value,
+  disabled,
+  onCommit,
+}: {
+  value: string;
+  disabled: boolean;
+  onCommit: (value: string) => void;
+}) {
+  const [draft, setDraft] = React.useState(value);
+
+  // Follow the parent when it changes underneath — a different asset in this
+  // slot, or a value the server rewrote.
+  React.useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  return (
+    <Input
+      aria-label="Alt text"
+      placeholder="Describe this image for people using a screen reader"
+      value={draft}
+      disabled={disabled}
+      maxLength={1000}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => onCommit(draft)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          event.currentTarget.blur();
+        } else if (event.key === 'Escape') {
+          setDraft(value);
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
 }

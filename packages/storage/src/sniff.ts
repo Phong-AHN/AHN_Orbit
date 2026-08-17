@@ -72,7 +72,7 @@ const SIGNATURES: ReadonlyArray<{
     mimeType: 'video/mp4',
     kind: 'VIDEO',
     extension: 'mp4',
-    test: (b) => ascii(b, 4, 4) === 'ftyp' && isMp4Brand(ascii(b, 8, 4)),
+    test: (b) => ascii(b, 4, 4) === 'ftyp' && isMp4Brand(b),
   },
   {
     mimeType: 'video/quicktime',
@@ -96,10 +96,48 @@ const MP4_BRANDS = new Set([
   'M4A ',
   'dash',
   'mmp4',
+  'mp4v',
+  // Sony, Panasonic and other camera vendors. They list `isom` as compatible
+  // too, so these are belt and braces rather than the only way in.
+  'MSNV',
+  'NDAS',
+  'NDSC',
+  'f4v ',
 ]);
 
-function isMp4Brand(brand: string): boolean {
-  return MP4_BRANDS.has(brand);
+/**
+ * Whether this is an MP4, judged on the major brand **and the compatible ones**.
+ *
+ * An `ftyp` box declares one major brand at offset 8 and then a list of
+ * compatible brands from offset 16 to the end of the box. Cameras and editors
+ * put all sorts of things in the major slot — a vendor code, a profile name —
+ * while listing `isom` or `mp42` among the compatible brands, which is exactly
+ * what that list is for.
+ *
+ * Reading only the major brand therefore rejects ordinary files as an unknown
+ * format. Reading the compatible list as well keeps this strict — a known brand
+ * still has to appear somewhere — without pretending to have met every encoder
+ * in existence.
+ */
+function isMp4Brand(bytes: Uint8Array): boolean {
+  if (MP4_BRANDS.has(ascii(bytes, 8, 4))) return true;
+
+  // The box size caps the list; the buffer caps it again, since sniffing reads
+  // only a short prefix.
+  const declared = readUint32(bytes, 0);
+  const end = Math.min(declared > 0 ? declared : bytes.length, bytes.length);
+
+  for (let offset = 16; offset + 4 <= end; offset += 4) {
+    if (MP4_BRANDS.has(ascii(bytes, offset, 4))) return true;
+  }
+
+  return false;
+}
+
+function readUint32(bytes: Uint8Array, offset: number): number {
+  const [a, b, c, d] = [bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]];
+  if (a === undefined || b === undefined || c === undefined || d === undefined) return 0;
+  return ((a << 24) | (b << 16) | (c << 8) | d) >>> 0;
 }
 
 function ascii(bytes: Uint8Array, offset: number, length: number): string {
