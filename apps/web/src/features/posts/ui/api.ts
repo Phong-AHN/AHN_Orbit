@@ -92,6 +92,8 @@ export interface PostVariantSummary {
   firstComment: string | null;
   status: string;
   externalPermalink: string | null;
+  /** Per-platform settings, opaque here. Only the platform's own panel reads them. */
+  platformOptions?: Record<string, unknown> | null;
   socialAccount: { id: string; displayName: string; handle: string | null; status: string };
 }
 

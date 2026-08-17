@@ -1,8 +1,9 @@
 import { serverEnv } from '@orbit/config';
 import { logger } from '@orbit/observability';
-import { registerProvider, supportedPlatforms } from '@orbit/providers';
+import { registerProvider, supportedPlatforms, type PublishMedia } from '@orbit/providers';
 import { FacebookProvider } from '@orbit/providers/facebook';
 import { InstagramProvider } from '@orbit/providers/instagram';
+import { TikTokProvider } from '@orbit/providers/tiktok';
 import { MockProvider } from '@orbit/providers/mock';
 
 /**
@@ -29,11 +30,63 @@ import { MockProvider } from '@orbit/providers/mock';
 
 let bootstrapped = false;
 
+/**
+ * Read a byte range of a media object, for platforms that want the bytes rather
+ * than a URL.
+ *
+ * A ranged GET against the signed URL the subject already built, rather than a
+ * storage call: `@orbit/providers` must not depend on `@orbit/storage`, and the
+ * publish subject is the one place that knows how to turn a media asset into
+ * something fetchable. S3 honours `Range` on a presigned GET, so this needs
+ * nothing the URL does not already carry.
+ *
+ * **The signed URL lives 15 minutes** (`MEDIA_URL_TTL_SECONDS` in
+ * `publishing/subject.ts`). An upload slower than that will fail part-way with
+ * an expired-URL error rather than silently truncating — loud, and the right
+ * failure — but it does bound how large a video this can carry in one publish.
+ */
+async function readMediaRange(input: {
+  media: PublishMedia;
+  firstByte: number;
+  lastByte: number;
+  signal?: AbortSignal | undefined;
+}): Promise<Uint8Array> {
+  const response = await fetch(input.media.url, {
+    headers: { range: `bytes=${input.firstByte}-${input.lastByte}` },
+    ...(input.signal ? { signal: input.signal } : {}),
+  });
+
+  // 206 is the expected answer. A 200 means the range was ignored and the whole
+  // object is coming back, which would corrupt the chunk boundaries — better to
+  // stop than to upload the wrong bytes under the right Content-Range header.
+  if (response.status !== 206) {
+    throw new Error(
+      `Ranged read of media ${input.media.id} returned HTTP ${response.status}; expected 206`,
+    );
+  }
+
+  return new Uint8Array(await response.arrayBuffer());
+}
+
 export function ensureProvidersRegistered(): void {
   if (bootstrapped) return;
   bootstrapped = true;
 
   const env = serverEnv();
+  let registeredAny = false;
+
+  if (env.TIKTOK_CLIENT_KEY && env.TIKTOK_CLIENT_SECRET) {
+    registerProvider(
+      new TikTokProvider({
+        clientKey: env.TIKTOK_CLIENT_KEY,
+        clientSecret: env.TIKTOK_CLIENT_SECRET,
+        apiVersion: 'v2',
+        // Only the worker wires this: the web app never moves media bytes.
+        readMediaRange,
+      }),
+    );
+    registeredAny = true;
+  }
 
   if (env.FACEBOOK_APP_ID && env.FACEBOOK_APP_SECRET) {
     registerProvider(
@@ -55,11 +108,18 @@ export function ensureProvidersRegistered(): void {
           : {}),
       }),
     );
-  } else {
+    registeredAny = true;
+  }
+
+  // The mock stands in only when *nothing* real is configured. Registering it
+  // alongside a real adapter would put a fake platform next to a live one in
+  // the same list, which is exactly the confusion the registry's
+  // production guard exists to prevent.
+  if (!registeredAny) {
     // Throws if this is somehow reached in production.
     registerProvider(new MockProvider(), { developmentOnly: true });
-    logger.warn('Facebook is not configured; the worker is using the development mock', {
-      hint: 'Set FACEBOOK_APP_ID and FACEBOOK_APP_SECRET to publish for real.',
+    logger.warn('no platform is configured; the worker is using the development mock', {
+      hint: 'Set FACEBOOK_APP_ID / FACEBOOK_APP_SECRET or TIKTOK_CLIENT_KEY / TIKTOK_CLIENT_SECRET to publish for real.',
     });
   }
 

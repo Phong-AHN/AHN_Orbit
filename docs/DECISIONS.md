@@ -2013,6 +2013,107 @@ question. The next occurrence names itself.
 
 ---
 
+## D-086 — TikTok, where a publish is a process and the creator owns the choice
+
+- **Context:** the fourth platform, and the first that is video-first. Nothing
+  in the provider framework needed changing to accept it, which was the point of
+  building the framework — but three of TikTok's habits have no analogue in the
+  Meta adapters and each shaped a decision.
+
+### Both post modes, chosen per variant
+
+Direct Post puts the video on the profile and needs `video.publish` plus a
+TikTok audit. Upload sends it to the creator's **inbox**, needs only
+`video.upload` and no audit, and the post goes live when a human finishes it in
+TikTok's editor — possibly never.
+
+They make different promises, so the mode is a per-variant setting and the
+composer says which is which in plain words. `SEND_TO_USER_INBOX` settles the
+publish with `awaitingCreator: true` in `providerMeta` rather than being
+reported as published: a notification is not a post, and recording one as the
+other would tell an agency a client's video was live when it was sitting in
+somebody's inbox.
+
+### FILE_UPLOAD, not PULL_FROM_URL
+
+`PULL_FROM_URL` needs TikTok to fetch from a **verified public domain**. Orbit's
+media is private, reached through signed URLs that expire in minutes, and making
+client video publicly addressable to satisfy an upload path is the wrong trade.
+So the worker streams the bytes itself in 5–64 MB chunks.
+
+`readMediaRange` is **injected** rather than imported: `@orbit/providers` must
+not depend on `@orbit/storage`, and the worker's implementation is a ranged GET
+against the signed URL the publish subject already built. The web app registers
+TikTok *without* it — the web never moves bytes, and a provider that cannot
+upload is the honest shape for that process.
+
+The known bound: the signed URL lives 15 minutes, so an upload slower than that
+fails loudly rather than truncating. Photo posts are the exception and do use
+`PULL_FROM_URL`, because TikTok offers no file upload for them at all.
+
+### The creator owns the privacy decision
+
+`privacy_level` is mandatory, must be one of the options `creator_info/query`
+returns **for that account at that moment**, and TikTok treats ignoring it as a
+Terms of Service violation rather than a bad request.
+
+So: no default, no fallback, and no hard-coded list in the UI. The composer asks
+TikTok and shows what comes back; an unset visibility blocks publishing with a
+clear message. Quietly choosing `SELF_ONLY` would publish to nobody and quietly
+choosing public would post something a client never agreed to — both worse than
+a refusal. The adapter re-checks at publish time too, because a creator who
+switches to a private account invalidates a choice made yesterday.
+
+### `platformOptions` was already there
+
+The column has existed on `PostVariant` since the schema was designed from the
+SRS, unread by anything. It carries these settings, threaded into
+`VariantDraft.providerOptions` — which `validateDraft` never looks at. Platform
+vocabulary stays inside the adapter that owns it; the contract every platform
+shares does not learn the word `disable_duet`.
+
+The request schema is a **closed** set of keys, not an open record: this is
+client-supplied JSON heading for a `Json` column, and "whatever the browser
+sends" is a place to park arbitrary data inside a tenant's row.
+
+### Reconciliation is stronger here than anywhere else
+
+`video/init` returns a `publish_id` and the post exists only when
+`status/fetch` says `PUBLISH_COMPLETE`. `publish` records that id through
+`recordProviderRef` **before the first byte moves**, polls within a budget
+shorter than the engine's call timeout, and throws `TIMEOUT` — never a failure —
+when the budget runs out. The engine then reconciles by asking about that exact
+publish, which beats Instagram's container check and beats a text-matching
+search outright: it is scoped to one attempt and cannot mistake somebody else's
+upload for ours (**D-027**).
+
+With no recorded id, `reconcile` returns INCONCLUSIVE and parks for a human.
+
+### Three bugs the tests caught
+
+1. **`reconcile` threw instead of answering.** `settlementFor` throws on
+   `FAILED`, which is right during a publish and wrong during reconciliation —
+   there, "it failed" is the answer the caller asked for. The FAILED check now
+   runs first.
+2. **`planChunks` reported a chunk size larger than the file.** A 50 MB video
+   was described as 64 MB chunks, and TikTok's own arithmetic — size ÷
+   chunk_size, rounded down — makes that *zero* chunks.
+3. **A 200 is not success.** TikTok returns an `error` object on every response
+   with `error.code: "ok"` meaning success, so the body is read before the
+   status. Checking `response.ok` first sails past a `spam_risk_too_many_posts`
+   returned with HTTP 200.
+
+### Analytics: post only, and account deliberately refused
+
+The Display API serves per-video counters and nothing at account level.
+`analytics.account: false` means the ingestion sweep skips it as UNSUPPORTED;
+`fetchAccountAnalytics` throws rather than summing videos into something that
+looks like an account metric and is not one (SRS §18). A counter TikTok has not
+produced yet is reported UNSUPPORTED, never stored as zero — a fresh post would
+otherwise chart as a failed one.
+
+---
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

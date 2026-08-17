@@ -60,6 +60,7 @@ export async function loadPublishSubject(
         hashtags: true,
         mentions: true,
         firstComment: true,
+        platformOptions: true,
         contentHash: true,
         socialAccountId: true,
         socialAccount: {
@@ -192,6 +193,12 @@ export async function loadPublishSubject(
     linkUrl: variant.linkUrl,
     hashtags: variant.hashtags,
     firstComment: variant.firstComment,
+    // Settings that exist on one platform only — TikTok's privacy level and
+    // post mode are the first. Opaque here on purpose: only the adapter that
+    // wrote the keys reads them, and `validateDraft` never looks at all.
+    ...(variant.platformOptions && typeof variant.platformOptions === 'object'
+      ? { providerOptions: variant.platformOptions as Record<string, unknown> }
+      : {}),
     media: media.map((item) => ({
       id: item.id,
       kind: item.kind,

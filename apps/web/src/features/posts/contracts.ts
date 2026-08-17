@@ -35,6 +35,31 @@ const linkUrl = z
   .max(2048)
   .refine((v) => /^https?:\/\//i.test(v), { message: 'Only http and https links are allowed' });
 
+/**
+ * Per-platform settings for one variant.
+ *
+ * Deliberately a small, closed set of keys rather than an open record: this is
+ * client-supplied JSON heading for a `Json` column, and "whatever the browser
+ * sends" would be a place to park arbitrary data inside a tenant's row. The
+ * adapter that reads these keys validates their *meaning* — TikTok checks the
+ * privacy level against what the creator currently allows — while this checks
+ * only their shape.
+ *
+ * TikTok is the only platform with entries today. A second one adds its keys
+ * here, and adapters ignore keys they do not recognise.
+ */
+const platformOptions = z
+  .object({
+    postMode: z.enum(['DIRECT_POST', 'MEDIA_UPLOAD']).optional(),
+    privacyLevel: z
+      .enum(['PUBLIC_TO_EVERYONE', 'MUTUAL_FOLLOW_FRIENDS', 'FOLLOWER_OF_CREATOR', 'SELF_ONLY'])
+      .optional(),
+    disableComment: z.boolean().optional(),
+    disableDuet: z.boolean().optional(),
+    disableStitch: z.boolean().optional(),
+  })
+  .strict();
+
 /** Media, referenced by id. The asset itself is re-verified server-side. */
 const mediaRefs = z
   .array(
@@ -100,6 +125,7 @@ export const updateVariantSchema = z
     mentions: mentions.nullish(),
     firstComment: z.string().trim().max(2000).nullish(),
     media: mediaRefs.nullish(),
+    platformOptions: platformOptions.nullish(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), {
     message: 'Provide at least one field to update',

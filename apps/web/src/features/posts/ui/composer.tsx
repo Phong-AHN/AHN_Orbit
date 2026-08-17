@@ -27,6 +27,7 @@ import { AssigneeSelect } from './assignee-select';
 import { AIAssist } from '@/features/ai/ui/ai-assist';
 import { PublishNowButton } from './publish-now-button';
 import { PostPreview } from './preview';
+import { TikTokOptionsPanel, type TikTokOptions } from './tiktok-options';
 
 /**
  * The composer (SRS §9, §31).
@@ -641,6 +642,22 @@ function VariantEditor({
   const inherits = override.length === 0;
   const counted = inherits ? post.body : override;
 
+  async function savePlatformOptions(next: TikTokOptions) {
+    if (!active) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const { variant } = await api.updateVariant(post.id, active.id, {
+        platformOptions: next,
+      });
+      onSaved(variant);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Those settings could not be saved.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveOverride() {
     if (!active) return;
     setSaving(true);
@@ -750,6 +767,21 @@ function VariantEditor({
           <Button size="sm" variant="secondary" loading={saving} onClick={saveOverride}>
             Save override
           </Button>
+        ) : null}
+
+        {/* TikTok's settings are per account and mandatory there, so they sit
+            with the account's own text rather than in a global panel. Saved on
+            change, not behind "Save override": a half-chosen visibility is the
+            one state that blocks publishing entirely. */}
+        {active.platform === 'TIKTOK' ? (
+          <TikTokOptionsPanel
+            orgSlug={orgSlug}
+            socialAccountId={active.socialAccountId}
+            accountName={active.socialAccount.displayName}
+            value={(active.platformOptions ?? {}) as TikTokOptions}
+            disabled={readOnly || saving}
+            onChange={(next) => void savePlatformOptions(next)}
+          />
         ) : null}
 
         {/* Follows the open tab, and reads the *unsaved* text — the question it

@@ -3,6 +3,7 @@ import { logger } from '@orbit/observability';
 import { isSupported, registerProvider, supportedPlatforms } from '@orbit/providers';
 import { FacebookProvider } from '@orbit/providers/facebook';
 import { InstagramProvider } from '@orbit/providers/instagram';
+import { TikTokProvider } from '@orbit/providers/tiktok';
 import { MockProvider } from '@orbit/providers/mock';
 
 /**
@@ -41,8 +42,14 @@ export function resetProviderBootstrap(): void {
   bootstrapped = false;
 }
 
-function useRealProvider(env: ReturnType<typeof serverEnv>): boolean {
-  if (!env.FACEBOOK_APP_ID || !env.FACEBOOK_APP_SECRET) return false;
+/**
+ * Whether a configured platform may register, given the environment.
+ *
+ * Config alone is not enough in `test`: a developer with real credentials in
+ * their `.env` — the normal state — would otherwise get live adapters inside
+ * the suite, which is how the first E2E run reached `graph.facebook.com`.
+ */
+function realProvidersAllowed(env: ReturnType<typeof serverEnv>): boolean {
   if (env.NODE_ENV !== 'test') return true;
 
   // Opt in, explicitly, for the one manual run against a real Test Page.
@@ -54,8 +61,25 @@ export function ensureProvidersRegistered(): void {
   bootstrapped = true;
 
   const env = serverEnv();
+  const allowed = realProvidersAllowed(env);
+  let registeredAny = false;
 
-  if (useRealProvider(env) && env.FACEBOOK_APP_ID && env.FACEBOOK_APP_SECRET) {
+  if (allowed && env.TIKTOK_CLIENT_KEY && env.TIKTOK_CLIENT_SECRET) {
+    // No `readMediaRange` here: the web app resolves capabilities, starts OAuth
+    // and reads creator info. It never moves media bytes — only the worker
+    // publishes — and a provider that cannot upload is the honest shape for it.
+    registerProvider(
+      new TikTokProvider({
+        clientKey: env.TIKTOK_CLIENT_KEY,
+        clientSecret: env.TIKTOK_CLIENT_SECRET,
+        apiVersion: 'v2',
+      }),
+    );
+    registeredAny = true;
+    logger.info('registered TikTok provider', { platforms: ['TIKTOK'] });
+  }
+
+  if (allowed && env.FACEBOOK_APP_ID && env.FACEBOOK_APP_SECRET) {
     registerProvider(
       new FacebookProvider({
         appId: env.FACEBOOK_APP_ID,
@@ -78,20 +102,26 @@ export function ensureProvidersRegistered(): void {
       }),
     );
 
+    registeredAny = true;
+
     logger.info('registered Meta providers', {
       apiVersion: env.FACEBOOK_GRAPH_VERSION,
       platforms: ['FACEBOOK', 'INSTAGRAM'],
       instagramUsernameLogin: Boolean(env.INSTAGRAM_APP_ID && env.INSTAGRAM_APP_SECRET),
     });
-  } else {
+  }
+
+  // Only when nothing real registered. A mock sitting beside a live adapter
+  // would let a post be validated against a fake platform's rules.
+  if (!registeredAny) {
     // Throws if this is somehow reached in production.
     registerProvider(new MockProvider(), { developmentOnly: true });
     logger.warn('using the development mock provider', {
       reason:
         env.NODE_ENV === 'test'
           ? 'tests never call a real platform unless ORBIT_E2E_REAL_PROVIDER=true'
-          : 'Facebook is not configured',
-      hint: 'Set FACEBOOK_APP_ID and FACEBOOK_APP_SECRET to use the real adapter.',
+          : 'no platform is configured',
+      hint: 'Set FACEBOOK_APP_ID / FACEBOOK_APP_SECRET or TIKTOK_CLIENT_KEY / TIKTOK_CLIENT_SECRET to use a real adapter.',
     });
   }
 

@@ -198,3 +198,35 @@ tại giữ `limits` riêng trên dòng dữ liệu của họ.
 5. **Rà soát responsive + accessibility có hệ thống**
 
 Em sẽ không hỏi gì về những mục này.
+
+## TikTok (added 2026-08-17)
+
+### 🔴 Blocking — nothing publishes publicly without these
+
+- [ ] **Register a TikTok app** at developers.tiktok.com and set
+      `TIKTOK_CLIENT_KEY` and `TIKTOK_CLIENT_SECRET`. Without them TikTok is not
+      offered at all — the provider simply does not register.
+- [ ] **Add the Content Posting API product** to the app, and enable the
+      **Direct Post** configuration. Without Direct Post enabled, only the
+      "send to their inbox" mode works.
+- [ ] **Request the `video.publish` scope** (Direct Post) and/or `video.upload`
+      (inbox mode), plus `video.list` for analytics.
+- [ ] **Submit the app for TikTok's audit.** Until it passes, **every post the
+      app makes is forced private**, whatever visibility anyone chooses. This is
+      the same class of blocker as Meta App Review and has the same long lead
+      time — start it early.
+- [ ] **Register the redirect URI** in Login Kit settings. It must be `https`,
+      absolute, and carry no query string or fragment.
+
+### 🟡 Worth knowing
+
+- A TikTok access token lasts **24 hours** and its refresh token **365 days**.
+  The refresh sweep handles this, but an account left untouched for a year has
+  to be reconnected by hand.
+- Videos upload from the worker in chunks against a signed URL that lives
+  **15 minutes**. A very large video on a slow link will fail loudly rather than
+  post a truncated file.
+- **Photo posts are different**: TikTok has no file upload for them, so it
+  fetches the images from us. That needs a **verified URL prefix** in the TikTok
+  portal, or photo posts fail with `url_ownership_unverified`. Video posts are
+  unaffected.

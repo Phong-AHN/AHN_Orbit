@@ -10,7 +10,8 @@
     "./contract": "./dist/contract/index.js",
     "./mock": "./dist/mock/index.js",
     "./facebook": "./dist/facebook/index.js",
-    "./instagram": "./dist/instagram/index.js"
+    "./instagram": "./dist/instagram/index.js",
+    "./tiktok": "./dist/tiktok/index.js"
   },
   "scripts": {
     "build": "tsc -b",

@@ -169,6 +169,19 @@ export const serverEnvSchema = z.object({
   INSTAGRAM_APP_ID: optionalString,
   INSTAGRAM_APP_SECRET: optionalString,
 
+  /**
+   * ── TikTok (SRS §7) ──────────────────────────────────────────────────────
+   *
+   * A TikTok app is entirely separate from any Meta app: its own portal, its
+   * own review, its own key pair. Absent means TikTok is not offered at all.
+   *
+   * **Until TikTok audits the app, every post it makes is private**, whatever
+   * privacy level the creator chooses — the same class of blocker as Meta's App
+   * Review, and worth knowing before anyone schedules a campaign.
+   */
+  TIKTOK_CLIENT_KEY: optionalString,
+  TIKTOK_CLIENT_SECRET: optionalString,
+
   // ── AI (SRS §51) ──────────────────────────────────────────────────────────
   GEMINI_API_KEY: optionalString,
   GEMINI_MODEL: z.string().default('gemini-2.0-flash'),

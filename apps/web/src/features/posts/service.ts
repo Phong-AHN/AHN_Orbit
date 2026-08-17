@@ -58,6 +58,7 @@ const VARIANT_SELECT = {
   hashtags: true,
   mentions: true,
   firstComment: true,
+  platformOptions: true,
   status: true,
   scheduledFor: true,
   externalPermalink: true,
@@ -534,7 +535,7 @@ export async function updateVariant(
 
     const variant = await db.postVariant.findFirst({
       where: { id: variantId, postId, deletedAt: null },
-      select: { id: true, status: true, socialAccountId: true },
+      select: { id: true, status: true, socialAccountId: true, platformOptions: true },
     });
     if (!variant) throw new NotFoundError('Post variant');
 
@@ -552,6 +553,17 @@ export async function updateVariant(
         ...(input.hashtags !== undefined ? { hashtags: input.hashtags ?? [] } : {}),
         ...(input.mentions !== undefined ? { mentions: input.mentions ?? [] } : {}),
         ...(input.firstComment !== undefined ? { firstComment: input.firstComment } : {}),
+        // Merged rather than replaced: the composer saves one control at a
+        // time, and a PATCH carrying only `privacyLevel` must not silently drop
+        // the post mode chosen a moment earlier.
+        ...(input.platformOptions !== undefined
+          ? {
+              platformOptions: {
+                ...((variant.platformOptions as Record<string, unknown> | null) ?? {}),
+                ...(input.platformOptions ?? {}),
+              },
+            }
+          : {}),
       },
       select: VARIANT_SELECT,
     });

@@ -55,6 +55,20 @@ export interface VariantDraft {
   scheduledFor?: Date | undefined;
   /** Evaluated against `lifecycle.editOwnPostsOnly` when editing. */
   createdByThisApp?: boolean | undefined;
+  /**
+   * Settings that exist on exactly one platform, kept opaque on purpose.
+   *
+   * TikTok's `privacy_level`, `disable_duet` and post mode are the motivating
+   * case: they are mandatory there and meaningless everywhere else. Promoting
+   * them to real fields on this interface would put TikTok's vocabulary into
+   * the contract every platform shares, which is the drift this whole layer
+   * exists to prevent.
+   *
+   * **Nothing in this file reads it.** `validateDraft` stays platform-agnostic;
+   * only the adapter that wrote the keys interprets them, and an adapter that
+   * finds keys it does not recognise ignores them.
+   */
+  providerOptions?: Record<string, unknown> | undefined;
 }
 
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;

@@ -81,6 +81,7 @@ export async function validatePost(ctx: TenantContext, postId: string): Promise<
             linkUrl: true,
             hashtags: true,
             firstComment: true,
+            platformOptions: true,
             scheduledFor: true,
             socialAccountId: true,
             socialAccount: {
@@ -149,6 +150,11 @@ export async function validatePost(ctx: TenantContext, postId: string): Promise<
       hashtags: variant.hashtags,
       firstComment: variant.firstComment,
       scheduledFor: variant.scheduledFor ?? post.scheduledFor ?? undefined,
+      // Threaded through so the composer checks the same draft the worker will
+      // publish. `validateDraft` ignores it; an adapter reads its own keys.
+      ...(variant.platformOptions && typeof variant.platformOptions === 'object'
+        ? { providerOptions: variant.platformOptions as Record<string, unknown> }
+        : {}),
       media: usable.map((m) => ({
         id: m.mediaAsset.id,
         kind: m.mediaAsset.kind,
