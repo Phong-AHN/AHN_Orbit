@@ -778,6 +778,51 @@ describe('disconnecting', () => {
     expect(await platformDb.socialCredential.count({ where: { socialAccountId: id } })).toBe(1);
   });
 
+  /**
+   * The boundary of that refusal, in the direction that would otherwise go
+   * unnoticed.
+   *
+   * Only a **scheduled** post has a promise attached to it. A draft targeting
+   * this account is somebody's unfinished work — blocking on it would make an
+   * account impossible to disconnect until every abandoned draft was hunted
+   * down, and the person doing the hunting would have no way to find them.
+   */
+  it('is not blocked by a draft, which nobody has promised to anyone', async () => {
+    const id = await connectOne();
+
+    const post = await platformDb.post.create({
+      data: {
+        organizationId: ORG_A,
+        workspaceId: WS_A,
+        brandId: BRAND_A,
+        body: 'still writing',
+        status: 'DRAFT',
+      },
+    });
+    await platformDb.postVariant.create({
+      data: {
+        organizationId: ORG_A,
+        postId: post.id,
+        socialAccountId: id,
+        platform: 'FACEBOOK',
+        status: 'DRAFT',
+      },
+    });
+
+    await expect(disconnectAccount(ctxA, id, fingerprint)).resolves.toBeUndefined();
+  });
+
+  it('records who disconnected it, and when', async () => {
+    const id = await connectOne();
+    await disconnectAccount(ctxA, id, fingerprint);
+
+    const entry = await platformDb.auditLog.findFirst({
+      where: { organizationId: ORG_A, action: 'social_account.disconnected', resourceId: id },
+    });
+
+    expect(entry).not.toBeNull();
+  });
+
   it('succeeds even when the provider refuses to revoke', async () => {
     const id = await connectOne();
     mock.fault = 'UNAVAILABLE';

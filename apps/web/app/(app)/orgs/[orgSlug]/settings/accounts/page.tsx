@@ -14,6 +14,7 @@ import { pageCan, requirePageContext } from '@/server/page-context';
 import { listAccounts } from '@/features/social/service';
 import { NeedsReconnectBanner } from '@/features/social/ui/needs-reconnect-banner';
 import { ReconnectButton } from '@/features/social/ui/reconnect-button';
+import { DisconnectButton } from '@/features/social/ui/disconnect-button';
 import {
   ACCOUNT_STATUS_HINT,
   ACCOUNT_STATUS_LABEL,
@@ -51,6 +52,7 @@ export default async function AccountsPage({ params }: PageProps) {
   }
 
   const mayReconnect = pageCan(ctx, 'social_account:reconnect');
+  const mayDisconnect = pageCan(ctx, 'social_account:disconnect');
   const accounts = await listAccounts(ctx);
 
   // A staged row mid-OAuth is not a connection anyone has made yet.
@@ -143,15 +145,30 @@ export default async function AccountsPage({ params }: PageProps) {
                       )}
                     </div>
 
-                    {mayReconnect && canReconnect(account.status) ? (
-                      <ReconnectButton
-                        orgSlug={orgSlug}
-                        accountId={account.id}
-                        accountName={account.displayName}
-                        returnTo={returnTo}
-                        variant={account.status === 'NEEDS_RECONNECT' ? 'primary' : 'secondary'}
-                      />
-                    ) : null}
+                    <div className="flex shrink-0 items-start gap-1.5">
+                      {mayReconnect && canReconnect(account.status) ? (
+                        <ReconnectButton
+                          orgSlug={orgSlug}
+                          accountId={account.id}
+                          accountName={account.displayName}
+                          returnTo={returnTo}
+                          variant={account.status === 'NEEDS_RECONNECT' ? 'primary' : 'secondary'}
+                        />
+                      ) : null}
+
+                      {/* Offered whatever the health verdict says. A dead
+                          connection is the case where somebody most wants to be
+                          rid of it, so hiding this behind "healthy only" would
+                          withhold it exactly when it is needed. */}
+                      {mayDisconnect ? (
+                        <DisconnectButton
+                          orgSlug={orgSlug}
+                          accountId={account.id}
+                          accountName={account.displayName}
+                          platform={account.platform}
+                        />
+                      ) : null}
+                    </div>
                   </CardBody>
                 </Card>
               </li>
