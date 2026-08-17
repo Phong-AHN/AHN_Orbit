@@ -344,7 +344,20 @@ async function classifyAndMaybeReconcile(
       ? { kind: 'RETRYABLE', code }
       : { kind: 'FAILED', code };
 
-    await closeAttempt(attempt, outcome, { message, retryable });
+    await closeAttempt(attempt, outcome, {
+      message,
+      retryable,
+      // The attempt row is what the publishing page reads, and it was keeping
+      // only the user-facing sentence — so a failure could be *seen* in the
+      // product but never diagnosed there. `AppError.context` is already the
+      // whitelisted, non-sensitive set the logger emits (codes, http status,
+      // Meta's fbtrace id); `scrubMeta` keeps it to flat scalars so nothing
+      // structured can smuggle a payload into the column.
+      ...(isAppError(error) ? { providerMeta: scrubMeta(error.context) } : {}),
+      ...(isAppError(error) && typeof error.context?.['httpStatus'] === 'number'
+        ? { httpStatus: error.context['httpStatus'] }
+        : {}),
+    });
 
     // Normalised code, never the provider's own message: low cardinality, and a
     // rise in one code is a different incident from a rise in another (T1.19).
@@ -745,3 +758,27 @@ function isAbortError(error: unknown): boolean {
 }
 
 export { PUBLISH_TIMEOUT_MS, LOCK_TTL_MS };
+
+/**
+ * Keep an error's context to flat scalars before it is stored.
+ *
+ * `AppError.context` is already meant to be non-sensitive — it is what the
+ * logger emits — but "meant to be" is not a guarantee when the column outlives
+ * the incident and is read back into the product UI. Flattening to strings,
+ * numbers and booleans means a nested object cannot ride along, and caps the
+ * length so a long provider message cannot turn an attempt row into a payload
+ * store.
+ */
+function scrubMeta(
+  context: Record<string, unknown> | undefined,
+): Record<string, string | number | boolean> | undefined {
+  if (!context) return undefined;
+
+  const safe: Record<string, string | number | boolean> = {};
+  for (const [key, value] of Object.entries(context)) {
+    if (typeof value === 'number' || typeof value === 'boolean') safe[key] = value;
+    else if (typeof value === 'string') safe[key] = value.slice(0, 300);
+  }
+
+  return Object.keys(safe).length > 0 ? safe : undefined;
+}

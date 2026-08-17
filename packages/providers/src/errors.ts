@@ -44,6 +44,14 @@ export interface NormalizedProviderFailure {
   providerCode?: string | number | undefined;
   httpStatus?: number | undefined;
   retryAfterSeconds?: number | undefined;
+  /**
+   * Overrides the taxonomy default, which assumes the platform answered.
+   *
+   * Needed for the failures we raise *before* calling anybody: the default
+   * copy — "the platform rejected this post" — is a plain untruth when nothing
+   * was ever sent, and it sends whoever reads it looking in the wrong place.
+   */
+  userMessage?: string | undefined;
   /** Non-sensitive provider fields worth keeping on the attempt row (SRS §14). */
   meta?: Record<string, string | number | boolean> | undefined;
 }
@@ -70,6 +78,9 @@ export function toAppError(platform: Platform, failure: NormalizedProviderFailur
     providerCode: failure.providerCode,
     httpStatus: failure.httpStatus,
     retryAfterSeconds: failure.retryAfterSeconds,
+    // Spread rather than assigned: `undefined` here would beat the constructor's
+    // default instead of falling through to it.
+    ...(failure.userMessage ? { userMessage: failure.userMessage } : {}),
     context: {
       platform,
       providerCode: failure.providerCode,
@@ -157,4 +168,48 @@ export class ProviderErrorMap {
     }
     return classifyHttpStatus(httpStatus ?? 500);
   }
+}
+
+/**
+ * Refuse a draft that our own pre-flight rejected, before any network call.
+ *
+ * Every adapter re-runs `validate` at the top of `publish`, because the moment
+ * a job actually runs is later than the moment it was queued and the content
+ * may have moved since. What that refusal must *not* do is dress itself up as
+ * the platform's answer.
+ *
+ * The failure this replaces reported `PROVIDER_VALIDATION_ERROR` with a context
+ * of `{ platform }`, told the user "the platform rejected this post", and put
+ * the only text naming the real problem into a `message` the logger dropped.
+ * Meta had never been called. Somebody reading that goes looking at Instagram
+ * for a post Instagram never saw.
+ *
+ * So: the codes go into the structured context where they can be searched and
+ * counted, the first error's own wording becomes the user message, and the
+ * developer message says plainly that this never left the building. The
+ * taxonomy code stays `PROVIDER_VALIDATION_ERROR` — it is still correctly
+ * non-retryable, since retrying unchanged content fails the same way.
+ */
+export function preflightRefusal(
+  platform: Platform,
+  result: {
+    issues: ReadonlyArray<{ severity: string; code: string; field: string; message: string }>;
+  },
+): NormalizedProviderFailure {
+  const errors = result.issues.filter((issue) => issue.severity === 'ERROR');
+  const codes = errors.map((issue) => issue.code);
+
+  return {
+    kind: 'VALIDATION',
+    message: `Refused before sending: the draft failed our own ${platform} checks (${codes.join(', ') || 'no code'})`,
+    // The first error is the one to act on. Listing all of them turns a fixable
+    // problem into a wall of text in a toast.
+    userMessage: errors[0]?.message ?? 'This post is not valid for this platform.',
+    meta: {
+      validationCodes: codes.join(','),
+      validationFields: errors.map((issue) => issue.field).join(','),
+      // States outright what the generic copy got wrong.
+      calledPlatform: false,
+    },
+  };
 }

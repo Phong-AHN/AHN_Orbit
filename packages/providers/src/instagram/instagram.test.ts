@@ -365,6 +365,54 @@ describe('publishing', () => {
       ),
     ).rejects.toThrow();
   });
+
+  /**
+   * A publish refused by our own pre-flight, and what it must not claim.
+   *
+   * This came from a production failure that could not be diagnosed: the log
+   * carried `PROVIDER_VALIDATION_ERROR` with a context of
+   * `{ platform: 'INSTAGRAM' }` and nothing else, and the account manager was
+   * told "the platform rejected this post". Meta had never been called. The
+   * codes naming the real problem existed, in a `message` that was dropped.
+   */
+  describe('refused before sending', () => {
+    const noMedia = () => provider(graph).publish(publishContext({ media: [] }));
+
+    it('says which check failed, in the structured context', async () => {
+      await expect(noMedia()).rejects.toMatchObject({
+        code: 'PROVIDER_VALIDATION_ERROR',
+        context: { validationCodes: 'MEDIA_REQUIRED', validationFields: 'media' },
+      });
+    });
+
+    it('does not claim the platform rejected anything', async () => {
+      await noMedia().catch((error: unknown) => {
+        const failure = error as {
+          userMessage: string;
+          message: string;
+          context: Record<string, unknown>;
+        };
+
+        // The old copy sent whoever read it looking at Instagram for a post
+        // Instagram never saw.
+        expect(failure.userMessage).not.toMatch(/platform rejected/i);
+        // It says the actionable thing instead — the validator's own wording.
+        expect(failure.userMessage).toMatch(/image or video/i);
+        expect(failure.context['calledPlatform']).toBe(false);
+      });
+
+      // Nothing was sent. The whole point of the claim above.
+      expect(graph.calls).toHaveLength(0);
+    });
+
+    it('keeps the message that names the cause, for the log', async () => {
+      await expect(noMedia()).rejects.toThrow(/MEDIA_REQUIRED/);
+    });
+
+    it('stays non-retryable — the content is wrong, not the moment', async () => {
+      await expect(noMedia()).rejects.toMatchObject({ retryable: false });
+    });
+  });
 });
 
 describe('publishing on the username-login surface', () => {

@@ -1,5 +1,5 @@
 import { clock, matchesPublishedText, type Platform } from '@orbit/core';
-import { toAppError } from '../errors.js';
+import { preflightRefusal, toAppError } from '../errors.js';
 import { validateDraft, type ValidationResult, type VariantDraft } from '../validation.js';
 import type { PlatformCapabilities } from '../capabilities.js';
 import type {
@@ -372,10 +372,7 @@ export class FacebookProvider implements SocialProvider {
     });
 
     if (!validation.valid) {
-      throw toAppError('FACEBOOK', {
-        kind: 'VALIDATION',
-        message: `Draft failed validation: ${validation.issues.map((i) => i.code).join(', ')}`,
-      });
+      throw toAppError('FACEBOOK', preflightRefusal('FACEBOOK', validation));
     }
 
     const images = ctx.media.filter((m) => m.kind === 'IMAGE');

@@ -1963,6 +1963,56 @@ permission as putting a post on the calendar, since that is what a slot decides.
 
 ---
 
+## D-085 — A refusal must say who refused
+
+- **Context:** a production Instagram publish failed and could not be
+  diagnosed from anything the system recorded. The log line said
+  `PROVIDER_VALIDATION_ERROR`, `retryable: false`, `errorContext:
+  { platform: 'INSTAGRAM' }`. The account manager was told *"The platform
+  rejected this post."* **Meta had never been called.** The failure came from
+  our own pre-flight `validate()` at the top of `publish()`, and the text naming
+  the actual check — `Draft failed validation: MEDIA_REQUIRED` — existed and was
+  thrown away.
+- **Three independent places dropped the reason**, which is why nothing caught
+  it:
+  1. `logError` recorded `code`, `status`, `retryable` and `context` but **not
+     `message`** — the only field holding the codes;
+  2. `toAppError` put the codes nowhere structured, so they could not be
+     searched or counted even if logged;
+  3. `closeAttempt` stored only `userMessage` on the attempt row, so the
+     publishing page could *show* the failure but never explain it.
+- **The user-facing copy was not merely vague, it was false.** "The platform
+  rejected this post" sends whoever reads it to look at Instagram for a post
+  Instagram never saw. `preflightRefusal` now supplies the first failing check's
+  own wording as the user message, states `calledPlatform: false` in the
+  context, and says in the developer message that this never left the building.
+- **The taxonomy code is unchanged.** It is still
+  `PROVIDER_VALIDATION_ERROR` and still non-retryable: retrying content that
+  failed our own rules fails identically, and **D-027**'s guarantee that an
+  ambiguous outcome is never retried depends on this classification staying put.
+  Only the explanation changed.
+- **`AppError.message` is the developer message and is now logged as `reason`.**
+  It is never `userMessage` and never a raw provider payload — Meta's
+  `error_user_msg` is the one piece of provider text lifted into user-facing
+  copy, and that is Meta's own end-user-safe wording.
+- **Attempt rows now carry the scrubbed context**, flattened to scalars and
+  capped at 300 characters per value by `scrubMeta`. `AppError.context` is
+  already the whitelisted set, but that column outlives the incident and is read
+  back into the product, so "meant to be safe" is not enough.
+
+### What this did not resolve
+
+**The specific check that failed is still unknown**, and the honest position is
+that the evidence rules out the obvious explanation. `publishNow` goes through
+`transitionPost(… 'SCHEDULED')`, which runs the *same* `validateDraft` against
+the *same* descriptor with the *same* media-resolution rule; content is frozen
+from `APPROVED` onward (`EDIT_LOCKED_STATUSES`), enforced server-side. So the
+web validator passed and the worker validator failed on content that could not
+have changed in between — which should be impossible, and is the actual open
+question. The next occurrence names itself.
+
+---
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

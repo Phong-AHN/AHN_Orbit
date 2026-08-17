@@ -111,6 +111,21 @@ export function currentLogContext(): LogContext | undefined {
  * Expected application errors (a 404, a validation failure) are `warn` and
  * carry their structured context. Anything else is `error` with a stack —
  * because an unexpected exception is the thing worth waking someone for.
+ *
+ * **`reason` is the developer-facing `message`, and it is not optional.** It
+ * was omitted here originally on the reasoning that `code` and `context` say
+ * enough. They do not: a publish that failed with
+ * `PROVIDER_VALIDATION_ERROR` and a context of `{ platform: 'INSTAGRAM' }` is
+ * indistinguishable from a dozen different causes, and the one thing that named
+ * the cause — "Draft failed validation: MEDIA_REQUIRED" — was being dropped on
+ * the floor. It is called `reason` rather than `message` because the log line's
+ * own `msg` already owns that name.
+ *
+ * It is the *developer* message, never `userMessage`, and it must stay that
+ * way: `AppError.message` may name internal fields, but it is written by us and
+ * never contains a credential or a token. Provider text arrives already
+ * normalized — Meta's `error_user_msg` is the only thing lifted into a user
+ * message, and it is Meta's own end-user-safe copy.
  */
 export function logError(msg: string, error: unknown, bindings?: Bindings): void {
   if (isAppError(error)) {
@@ -119,6 +134,7 @@ export function logError(msg: string, error: unknown, bindings?: Bindings): void
       code: error.code,
       status: error.status,
       retryable: error.retryable,
+      reason: error.message,
       errorContext: error.context,
     };
     if (error.status >= 500) logger.error(msg, { ...payload, stack: error.stack });
