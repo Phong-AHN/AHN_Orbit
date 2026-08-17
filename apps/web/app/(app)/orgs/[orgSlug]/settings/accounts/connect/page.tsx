@@ -17,21 +17,24 @@ export const metadata: Metadata = { title: 'Connect an account' };
 /**
  * Platforms with a working adapter.
  *
- * Both are Meta and share one app, so connecting either is the same consent
- * dialog with different scopes. What differs is what comes back: a Facebook
- * Page, or an Instagram professional account reached *through* a Page.
+ * Facebook and Instagram are Meta and share one app, so connecting either is
+ * the same consent dialog with different scopes; what differs is what comes
+ * back. TikTok is its own portal, its own app, its own key pair — and, unlike
+ * either Meta surface, one authorization yields exactly **one** account.
  */
-const PLATFORMS = ['FACEBOOK', 'INSTAGRAM'] as const;
+const PLATFORMS = ['FACEBOOK', 'INSTAGRAM', 'TIKTOK'] as const;
 type ConnectablePlatform = (typeof PLATFORMS)[number];
 
 const PLATFORM_LABEL: Record<ConnectablePlatform, string> = {
   FACEBOOK: 'Facebook Page',
   INSTAGRAM: 'Instagram account',
+  TIKTOK: 'TikTok account',
 };
 
 const PLATFORM_ARTICLE: Record<ConnectablePlatform, string> = {
   FACEBOOK: 'a Facebook Page',
   INSTAGRAM: 'an Instagram account',
+  TIKTOK: 'a TikTok account',
 };
 
 const PLATFORM_NOTE: Record<ConnectablePlatform, string> = {
@@ -39,6 +42,15 @@ const PLATFORM_NOTE: Record<ConnectablePlatform, string> = {
     'You will sign in at Facebook and choose which Pages this brand may publish to. Access tokens are exchanged and stored server-side; they never reach your browser.',
   INSTAGRAM:
     'Instagram professional accounts connect through the Facebook Page they are linked to. An account with no linked Page cannot be connected — link it in the Instagram app first.',
+  TIKTOK:
+    'You will sign in at TikTok with the account itself — there is no Page to go through, and one sign-in connects one account. Access tokens are exchanged and stored server-side; they never reach your browser.',
+};
+
+/** The sign-in each platform actually shows, so the button does not mislead. */
+const CONTINUE_LABEL: Record<ConnectablePlatform, string> = {
+  FACEBOOK: 'Continue with Facebook',
+  INSTAGRAM: 'Continue with Facebook',
+  TIKTOK: 'Continue with TikTok',
 };
 
 interface PageProps {
@@ -118,6 +130,17 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
   const instagramLoginConfigured = Boolean(env.INSTAGRAM_APP_ID && env.INSTAGRAM_APP_SECRET);
   const usernameLogin = platform === 'INSTAGRAM' && instagramLoginConfigured;
 
+  /**
+   * TikTok needs its own app, and without one there is nothing to sign in to.
+   *
+   * Offering the button anyway would send somebody to a dialog that cannot be
+   * built, and the error would arrive from TikTok's side looking like their
+   * problem. Naming the missing variables here points at the one person who can
+   * fix it — the same reasoning as the Instagram Login exception above.
+   */
+  const unconfigured =
+    platform === 'TIKTOK' && !(env.TIKTOK_CLIENT_KEY && env.TIKTOK_CLIENT_SECRET);
+
   const accountsHref = `/orgs/${orgSlug}/settings/accounts`;
   const returnTo = `/orgs/${orgSlug}/settings/accounts/connect?workspaceId=${workspaceId}&brandId=${brandId}&platform=${platform}`;
 
@@ -161,7 +184,12 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
         description="Posts publish to the accounts connected to a brand."
       />
 
-      {staged.length > 0 ? (
+      {unconfigured ? (
+        <Empty
+          title="TikTok is not set up on this deployment"
+          description="TikTok needs its own app, separate from the Meta one. An administrator has to create it at developers.tiktok.com and set TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET on both the web app and the worker."
+        />
+      ) : staged.length > 0 ? (
         <AccountPicker
           orgSlug={orgSlug}
           platform={platform}
@@ -181,7 +209,9 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
           description={
             platform === 'INSTAGRAM'
               ? 'The account you authorized administers no Page with an Instagram professional account linked to it.'
-              : 'The account you authorized does not administer any Page this brand could publish to.'
+              : platform === 'TIKTOK'
+                ? 'TikTok returned no account for that sign-in. It usually means the permissions were declined at the consent screen.'
+                : 'The account you authorized does not administer any Page this brand could publish to.'
           }
           action={startButton('Try a different account')}
         />
@@ -194,7 +224,7 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
                 : PLATFORM_NOTE[platform]}
             </p>
 
-            {startButton(usernameLogin ? 'Continue with Instagram' : 'Continue with Facebook')}
+            {startButton(usernameLogin ? 'Continue with Instagram' : CONTINUE_LABEL[platform])}
           </CardBody>
         </Card>
       )}

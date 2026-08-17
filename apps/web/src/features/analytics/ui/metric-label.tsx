@@ -32,6 +32,15 @@ const LABEL: Record<string, string> = {
   total_interactions: 'Interactions',
   profile_links_taps: 'Link taps',
   accounts_engaged: 'Accounts engaged',
+
+  // TikTok. Named separately from Instagram's `likes`/`comments` because they
+  // are different keys, not the same metric under another name — TikTok counts
+  // a view differently, and merging them into one label would invite a report
+  // that compares two numbers that are not comparable.
+  view_count: 'Views',
+  like_count: 'Likes',
+  comment_count: 'Comments',
+  share_count: 'Shares',
 };
 
 export function metricLabel(name: string): string {
@@ -101,6 +110,14 @@ const PRIORITY: Record<string, readonly string[]> = {
     'page_post_engagements',
   ],
   INSTAGRAM: ['views', 'reach', 'likes', 'saved', 'comments', 'shares', 'total_interactions'],
+  /**
+   * TikTok gives four counters and no reach, so the order is simply the funnel:
+   * how many saw it, then the three ways they responded. `share_count` sits
+   * last but is the one that matters most on TikTok — a share is what puts a
+   * video in front of a new audience — so it is named rather than left to fall
+   * in alphabetically ahead of the others.
+   */
+  TIKTOK: ['view_count', 'like_count', 'comment_count', 'share_count'],
 };
 
 /**

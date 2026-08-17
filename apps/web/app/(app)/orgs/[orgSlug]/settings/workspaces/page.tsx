@@ -27,6 +27,21 @@ interface PageProps {
 }
 
 /**
+ * Platforms a brand can connect, and what to call each on the button.
+ *
+ * Kept beside the buttons rather than derived from the provider registry: the
+ * registry reflects what this *deployment* configured, and a brand manager
+ * seeing Facebook and Instagram but not TikTok would read it as "TikTok is not
+ * supported" rather than "nobody set the keys". The connect page names the
+ * missing configuration instead, which points at someone who can act.
+ */
+const CONNECTABLE = [
+  ['FACEBOOK', 'Facebook'],
+  ['INSTAGRAM', 'Instagram'],
+  ['TIKTOK', 'TikTok'],
+] as const;
+
+/**
  * Client workspaces and their brands.
  *
  * The setup chain is organization → workspace → brand → connected account, and
@@ -159,28 +174,22 @@ export default async function WorkspacesPage({ params, searchParams }: PageProps
                             </div>
 
                             {mayConnect ? (
-                              <div className="flex gap-1.5">
-                                {/* One brand, two Meta surfaces. Naming both is
-                                    clearer than a single button that opens a
-                                    chooser nobody asked for. */}
-                                <Link
-                                  href={`/orgs/${orgSlug}/settings/accounts/connect?workspaceId=${workspace.id}&brandId=${brand.id}&platform=FACEBOOK`}
-                                  className={buttonClassName({
-                                    variant: connected > 0 ? 'ghost' : 'secondary',
-                                    size: 'sm',
-                                  })}
-                                >
-                                  Facebook
-                                </Link>
-                                <Link
-                                  href={`/orgs/${orgSlug}/settings/accounts/connect?workspaceId=${workspace.id}&brandId=${brand.id}&platform=INSTAGRAM`}
-                                  className={buttonClassName({
-                                    variant: connected > 0 ? 'ghost' : 'secondary',
-                                    size: 'sm',
-                                  })}
-                                >
-                                  Instagram
-                                </Link>
+                              <div className="flex flex-wrap gap-1.5">
+                                {/* One brand, one button per platform. Naming
+                                    each is clearer than a single button that
+                                    opens a chooser nobody asked for. */}
+                                {CONNECTABLE.map(([platform, label]) => (
+                                  <Link
+                                    key={platform}
+                                    href={`/orgs/${orgSlug}/settings/accounts/connect?workspaceId=${workspace.id}&brandId=${brand.id}&platform=${platform}`}
+                                    className={buttonClassName({
+                                      variant: connected > 0 ? 'ghost' : 'secondary',
+                                      size: 'sm',
+                                    })}
+                                  >
+                                    {label}
+                                  </Link>
+                                ))}
                               </div>
                             ) : null}
                           </li>

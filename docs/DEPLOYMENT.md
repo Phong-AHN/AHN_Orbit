@@ -83,6 +83,33 @@ refuses in production), `SENTRY_DSN`, `WORKER_HEALTH_PORT` (3100), `S3_ENDPOINT`
 |---|---|---|
 | `FACEBOOK_GRAPH_VERSION` | `v25.0` | **Vercel** (web) **and Railway** (worker) — both call the Graph API |
 
+### TikTok credentials go on **both** surfaces
+
+| Variable | Where | Why that surface needs it |
+|---|---|---|
+| `TIKTOK_CLIENT_KEY` | **Vercel** (web) **and Railway** (worker) | |
+| `TIKTOK_CLIENT_SECRET` | **Vercel** (web) **and Railway** (worker) | |
+
+The two processes use them for different things, and setting only one is a
+failure that looks like something else:
+
+- **Web** builds the authorization URL, exchanges the code, and reads
+  `creator_info/query` so the composer can offer the creator's own visibility
+  options. Missing here, TikTok cannot be connected at all.
+- **Worker** publishes — including streaming the video up in chunks. Missing
+  here, an account connects fine, a post schedules fine, and then the publish
+  fails with "TikTok isn't available yet", which reads like a platform outage
+  rather than a missing variable. This is the same trap Instagram fell into
+  (see `apps/worker/src/providers.ts`), and `providersMatchWeb` in the test
+  suite exists because of it.
+
+Also set `APP_URL` to the deployed origin with **no trailing slash**. The
+redirect URI is built from it as
+`${APP_URL}/api/v1/social/oauth/tiktok/callback`, and TikTok matches it
+character for character against what is registered in the portal. The code
+default is `http://localhost:3000`, so an unset `APP_URL` in production
+produces a localhost callback that TikTok refuses.
+
 The code default is already `v25.0`, so an unset variable is not broken. It is set explicitly
 anyway because the *previous* value is what is dangerous: an environment still carrying `v21.0`
 from before 2026-08-14 silently pins that surface to an old version, and the web app and the worker
