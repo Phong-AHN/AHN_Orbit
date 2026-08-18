@@ -65,7 +65,28 @@ export interface InstagramProviderOptions extends GraphClientOptions {
         appSecret: string;
       }
     | undefined;
+  /**
+   * How long to wait for a Reel container, and how often to ask.
+   *
+   * Overridable for one reason: a test of the "still transcoding when the
+   * budget runs out" path would otherwise take forty seconds, and a path that
+   * slow to test is a path that ends up untested.
+   */
+  reelPollBudgetMs?: number | undefined;
+  reelPollIntervalMs?: number | undefined;
 }
+
+/**
+ * How long publishing waits for a Reel container to finish transcoding.
+ *
+ * Shorter than the engine's own call budget, so exhausting it produces a clean
+ * timeout the engine can reconcile rather than an abort from underneath that
+ * loses the container id. Meta suggests polling for up to five minutes; holding
+ * a worker slot that long is the wrong trade when the recorded id makes the
+ * question answerable afterwards.
+ */
+const REEL_POLL_BUDGET_MS = 40_000;
+const REEL_POLL_INTERVAL_MS = 3_000;
 
 /** Business Login for Instagram speaks to its own hosts, not to Graph. */
 const INSTAGRAM_LOGIN_DIALOG = 'https://www.instagram.com/oauth/authorize';
@@ -625,19 +646,29 @@ export class InstagramProvider implements SocialProvider {
     }
 
     const images = ctx.media.filter((item) => item.kind === 'IMAGE');
-    if (ctx.media.length !== images.length) {
+    const videos = ctx.media.filter((item) => item.kind === 'VIDEO');
+
+    if (images.length + videos.length !== ctx.media.length) {
       throw toAppError('INSTAGRAM', {
         kind: 'MEDIA',
-        message: 'Only images are supported for Instagram publishing at present',
+        message: 'Only images and video are supported for Instagram publishing',
+      });
+    }
+
+    if (videos.length > 0 && (videos.length > 1 || images.length > 0)) {
+      throw toAppError('INSTAGRAM', {
+        kind: 'MEDIA',
+        message: 'A Reel is one video and nothing else',
+        userMessage: 'An Instagram Reel takes one video on its own - no photos alongside it.',
       });
     }
 
     // Validation guarantees this, but publishing is where an empty post would
     // become a confusing platform error rather than our own message.
-    if (images.length === 0) {
+    if (ctx.media.length === 0) {
       throw toAppError('INSTAGRAM', {
         kind: 'MEDIA',
-        message: 'Instagram cannot publish a post without an image',
+        message: 'Instagram cannot publish a post without media',
       });
     }
 
@@ -645,14 +676,30 @@ export class InstagramProvider implements SocialProvider {
     const igUserId = ctx.account.externalId;
 
     const containerId =
-      images.length === 1
-        ? await this.createImageContainer(ctx, igUserId, images[0]!, caption)
-        : await this.createCarouselContainer(ctx, igUserId, images, caption);
+      videos.length === 1
+        ? await this.createReelContainer(ctx, igUserId, videos[0]!, caption)
+        : images.length === 1
+          ? await this.createImageContainer(ctx, igUserId, images[0]!, caption)
+          : await this.createCarouselContainer(ctx, igUserId, images, caption);
 
     // Before the ambiguous call, not after. If `media_publish` times out, this
     // id is the only thing that can answer whether the post went out — and an
     // id written after the call would not exist in exactly that case.
     await ctx.recordProviderRef?.({ containerId });
+
+    /**
+     * A Reel container is not ready when it is created.
+     *
+     * An image container is usable immediately; a video one has to be
+     * transcoded, and `media_publish` on an `IN_PROGRESS` container fails.
+     * Meta's own guidance is to poll roughly once a minute for up to five --
+     * far longer than a worker slot should be held, so the wait is bounded and
+     * running out is a *timeout*, not a failure. The container id is already
+     * recorded, so reconciliation asks Meta what became of it (D-027).
+     */
+    if (videos.length === 1) {
+      await this.awaitContainerReady(ctx, containerId);
+    }
 
     const published = await this.call<{ id: string }>(ctx.credential, {
       path: `/${igUserId}/media_publish`,
@@ -671,6 +718,85 @@ export class InstagramProvider implements SocialProvider {
         containerId,
       },
     };
+  }
+
+  /**
+   * A Reel container.
+   *
+   * `video_url` only: Instagram fetches the file itself and offers no byte
+   * upload for Reels, so the signed URL the publish subject built is what it
+   * gets. Unlike TikTok there is no domain to verify -- Meta simply fetches it.
+   *
+   * `share_to_feed` is true so a Reel also appears on the profile grid, which
+   * is what an agency posting for a client almost always means by "post a
+   * Reel". Turning that into a per-post choice is a product decision, and until
+   * somebody asks for it a sensible default beats a control nobody understands.
+   */
+  private async createReelContainer(
+    ctx: PublishContext,
+    igUserId: string,
+    video: PublishContext['media'][number],
+    caption: string,
+  ): Promise<string> {
+    const container = await this.call<{ id: string }>(ctx.credential, {
+      path: `/${igUserId}/media`,
+      method: 'POST',
+      form: {
+        media_type: 'REELS',
+        video_url: video.url,
+        caption,
+        share_to_feed: 'true',
+      },
+      signal: ctx.signal,
+    });
+
+    return container.id;
+  }
+
+  /**
+   * Wait for Instagram to finish transcoding, within a budget.
+   *
+   * `ERROR` and `EXPIRED` are terminal and reported as media problems -- that is
+   * Instagram rejecting the file, and an identical retry fails identically.
+   * Running out of budget is neither: the container may still finish, so it
+   * raises a timeout the engine reconciles rather than retries.
+   */
+  private async awaitContainerReady(ctx: PublishContext, containerId: string): Promise<void> {
+    const budgetMs = this.options.reelPollBudgetMs ?? REEL_POLL_BUDGET_MS;
+    const intervalMs = this.options.reelPollIntervalMs ?? REEL_POLL_INTERVAL_MS;
+    const deadline = clock.nowMs() + budgetMs;
+
+    for (;;) {
+      const container = await this.call<{ status_code?: string; status?: string }>(ctx.credential, {
+        path: `/${containerId}`,
+        params: { fields: 'status_code,status' },
+        signal: ctx.signal,
+      });
+
+      const status = container.status_code;
+      if (status === 'FINISHED') return;
+
+      if (status === 'ERROR' || status === 'EXPIRED') {
+        throw toAppError('INSTAGRAM', {
+          kind: 'MEDIA',
+          message: `Instagram could not process the video: ${container.status ?? status}`,
+          userMessage:
+            'Instagram would not accept this video. It has to be MP4 or MOV with the moov atom at the front of the file, which re-exporting with fast start produces.',
+          meta: { containerId, statusCode: status ?? 'unknown' },
+        });
+      }
+
+      if (clock.nowMs() >= deadline) {
+        throw toAppError('INSTAGRAM', {
+          kind: 'TIMEOUT',
+          message: `Instagram is still processing container ${containerId}; the outcome is unknown`,
+          userMessage: 'Instagram is still processing this video. We will confirm what happened.',
+          meta: { containerId, lastStatus: status ?? 'unknown' },
+        });
+      }
+
+      await sleep(intervalMs, ctx.signal);
+    }
   }
 
   private async createImageContainer(
@@ -1072,4 +1198,18 @@ function composeCaption(draft: VariantDraft): string {
   }
 
   return parts.filter((part) => part.length > 0).join('\n\n');
+}
+
+function sleep(ms: number, signal?: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException('Aborted', 'AbortError'));
+      },
+      { once: true },
+    );
+  });
 }

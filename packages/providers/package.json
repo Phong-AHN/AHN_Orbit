@@ -11,7 +11,8 @@
     "./mock": "./dist/mock/index.js",
     "./facebook": "./dist/facebook/index.js",
     "./instagram": "./dist/instagram/index.js",
-    "./tiktok": "./dist/tiktok/index.js"
+    "./tiktok": "./dist/tiktok/index.js",
+    "./threads": "./dist/threads/index.js"
   },
   "scripts": {
     "build": "tsc -b",

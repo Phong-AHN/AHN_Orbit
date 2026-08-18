@@ -2,7 +2,7 @@
 
 > Đối chiếu từng mục trong bảng phân loại tính năng (`docs/BUILD-PLAN.md` §1,
 > trả lời SRS §40) với **mã thật đang có trong repo**, kiểm chứng bằng grep vào
-> ngày 2026-08-17. Không mục nào ở đây được đánh dấu dựa trên trí nhớ.
+> ngày 2026-08-17 (cập nhật sau TikTok và Reels). Không mục nào ở đây được đánh dấu dựa trên trí nhớ.
 >
 > **✅ xong** · **⚠️ một phần** (làm rõ thiếu gì) · **❌ chưa làm**
 >
@@ -12,10 +12,10 @@
 
 | | P0 | P1 | P2 | Tổng |
 |---|:--:|:--:|:--:|:--:|
-| ✅ xong | 47 | 17 | 1 | **65** |
+| ✅ xong | 47 | 19 | 3 | **69** |
 | ⚠️ một phần | 2 | 1 | 0 | **3** |
-| ❌ chưa làm | 0 | 9 | 11 | **20** |
-| **Tổng** | **49** | **27** | **12** | **88** |
+| ❌ chưa làm | 0 | 7 | 11 | **18** |
+| **Tổng** | **49** | **27** | **14** | **90** |
 
 **Toàn bộ P0 đã có mã chạy được.** Hai mục P0 còn ⚠️ là *chất lượng nền tảng*
 (responsive, accessibility): đã làm theo từng trang nhưng **chưa quét có hệ
@@ -59,12 +59,14 @@ thống** — xem cuối tài liệu.
 | Facebook Pages: OAuth, kết nối, health, ngắt | P0 | ✅ | Đã publish thật end-to-end |
 | Facebook: đăng text / link / 1 ảnh | P0 | ✅ | |
 | Facebook: đăng nhiều ảnh | P0 | ✅ | |
-| Facebook: đăng video | P1 | ❌ | `capabilities.ts` khai `video: null` — engine **từ chối** thay vì đăng sai |
-| Facebook: Reels | P1 | ❌ | |
+| Facebook: đăng video | P1 | ✅ | Reels, ba pha; Meta tự tải file qua `file_url` (**D-087**) |
+| Facebook: Reels | P1 | ✅ | 9:16, 3–90 giây, 24–60fps |
 | Refresh token + luồng kết nối lại | P0 | ✅ | `features/social/health.ts` |
-| Instagram | P1 | ✅ | Phase 2 — ảnh + carousel 2–10; `video: null` |
+| Instagram | P1 | ✅ | Ảnh, carousel 2–10, và **Reels** (`media_type=REELS`, chờ container) |
 | LinkedIn, X | P1 | ❌ | **Chờ anh chọn thứ tự ưu tiên** |
-| TikTok, YouTube, Threads, Pinterest | P2 | ❌ | |
+| **TikTok** | P2 | ✅ | Video + photo, chunk upload, reconcile theo `publish_id` (**D-086**) |
+| **Threads** | P2 | ✅ | Text/ảnh/carousel, chờ container mọi loại bài, token tự làm mới (**D-088**) |
+| YouTube, Pinterest | P2 | ❌ | |
 | Webhook từ provider | P2 | ❌ | |
 
 ## 4. Nội dung & xuất bản (SRS §9–§14)

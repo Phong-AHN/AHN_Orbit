@@ -83,8 +83,9 @@ export const tiktokErrorMap = new ProviderErrorMap({
   // The privacy level was not among the creator's own options. TikTok flags
   // repeated occurrences as a product-guidance violation.
   privacy_level_option_mismatch: 'VALIDATION',
-  // PULL_FROM_URL against an unverified prefix. Cannot occur while Orbit uses
-  // FILE_UPLOAD, and mapped anyway so it names itself if that ever changes.
+  // PULL_FROM_URL against an unverified prefix. **Reachable**: video is
+  // streamed in chunks and never fetched, but TikTok offers no file upload for
+  // photo posts, so every photo post depends on a verified media domain.
   url_ownership_unverified: 'VALIDATION',
   file_format_check_failed: 'MEDIA',
   duration_check_failed: 'MEDIA',
@@ -151,13 +152,28 @@ export function normalizeTikTokError(
 
   const standing = code ? CLIENT_STANDING[code] : undefined;
 
+  /**
+   * The same code arrives by two routes, and both deserve the same words.
+   *
+   * TikTok reports `url_ownership_unverified`, `frame_rate_check_failed` and
+   * their siblings as an `error.code` on the init call **and** as a
+   * `fail_reason` on `status/fetch`. The written-out explanations lived only on
+   * the second path, so an identical problem read as
+   * "TikTok only accepts 23-60 frames per second" when it surfaced late and
+   * "the platform rejected this post" when it surfaced early — the same failure,
+   * with the useful half of the message decided by timing.
+   */
+  const explained = code ? FAIL_REASONS[code]?.userMessage : undefined;
+
   return toAppError('TIKTOK', {
     kind,
     message: error.message ?? `TikTok error ${code ?? 'unknown'} (HTTP ${httpStatus})`,
     ...(code ? { providerCode: code } : {}),
     httpStatus,
     ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
-    ...(standing ? { userMessage: standing } : {}),
+    // Client standing wins: it names who can act, which is more useful than
+    // what went wrong.
+    ...((standing ?? explained) ? { userMessage: standing ?? explained } : {}),
     meta: {
       // TikTok's own support reference. Not sensitive, and the first thing they
       // ask for.
@@ -267,6 +283,22 @@ const FAIL_REASONS: Record<string, { kind: ProviderErrorKind; userMessage: strin
   video_pull_failed: {
     kind: 'MEDIA',
     userMessage: 'TikTok could not download the video in time.',
+  },
+  /**
+   * The one failure here that is about **configuration**, not the file.
+   *
+   * TikTok fetches photo posts from a URL and will only fetch from a domain the
+   * app has verified in its developer portal. Orbit serves media from signed
+   * storage URLs, so unless that host is verified this fails on every photo
+   * post and on no video post — video is streamed in chunks and never fetched.
+   *
+   * The remedy belongs to an administrator, so the message says so rather than
+   * suggesting the images are at fault.
+   */
+  url_ownership_unverified: {
+    kind: 'VALIDATION',
+    userMessage:
+      'TikTok will not fetch images from this deployment’s media host. An administrator has to verify that domain in the TikTok developer portal — video posts are unaffected.',
   },
   photo_pull_failed: {
     kind: 'MEDIA',

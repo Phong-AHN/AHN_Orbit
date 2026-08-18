@@ -15,6 +15,7 @@ import type {
   MetricSet,
   ProviderEvent,
   PublishContext,
+  PublishMedia,
   PublishResult,
   RawWebhookRequest,
   ReconcileContext,
@@ -24,7 +25,7 @@ import type {
 } from '../types.js';
 import { safeEquals } from '../credential-cipher.js';
 import { createHmac } from 'node:crypto';
-import { GraphClient, type GraphClientOptions } from './client.js';
+import { GraphClient, uploadReelSource, type GraphClientOptions } from './client.js';
 import {
   FACEBOOK_DEFAULT_SCOPES,
   FACEBOOK_PUBLISH_SCOPES,
@@ -378,14 +379,27 @@ export class FacebookProvider implements SocialProvider {
     }
 
     const images = ctx.media.filter((m) => m.kind === 'IMAGE');
-    if (ctx.media.length !== images.length) {
+    const videos = ctx.media.filter((m) => m.kind === 'VIDEO');
+
+    if (images.length + videos.length !== ctx.media.length) {
       throw toAppError('FACEBOOK', {
         kind: 'MEDIA',
-        message: 'Only images are supported for Page publishing at present',
+        message: 'Only images and video are supported for Page publishing',
       });
     }
 
     const message = composeMessage(ctx.draft);
+
+    if (videos.length > 0) {
+      if (videos.length > 1 || images.length > 0) {
+        throw toAppError('FACEBOOK', {
+          kind: 'MEDIA',
+          message: 'A Reel is one video and nothing else',
+          userMessage: 'A Facebook Reel takes one video on its own — no photos alongside it.',
+        });
+      }
+      return this.publishReel(ctx, videos[0]!, message);
+    }
 
     // No media: a plain feed post, optionally with a link.
     if (images.length === 0) {
@@ -462,6 +476,90 @@ export class FacebookProvider implements SocialProvider {
     });
 
     return this.published(created.id, ctx);
+  }
+
+  /**
+   * Publish a Reel, in the three phases Meta requires.
+   *
+   *   POST /{page-id}/video_reels  upload_phase=start   → video_id, upload_url
+   *   POST {upload_url}            file_url: <signed>   → Meta fetches the bytes
+   *   POST /{page-id}/video_reels  upload_phase=finish  → the Reel goes live
+   *
+   * **Meta pulls the file itself.** The `file_url` header hands over the signed
+   * URL the publish subject already built, so the worker never streams a
+   * gigabyte through its own memory. TikTok cannot do this — it demands a
+   * verified domain — which is why that adapter chunks and this one does not,
+   * and why the same video takes two completely different routes to two
+   * platforms.
+   *
+   * The `video_id` is recorded before the upload, because everything after
+   * `start` is ambiguous on failure: Meta may hold a video that finished
+   * processing after we stopped listening, and that id is the only way to ask.
+   */
+  private async publishReel(
+    ctx: PublishContext,
+    video: PublishMedia,
+    message: string,
+  ): Promise<PublishResult> {
+    const started = await this.client.request<{ video_id?: string; upload_url?: string }>({
+      path: `/${ctx.account.externalId}/video_reels`,
+      method: 'POST',
+      accessToken: ctx.credential.accessToken,
+      form: { upload_phase: 'start' },
+      signal: ctx.signal,
+    });
+
+    if (!started.video_id || !started.upload_url) {
+      throw toAppError('FACEBOOK', {
+        kind: 'UNAVAILABLE',
+        message: 'Meta started a Reel upload but returned no video id or upload URL',
+      });
+    }
+
+    // Before the ambiguous half, and awaited — an id written afterwards would
+    // not exist in exactly the case it is needed for.
+    await ctx.recordProviderRef?.({ reelVideoId: started.video_id });
+
+    await uploadReelSource({
+      uploadUrl: started.upload_url,
+      accessToken: ctx.credential.accessToken,
+      fileUrl: video.url,
+      ...(this.options.fetchImpl ? { fetchImpl: this.options.fetchImpl } : {}),
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
+    });
+
+    await this.client.request<{ success?: boolean }>({
+      path: `/${ctx.account.externalId}/video_reels`,
+      method: 'POST',
+      accessToken: ctx.credential.accessToken,
+      form: {
+        upload_phase: 'finish',
+        video_id: started.video_id,
+        video_state: 'PUBLISHED',
+        ...(message ? { description: message } : {}),
+      },
+      signal: ctx.signal,
+    });
+
+    /**
+     * The Reel exists; Meta is still transcoding it.
+     *
+     * `finish` returning `success` is the platform accepting the job, not the
+     * video being watchable — `GET /{video-id}?fields=status` moves through
+     * `processing` to `ready` afterwards. Waiting for `ready` here would hold a
+     * worker slot for a minute on a long clip and gain nothing: the post is
+     * committed either way, and the id is recorded, so a transcode that fails
+     * later is a reconciliation question rather than a publish one.
+     */
+    return {
+      ...this.published(started.video_id, ctx),
+      providerMeta: {
+        accountId: ctx.account.externalId,
+        apiVersion: this.client.apiVersion,
+        reelVideoId: started.video_id,
+        surface: 'reel',
+      },
+    };
   }
 
   private published(externalPostId: string, ctx: PublishContext): PublishResult {

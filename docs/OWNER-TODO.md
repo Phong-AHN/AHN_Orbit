@@ -230,3 +230,26 @@ Em sẽ không hỏi gì về những mục này.
   fetches the images from us. That needs a **verified URL prefix** in the TikTok
   portal, or photo posts fail with `url_ownership_unverified`. Video posts are
   unaffected.
+
+## Threads (added 2026-08-17)
+
+- [ ] **Create a Threads app** and set `THREADS_APP_ID` / `THREADS_APP_SECRET` on
+      **both** Vercel and Railway. A Threads app issues **two** id/secret pairs —
+      use the **Threads** one. The other pair fails authentication in a way that
+      reads like a dead token.
+- [ ] **Register the redirect URI**:
+      `https://ahn-orbit-web.vercel.app/api/v1/social/oauth/threads/callback`
+- [ ] **Request `threads_basic` and `threads_content_publish`.** Reply
+      permissions are not asked for — Orbit does not read or write replies, and
+      an unused permission only makes review harder.
+
+### Worth knowing
+
+- A Threads connection lasts **60 days** and renews itself **only while it is
+  still valid**. An account left idle past that cannot be refreshed and has to
+  be reconnected by hand — unlike TikTok, where the window is a year.
+- Threads caps publishing at **250 posts per rolling 24 hours per profile**, and
+  Meta asks integrators to enforce it. The engine does.
+- Media specifications are barely documented by Meta. The limits Orbit enforces
+  for Threads images and video are deliberately generous and marked UNVERIFIED;
+  Threads itself remains the authority and its refusals are reported verbatim.

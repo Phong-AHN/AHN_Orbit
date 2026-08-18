@@ -98,9 +98,42 @@ export function facebookPageCapabilities(apiVersion: string): PlatformCapabiliti
         minWidth: 200,
         minHeight: 200,
       },
-      // Non-Reels video via the Video API + Resumable Upload. P1, so the
-      // constraints are placeholders and publishing refuses video for now.
-      video: null,
+      /**
+       * Video means **Reels**, and only Reels.
+       *
+       * The Page Video API can also take a plain feed video, but Meta has spent
+       * three years moving everything to Reels and the Reels endpoint is the
+       * one with a documented, current contract. Supporting both would double
+       * the publish paths for a format Meta is retiring.
+       *
+       * Verified against Meta's Reels publishing guide.
+       */
+      video: {
+        mimeTypes: ['video/mp4'],
+        // UNVERIFIED: Meta documents no byte ceiling for Reels. 1 GB matches
+        // Instagram's documented limit and is generous for a 90-second clip.
+        maxBytes: 1024 * 1024 * 1024,
+        // Verified: 3–90 seconds.
+        minDurationMs: 3_000,
+        maxDurationMs: 90_000,
+        // Verified: 24–60 fps. Note this floor is *higher* than Instagram's and
+        // TikTok's 23 — a 23.976fps film-rate export passes there and fails here.
+        minFrameRate: 24,
+        maxFrameRate: 60,
+        // Verified: minimum 540×960, 1080×1920 recommended.
+        minWidth: 540,
+        minHeight: 960,
+        /**
+         * Verified: 9:16, which is 0.5625.
+         *
+         * A tolerance rather than the exact figure, because an export at
+         * 1080×1921 is 0.5622 and is not what this check exists to catch. What
+         * it catches is landscape or square footage sent to a vertical-only
+         * surface, where the number is not close at all.
+         */
+        minAspectRatio: 0.5,
+        maxAspectRatio: 0.62,
+      },
       gif: null,
       // UNVERIFIED: attachment ceiling for a multi-photo feed post.
       maxAttachments: 10,

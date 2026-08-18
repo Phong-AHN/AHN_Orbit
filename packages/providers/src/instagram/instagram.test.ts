@@ -97,13 +97,17 @@ class FakeGraph {
   };
 }
 
-function provider(graph: FakeGraph): InstagramProvider {
+function provider(graph: FakeGraph, overrides: Record<string, unknown> = {}): InstagramProvider {
   return new InstagramProvider({
     appId: 'app-123',
     appSecret: 'secret-abc',
     apiVersion: 'v25.0',
     fetchImpl: graph.fetch,
     baseUrl: 'https://graph.test',
+    // Fast enough that the "still transcoding" path is testable at all.
+    reelPollBudgetMs: 200,
+    reelPollIntervalMs: 1,
+    ...overrides,
   });
 }
 
@@ -356,14 +360,41 @@ describe('publishing', () => {
     expect(creates.at(-1)!.body).toContain('children=');
   });
 
-  it('refuses video rather than sending something the adapter cannot build', async () => {
+  /**
+   * Replaces a test that asserted video was refused outright.
+   *
+   * It was true while `video: null` stood in the descriptor. After Reels
+   * shipped it kept passing — not because video was refused, but because the
+   * fixture had no container status and the publish timed out waiting. A test
+   * that passes for a reason it does not state is worse than no test: it would
+   * have gone on reporting "video is refused" through any future change.
+   *
+   * What is actually still refused is a clip under Instagram's three-second
+   * floor, and the descriptor catches it before anything is sent.
+   */
+  it('refuses a clip below the three-second floor, before sending anything', async () => {
     await expect(
       provider(graph).publish(
         publishContext({
-          media: [{ ...image('v'), kind: 'VIDEO', mimeType: 'video/mp4', durationMs: 5_000 }],
+          media: [
+            {
+              ...image('v'),
+              kind: 'VIDEO',
+              mimeType: 'video/mp4',
+              durationMs: 1_500,
+              frameRate: 30,
+              peakFrameRate: 30,
+            },
+          ],
         }),
       ),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({
+      code: 'PROVIDER_VALIDATION_ERROR',
+      context: { validationCodes: 'MEDIA_TOO_SHORT_DURATION' },
+    });
+
+    // Nothing reached the API. That is what "before sending anything" means.
+    expect(graph.calls).toHaveLength(0);
   });
 
   /**
@@ -412,6 +443,128 @@ describe('publishing', () => {
     it('stays non-retryable — the content is wrong, not the moment', async () => {
       await expect(noMedia()).rejects.toMatchObject({ retryable: false });
     });
+  });
+});
+
+/**
+ * Reels: the only way video reaches Instagram.
+ *
+ * Two things separate this from an image post, and both are places to get it
+ * wrong. The container is not ready when it is created -- `media_publish` on an
+ * `IN_PROGRESS` container fails -- and Instagram fetches the file itself from
+ * `video_url`, with no byte upload offered at all.
+ */
+describe('publishing a Reel', () => {
+  const reel = () => ({
+    id: 'v1',
+    kind: 'VIDEO' as const,
+    mimeType: 'video/mp4',
+    sizeBytes: 8_000_000,
+    url: 'https://cdn.test/reel.mp4?signature=abc',
+    width: 1080,
+    height: 1920,
+    durationMs: 20_000,
+    frameRate: 30,
+    peakFrameRate: 30,
+  });
+
+  const ready = (graph: FakeGraph) =>
+    graph.on(/container-1\?|\/container-1$/, { body: { status_code: 'FINISHED' } });
+
+  it('creates a REELS container from the signed URL', async () => {
+    const local = ready(new FakeGraph().withStore());
+    await provider(local).publish(publishContext({ media: [reel()] }));
+
+    const create = local.calls.find(
+      (call) => call.method === 'POST' && /\/ig-user-1\/media(\?|$)/.test(call.url),
+    );
+    const form = new URLSearchParams(create!.body ?? '');
+
+    expect(form.get('media_type')).toBe('REELS');
+    expect(form.get('video_url')).toContain('reel.mp4');
+    // A Reel that never reaches the grid is not what an agency means by
+    // "post a Reel" for a client.
+    expect(form.get('share_to_feed')).toBe('true');
+  });
+
+  /**
+   * The ordering that makes reconciliation possible: an id written after the
+   * ambiguous half would not exist in the case it is needed for.
+   */
+  it('records the container id before waiting on it', async () => {
+    const order: string[] = [];
+    const local = ready(new FakeGraph().withStore());
+
+    await provider(local).publish(
+      publishContext({
+        media: [reel()],
+        recordProviderRef: async (ref: Record<string, unknown>) => {
+          order.push(`ref:${String(ref['containerId'])}`);
+        },
+      }),
+    );
+
+    expect(order[0]).toBe('ref:container-1');
+  });
+
+  it('waits for the container before publishing it', async () => {
+    let asked = 0;
+    const local = new FakeGraph().withStore().on(/container-1/, () => {
+      asked += 1;
+      return { body: { status_code: asked < 2 ? 'IN_PROGRESS' : 'FINISHED' } };
+    });
+
+    const result = await provider(local, { reelPollIntervalMs: 1 }).publish(
+      publishContext({ media: [reel()] }),
+    );
+
+    expect(asked).toBeGreaterThan(1);
+    expect(result.externalPostId).toBe('ig-media-1');
+  });
+
+  /** Instagram rejecting the file is a media problem, and terminal. */
+  it('reports a container that errored as a media failure', async () => {
+    const local = new FakeGraph()
+      .withStore()
+      .on(/container-1/, { body: { status_code: 'ERROR', status: 'bad codec' } });
+
+    await expect(
+      provider(local).publish(publishContext({ media: [reel()] })),
+    ).rejects.toMatchObject({ code: 'PROVIDER_MEDIA_ERROR' });
+  });
+
+  /**
+   * Running out of budget is not a failure. The container may still finish, so
+   * it raises a timeout the engine reconciles rather than retries -- retrying
+   * would publish the same Reel twice (D-027).
+   */
+  it('times out rather than failing while Instagram is still transcoding', async () => {
+    const local = new FakeGraph()
+      .withStore()
+      .on(/container-1/, { body: { status_code: 'IN_PROGRESS' } });
+
+    await expect(
+      provider(local, { reelPollBudgetMs: 20, reelPollIntervalMs: 5 }).publish(
+        publishContext({ media: [reel()] }),
+      ),
+    ).rejects.toMatchObject({ code: 'PUBLISHING_TIMEOUT' });
+  });
+
+  it('refuses a Reel with photos alongside it', async () => {
+    const local = ready(new FakeGraph().withStore());
+
+    await expect(
+      provider(local).publish(publishContext({ media: [reel(), image('a')] })),
+    ).rejects.toThrow();
+  });
+
+  /** Meta accepts 0.01:1 to 10:1 and only *recommends* 9:16. */
+  it('does not impose the recommended aspect ratio Meta merely suggests', () => {
+    const video = provider(new FakeGraph()).capabilities().media.video;
+
+    expect(video).not.toBeNull();
+    expect(video?.minAspectRatio).toBeUndefined();
+    expect(video?.maxAspectRatio).toBeUndefined();
   });
 });
 

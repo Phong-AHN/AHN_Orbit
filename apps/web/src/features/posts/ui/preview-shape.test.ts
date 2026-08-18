@@ -70,6 +70,37 @@ describe('what a feed does to a post', () => {
     expect(previewNotes({ ...base, platform: 'FACEBOOK', text: 'Morning, everyone.' })).toEqual([]);
   });
 
+  /**
+   * TikTok, which the generic fallback described as a Facebook post.
+   *
+   * Before this it fell through to `GENERIC`: caption above a landscape frame
+   * with clickable links, when a TikTok post is a full-screen vertical video
+   * with the caption over it and links that do nothing. A preview that
+   * confidently draws the wrong platform is worse than no preview.
+   */
+  it('draws TikTok as vertical, with the caption over the video', () => {
+    const shape = previewShape('TIKTOK');
+
+    expect(shape.aspect).toBe('portrait');
+    expect(shape.captionBelow).toBe(false);
+    expect(shape.linksClickable).toBe(false);
+    // Folds sooner than Facebook, later than nothing.
+    expect(shape.foldAt).toBeLessThan(previewShape('FACEBOOK').foldAt);
+  });
+
+  it('says a TikTok link is not clickable, as on Instagram', () => {
+    expect(
+      previewNotes({ ...base, platform: 'TIKTOK', text: 'shop at https://example.com' }),
+    ).toContainEqual(expect.stringContaining('not clickable'));
+  });
+
+  it('warns that TikTok fills a vertical screen rather than cropping square', () => {
+    const notes = previewNotes({ ...base, platform: 'TIKTOK', imageCount: 1 });
+
+    expect(notes).toContainEqual(expect.stringContaining('vertical'));
+    expect(notes).not.toContainEqual(expect.stringContaining('square'));
+  });
+
   /** A platform nobody has taught it about still draws, and claims nothing. */
   it('falls back to a generic shape for an unknown platform', () => {
     const shape = previewShape('SOME_FUTURE_NETWORK');

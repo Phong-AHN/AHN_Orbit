@@ -103,7 +103,7 @@ export class GraphClient {
     }
 
     const text = await response.text();
-    const parsed = text ? (safeJson(text) as GraphErrorBody & T) : ({} as T);
+    const parsed = text ? (safeJsonBody(text) as GraphErrorBody & T) : ({} as T);
 
     if (!response.ok || (parsed as GraphErrorBody).error) {
       throw normalizeGraphError(parsed as GraphErrorBody, response.status, response.headers);
@@ -113,10 +113,60 @@ export class GraphClient {
   }
 }
 
-function safeJson(text: string): unknown {
+export function safeJsonBody(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
     return { error: { message: 'Graph returned a non-JSON response' } };
+  }
+}
+
+/**
+ * Send a video to Meta's upload host.
+ *
+ * Not `request()`: a different host (`rupload.facebook.com`), a bearer scheme
+ * spelled `OAuth` rather than `Bearer`, and everything carried in headers
+ * instead of a body. Getting the scheme wrong yields a 401 that reads like a
+ * dead token rather than a malformed header.
+ *
+ * `fileUrl` is the mode Orbit uses: Meta fetches the bytes from the signed URL
+ * itself, so the worker never streams a gigabyte. TikTok cannot do this — it
+ * demands a verified domain — which is why that adapter chunks and this one
+ * does not.
+ */
+export async function uploadReelSource(input: {
+  uploadUrl: string;
+  accessToken: string;
+  fileUrl: string;
+  fetchImpl?: FetchLike;
+  timeoutMs?: number;
+  signal?: AbortSignal | undefined;
+}): Promise<void> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? 60_000);
+  input.signal?.addEventListener('abort', () => controller.abort(), { once: true });
+
+  let response: Response;
+  try {
+    response = await (input.fetchImpl ?? ((url, init) => fetch(url, init)))(input.uploadUrl, {
+      method: 'POST',
+      headers: {
+        // `OAuth`, not `Bearer`. This host is the exception.
+        authorization: `OAuth ${input.accessToken}`,
+        file_url: input.fileUrl,
+      },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    throw normalizeUnknownError('FACEBOOK', error);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const text = await response.text();
+  const parsed = text ? (safeJsonBody(text) as GraphErrorBody & { success?: boolean }) : {};
+
+  if (!response.ok || parsed.error || parsed.success === false) {
+    throw normalizeGraphError(parsed, response.status, response.headers);
   }
 }

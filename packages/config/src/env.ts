@@ -182,6 +182,18 @@ export const serverEnvSchema = z.object({
   TIKTOK_CLIENT_KEY: optionalString,
   TIKTOK_CLIENT_SECRET: optionalString,
 
+  /**
+   * ── Threads (SRS §7) ─────────────────────────────────────────────────────
+   *
+   * Meta's, and **not** the Facebook app's credentials. A Threads app issues
+   * two id/secret pairs and these endpoints want the Threads one; using the
+   * other fails authentication in a way that reads like a dead token.
+   *
+   * Absent means Threads is not offered at all.
+   */
+  THREADS_APP_ID: optionalString,
+  THREADS_APP_SECRET: optionalString,
+
   // ── AI (SRS §51) ──────────────────────────────────────────────────────────
   GEMINI_API_KEY: optionalString,
   GEMINI_MODEL: z.string().default('gemini-2.0-flash'),

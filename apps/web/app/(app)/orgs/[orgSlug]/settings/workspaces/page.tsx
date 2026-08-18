@@ -39,6 +39,7 @@ const CONNECTABLE = [
   ['FACEBOOK', 'Facebook'],
   ['INSTAGRAM', 'Instagram'],
   ['TIKTOK', 'TikTok'],
+  ['THREADS', 'Threads'],
 ] as const;
 
 /**

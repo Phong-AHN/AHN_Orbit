@@ -4,6 +4,7 @@ import { isSupported, registerProvider, supportedPlatforms } from '@orbit/provid
 import { FacebookProvider } from '@orbit/providers/facebook';
 import { InstagramProvider } from '@orbit/providers/instagram';
 import { TikTokProvider } from '@orbit/providers/tiktok';
+import { ThreadsProvider } from '@orbit/providers/threads';
 import { MockProvider } from '@orbit/providers/mock';
 
 /**
@@ -77,6 +78,18 @@ export function ensureProvidersRegistered(): void {
     );
     registeredAny = true;
     logger.info('registered TikTok provider', { platforms: ['TIKTOK'] });
+  }
+
+  if (allowed && env.THREADS_APP_ID && env.THREADS_APP_SECRET) {
+    registerProvider(
+      new ThreadsProvider({
+        appId: env.THREADS_APP_ID,
+        appSecret: env.THREADS_APP_SECRET,
+        apiVersion: 'v1.0',
+      }),
+    );
+    registeredAny = true;
+    logger.info('registered Threads provider', { platforms: ['THREADS'] });
   }
 
   if (allowed && env.FACEBOOK_APP_ID && env.FACEBOOK_APP_SECRET) {

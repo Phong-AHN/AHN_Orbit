@@ -22,19 +22,21 @@ export const metadata: Metadata = { title: 'Connect an account' };
  * back. TikTok is its own portal, its own app, its own key pair — and, unlike
  * either Meta surface, one authorization yields exactly **one** account.
  */
-const PLATFORMS = ['FACEBOOK', 'INSTAGRAM', 'TIKTOK'] as const;
+const PLATFORMS = ['FACEBOOK', 'INSTAGRAM', 'TIKTOK', 'THREADS'] as const;
 type ConnectablePlatform = (typeof PLATFORMS)[number];
 
 const PLATFORM_LABEL: Record<ConnectablePlatform, string> = {
   FACEBOOK: 'Facebook Page',
   INSTAGRAM: 'Instagram account',
   TIKTOK: 'TikTok account',
+  THREADS: 'Threads account',
 };
 
 const PLATFORM_ARTICLE: Record<ConnectablePlatform, string> = {
   FACEBOOK: 'a Facebook Page',
   INSTAGRAM: 'an Instagram account',
   TIKTOK: 'a TikTok account',
+  THREADS: 'a Threads account',
 };
 
 const PLATFORM_NOTE: Record<ConnectablePlatform, string> = {
@@ -44,6 +46,8 @@ const PLATFORM_NOTE: Record<ConnectablePlatform, string> = {
     'Instagram professional accounts connect through the Facebook Page they are linked to. An account with no linked Page cannot be connected — link it in the Instagram app first.',
   TIKTOK:
     'You will sign in at TikTok with the account itself — there is no Page to go through, and one sign-in connects one account. Access tokens are exchanged and stored server-side; they never reach your browser.',
+  THREADS:
+    'You will sign in at Threads with the account itself. Threads connections last 60 days and renew themselves while they are in use — one left idle for longer has to be reconnected by hand.',
 };
 
 /** The sign-in each platform actually shows, so the button does not mislead. */
@@ -51,6 +55,7 @@ const CONTINUE_LABEL: Record<ConnectablePlatform, string> = {
   FACEBOOK: 'Continue with Facebook',
   INSTAGRAM: 'Continue with Facebook',
   TIKTOK: 'Continue with TikTok',
+  THREADS: 'Continue with Threads',
 };
 
 interface PageProps {
@@ -139,7 +144,8 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
    * fix it — the same reasoning as the Instagram Login exception above.
    */
   const unconfigured =
-    platform === 'TIKTOK' && !(env.TIKTOK_CLIENT_KEY && env.TIKTOK_CLIENT_SECRET);
+    (platform === 'TIKTOK' && !(env.TIKTOK_CLIENT_KEY && env.TIKTOK_CLIENT_SECRET)) ||
+    (platform === 'THREADS' && !(env.THREADS_APP_ID && env.THREADS_APP_SECRET));
 
   const accountsHref = `/orgs/${orgSlug}/settings/accounts`;
   const returnTo = `/orgs/${orgSlug}/settings/accounts/connect?workspaceId=${workspaceId}&brandId=${brandId}&platform=${platform}`;
@@ -186,8 +192,12 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
 
       {unconfigured ? (
         <Empty
-          title="TikTok is not set up on this deployment"
-          description="TikTok needs its own app, separate from the Meta one. An administrator has to create it at developers.tiktok.com and set TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET on both the web app and the worker."
+          title={`${PLATFORM_LABEL[platform]}s are not set up on this deployment`}
+          description={
+            platform === 'THREADS'
+              ? 'Threads needs its own app credentials — a Threads app issues two id/secret pairs and this wants the Threads one. An administrator has to set THREADS_APP_ID and THREADS_APP_SECRET on both the web app and the worker.'
+              : 'TikTok needs its own app, separate from the Meta one. An administrator has to create it at developers.tiktok.com and set TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET on both the web app and the worker.'
+          }
         />
       ) : staged.length > 0 ? (
         <AccountPicker

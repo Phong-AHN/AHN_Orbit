@@ -516,6 +516,57 @@ describe('error handling', () => {
       });
   });
 
+  /**
+   * The one TikTok failure that is about configuration, not the file.
+   *
+   * Photo posts are fetched by TikTok from a URL, and it will only fetch from a
+   * domain the app has verified. Video is unaffected — it is streamed in chunks
+   * — so a deployment can publish video happily and fail every photo post, and
+   * the message has to say which and whose problem it is.
+   */
+  it('names the operator when the media domain is not verified', async () => {
+    const local = happyApi().fail(/content\/init/, 'url_ownership_unverified', 403);
+
+    await provider(local)
+      .publish(publishContext({ media: [image('a'), image('b')] }))
+      .catch((error: unknown) => {
+        const message = (error as { userMessage: string }).userMessage;
+        expect(message).toMatch(/administrator/i);
+        expect(message).toMatch(/developer portal/i);
+        // And says the other half of the product still works.
+        expect(message).toMatch(/video posts are unaffected/i);
+      });
+  });
+
+  /**
+   * The same code, whichever route it arrives by.
+   *
+   * TikTok reports these as an `error.code` on init *and* as a `fail_reason` on
+   * `status/fetch`. The written-out explanations lived only on the second path,
+   * so an identical problem was explained properly when it surfaced late and
+   * generically when it surfaced early.
+   */
+  it('explains a media code the same way early or late', async () => {
+    const early = happyApi().fail(/video\/init/, 'frame_rate_check_failed', 400);
+    const late = happyApi().ok(/status\/fetch/, {
+      status: 'FAILED',
+      fail_reason: 'frame_rate_check_failed',
+    });
+
+    const messages: string[] = [];
+    for (const local of [early, late]) {
+      await provider(local)
+        .publish(publishContext())
+        .catch((error: unknown) => {
+          messages.push((error as { userMessage: string }).userMessage);
+        });
+    }
+
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toContain('23');
+    expect(messages[0]).toBe(messages[1]);
+  });
+
   it('treats a daily post cap as a rate limit rather than a refusal', async () => {
     const local = happyApi().fail(/video\/init/, 'spam_risk_too_many_posts', 403);
 

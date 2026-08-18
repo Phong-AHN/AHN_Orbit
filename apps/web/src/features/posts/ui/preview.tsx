@@ -194,9 +194,16 @@ function PreviewMedia({
     };
   }, [orgSlug, item.mediaAssetId]);
 
-  const frame = shape.aspect === 'square' ? 'aspect-square' : 'aspect-[4/3]';
+  const frame =
+    shape.aspect === 'square'
+      ? 'aspect-square'
+      : shape.aspect === 'portrait'
+        ? 'aspect-[9/16]'
+        : 'aspect-[4/3]';
 
   if (item.kind === 'VIDEO') {
+    // No frame is drawn: a poster would have to be generated, and a black
+    // rectangle claiming to be the video is less honest than saying so.
     return (
       <div className={`grid ${frame} w-full place-items-center bg-surface-sunken`}>
         <span className="text-xs text-ink-muted">Video</span>

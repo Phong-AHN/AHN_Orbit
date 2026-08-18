@@ -23,8 +23,8 @@ export interface PreviewShape {
   /** Roughly where the feed folds the text behind a "more" control. */
   foldAt: number;
   foldLabel: string;
-  /** How the feed crops the first image. */
-  aspect: 'square' | 'natural';
+  /** How the feed frames the first attachment. */
+  aspect: 'square' | 'natural' | 'portrait';
   /** Whether a URL in the caption is clickable in the feed. */
   linksClickable: boolean;
 }
@@ -39,6 +39,24 @@ const GENERIC: PreviewShape = {
 
 const SHAPES: Record<string, PreviewShape> = {
   FACEBOOK: { ...GENERIC },
+  /**
+   * TikTok, which the generic fallback got wrong in every respect.
+   *
+   * A TikTok post is a full-screen vertical video with the caption laid over
+   * the bottom of it, folded after about a line. Rendered as the generic shape
+   * — caption above a 4:3 frame, links clickable — it looked like a Facebook
+   * post, which is the one thing a preview must not do.
+   */
+  TIKTOK: {
+    captionBelow: false,
+    // Roughly a line over the video before "more".
+    foldAt: 100,
+    foldLabel: 'more',
+    // Full-screen vertical. A landscape sketch would misrepresent the crop.
+    aspect: 'portrait',
+    // A URL in a TikTok caption is plain text, as on Instagram.
+    linksClickable: false,
+  },
   INSTAGRAM: {
     captionBelow: true,
     // The feed shows about one line of caption. The exact figure moves; the
@@ -85,8 +103,9 @@ export function previewNotes(input: {
     notes.push('A link here is plain text — it is not clickable in the feed.');
   }
 
-  if (shape.aspect === 'square' && input.imageCount > 0) {
-    notes.push('The feed crops this to a square.');
+  if (input.imageCount > 0) {
+    if (shape.aspect === 'square') notes.push('The feed crops this to a square.');
+    if (shape.aspect === 'portrait') notes.push('The feed fills a vertical screen with this.');
   }
 
   if (input.mediaRequired && !input.hasMedia) {

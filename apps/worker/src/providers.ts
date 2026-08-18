@@ -4,6 +4,7 @@ import { registerProvider, supportedPlatforms, type PublishMedia } from '@orbit/
 import { FacebookProvider } from '@orbit/providers/facebook';
 import { InstagramProvider } from '@orbit/providers/instagram';
 import { TikTokProvider } from '@orbit/providers/tiktok';
+import { ThreadsProvider } from '@orbit/providers/threads';
 import { MockProvider } from '@orbit/providers/mock';
 
 /**
@@ -83,6 +84,17 @@ export function ensureProvidersRegistered(): void {
         apiVersion: 'v2',
         // Only the worker wires this: the web app never moves media bytes.
         readMediaRange,
+      }),
+    );
+    registeredAny = true;
+  }
+
+  if (env.THREADS_APP_ID && env.THREADS_APP_SECRET) {
+    registerProvider(
+      new ThreadsProvider({
+        appId: env.THREADS_APP_ID,
+        appSecret: env.THREADS_APP_SECRET,
+        apiVersion: 'v1.0',
       }),
     );
     registeredAny = true;

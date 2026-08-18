@@ -185,9 +185,40 @@ export function instagramCapabilities(apiVersion: string): PlatformCapabilities 
         minWidth: 320,
         minHeight: 320,
       },
-      // Reels go through a separate container type with its own upload flow.
-      // Not built, so publishing refuses video outright.
-      video: null,
+      /**
+       * Video means **Reels**: `media_type=REELS` on the container.
+       *
+       * Instagram retired the standalone video post — everything vertical is a
+       * Reel now — so there is one video path and it is this one.
+       *
+       * Two constraints Meta documents that are *not* expressible here, and are
+       * therefore worth stating: the container must have **`moov` at the front
+       * of the file** (fast-start), and edit lists are refused. Both are
+       * properties of how the file was written rather than of its dimensions,
+       * and both produce a container that reports ERROR rather than a
+       * pre-flight failure.
+       */
+      video: {
+        mimeTypes: ['video/mp4', 'video/quicktime'],
+        // Verified: 1 GB.
+        maxBytes: 1024 * 1024 * 1024,
+        // Verified: 3 seconds to 15 minutes. Only 5–90s reaches the Reels tab,
+        // which is a distribution matter rather than an accepted/refused one,
+        // so it is not enforced here.
+        minDurationMs: 3_000,
+        maxDurationMs: 15 * 60 * 1000,
+        // Verified: 23–60 fps.
+        minFrameRate: 23,
+        maxFrameRate: 60,
+        /**
+         * No aspect constraint, deliberately.
+         *
+         * Meta accepts 0.01:1 to 10:1 and merely *recommends* 9:16. Enforcing
+         * the recommendation would refuse posts Instagram publishes happily —
+         * the opposite mistake from Facebook Reels, where vertical really is
+         * required.
+         */
+      },
       gif: null,
       // Verified: a carousel holds 2–10 items.
       maxAttachments: 10,

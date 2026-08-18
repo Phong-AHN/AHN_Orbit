@@ -28,7 +28,12 @@ interface Recorded {
 }
 
 class FakeGraph {
-  readonly calls: Array<{ url: string; method: string; body?: string }> = [];
+  readonly calls: Array<{
+    url: string;
+    method: string;
+    body?: string;
+    headers?: Record<string, string>;
+  }> = [];
   private routes: Array<{ match: RegExp; response: Recorded | (() => Recorded) }> = [];
 
   on(match: RegExp, response: Recorded | (() => Recorded)): this {
@@ -75,10 +80,18 @@ class FakeGraph {
   }
 
   fetch: FetchLike = async (url, init) => {
+    // Headers are recorded because the Reel upload host carries everything in
+    // them -- the token, its scheme, and the source URL -- and nothing in a body.
+    const headers: Record<string, string> = {};
+    for (const [key, value] of Object.entries((init?.headers ?? {}) as Record<string, string>)) {
+      headers[key.toLowerCase()] = value;
+    }
+
     this.calls.push({
       url,
       method: init?.method ?? 'GET',
       ...(typeof init?.body === 'string' ? { body: init.body } : {}),
+      headers,
     });
 
     if (this.thrower) this.thrower();
@@ -582,7 +595,15 @@ describe('publishing', () => {
     ]);
   });
 
-  it('refuses video, which is P1 and not yet implemented', async () => {
+  /**
+   * Video is a Reel, and nothing else on a Page.
+   *
+   * This replaces a test asserting video was refused outright. The refusal was
+   * real while `video: null` stood in the descriptor; keeping the test after
+   * building Reels would have pinned the old behaviour and made the new one
+   * look like a regression.
+   */
+  it('refuses a video that is not shaped like a Reel', async () => {
     const error = await provider(healthyGraph())
       .publish({
         ...base,
@@ -594,12 +615,18 @@ describe('publishing', () => {
             mimeType: 'video/mp4',
             sizeBytes: 1000,
             url: 'https://cdn.test/v.mp4',
+            // Landscape, which a vertical-only surface cannot take.
+            width: 1920,
+            height: 1080,
+            durationMs: 20_000,
+            frameRate: 30,
+            peakFrameRate: 30,
           },
         ],
       })
       .catch((e: unknown) => e);
 
-    // Declared unsupported in capabilities, so validation rejects it first.
+    // Caught by the descriptor before anything is sent.
     expect(error).toBeInstanceOf(ProviderValidationError);
   });
 });
@@ -782,5 +809,162 @@ describe('capability honesty', () => {
     const scheduling = provider(healthyGraph()).capabilities().scheduling;
     expect(scheduling.minLeadMs).toBe(600_000);
     expect(scheduling.maxLeadMs).toBe(30 * 24 * 3600_000);
+  });
+});
+
+/**
+ * Reels: the only way video reaches a Page.
+ *
+ * Three phases, and the middle one is where this differs from every other
+ * publish in the system: **Meta fetches the file itself** from the `file_url`
+ * header, so the worker never streams a gigabyte. TikTok cannot do that — it
+ * demands a verified domain — which is why the same video takes two completely
+ * different routes to two platforms.
+ */
+describe('publishing a Reel', () => {
+  const credential = { accessToken: 'page-token-1', scopes: [], keyVersion: 1 };
+  const base = {
+    credential,
+    account: { externalId: '100000000000001' },
+    contentHash: 'hash',
+    correlationId: 'test',
+  };
+
+  const reel = () => ({
+    id: 'v1',
+    kind: 'VIDEO' as const,
+    mimeType: 'video/mp4',
+    sizeBytes: 8_000_000,
+    url: 'https://cdn.test/reel.mp4?signature=abc',
+    width: 1080,
+    height: 1920,
+    durationMs: 20_000,
+    frameRate: 30,
+    peakFrameRate: 30,
+  });
+
+  const reelGraph = () =>
+    new FakeGraph().on(/video_reels|rupload/, {
+      body: { video_id: 'vid-9', upload_url: 'https://rupload.test/video-upload/v25.0/vid-9' },
+    });
+
+  const phasesOf = (graph: FakeGraph) =>
+    graph.calls
+      .filter((call) => /video_reels/.test(call.url))
+      .map((call) => new URLSearchParams(call.body ?? '').get('upload_phase'));
+
+  it('runs start, upload and finish in that order', async () => {
+    const graph = reelGraph();
+    await provider(graph).publish({ ...base, draft: { body: 'Morning run' }, media: [reel()] });
+
+    expect(phasesOf(graph)).toEqual(['start', 'finish']);
+    expect(graph.calls.some((call) => /rupload/.test(call.url))).toBe(true);
+  });
+
+  /**
+   * The header Meta needs, spelled the way Meta needs it. `Bearer` here yields
+   * a 401 that reads like a dead token rather than a malformed header.
+   */
+  it('hands Meta the signed URL with an OAuth-scheme header', async () => {
+    const graph = reelGraph();
+    await provider(graph).publish({ ...base, draft: { body: 'x' }, media: [reel()] });
+
+    const upload = graph.calls.find((call) => /rupload/.test(call.url));
+
+    expect(upload?.headers?.['authorization']).toMatch(/^OAuth /);
+    expect(upload?.headers?.['file_url']).toContain('reel.mp4');
+  });
+
+  /**
+   * An id written after the ambiguous half would not exist in the one case it
+   * is needed for.
+   *
+   * Asserted against the **call log**, not against the order of a single entry:
+   * the first version only checked `order[0]`, which is trivially the first
+   * element of a one-element array and stayed green when the write was moved
+   * after the upload.
+   */
+  it('records the video id before the upload begins', async () => {
+    const graph = reelGraph();
+    let callsWhenRecorded = -1;
+
+    await provider(graph).publish({
+      ...base,
+      draft: { body: 'x' },
+      media: [reel()],
+      recordProviderRef: async (ref: Record<string, unknown>) => {
+        expect(ref['reelVideoId']).toBe('vid-9');
+        callsWhenRecorded = graph.calls.length;
+      },
+    });
+
+    const uploadAt = graph.calls.findIndex((call) => /rupload/.test(call.url));
+
+    expect(callsWhenRecorded).toBeGreaterThanOrEqual(0);
+    expect(uploadAt).toBeGreaterThan(-1);
+    // The id existed before the upload call was made.
+    expect(callsWhenRecorded).toBeLessThanOrEqual(uploadAt);
+  });
+
+  it('publishes with the caption as the description', async () => {
+    const graph = reelGraph();
+    await provider(graph).publish({
+      ...base,
+      draft: { body: 'Morning run', hashtags: ['dawn'] },
+      media: [reel()],
+    });
+
+    const finish = graph.calls
+      .filter((call) => /video_reels/.test(call.url))
+      .map((call) => new URLSearchParams(call.body ?? ''))
+      .find((form) => form.get('upload_phase') === 'finish');
+
+    expect(finish?.get('video_state')).toBe('PUBLISHED');
+    expect(finish?.get('description')).toContain('Morning run');
+  });
+
+  it('refuses a Reel with photos alongside it', async () => {
+    await expect(
+      provider(reelGraph()).publish({
+        ...base,
+        draft: { body: 'x' },
+        media: [
+          reel(),
+          {
+            id: 'p1',
+            kind: 'IMAGE' as const,
+            mimeType: 'image/jpeg',
+            sizeBytes: 1000,
+            url: 'https://cdn.test/a.jpg',
+            width: 1080,
+            height: 1080,
+          },
+        ],
+      }),
+    ).rejects.toThrow();
+  });
+
+  /**
+   * Facebook's floor is 24, where Instagram and TikTok accept 23. A 23.976fps
+   * film-rate export passes there and fails here — exactly the kind of
+   * difference a shared descriptor exists to keep straight rather than average
+   * away.
+   */
+  it('declares a frame-rate floor one above the other platforms', () => {
+    const video = provider(new FakeGraph()).capabilities().media.video;
+
+    expect(video?.minFrameRate).toBe(24);
+    expect(video?.maxFrameRate).toBe(60);
+  });
+
+  /** Vertical really is required here, unlike Instagram. */
+  it('declares the 9:16 requirement, with tolerance for real exports', () => {
+    const video = provider(new FakeGraph()).capabilities().media.video;
+
+    // 1080x1920 is 0.5625; 1080x1921 is 0.5622, and is not what this catches.
+    expect(video!.minAspectRatio!).toBeLessThan(0.5625);
+    expect(video!.maxAspectRatio!).toBeGreaterThan(0.5625);
+    // Square and landscape footage is.
+    expect(video!.maxAspectRatio!).toBeLessThan(1);
   });
 });

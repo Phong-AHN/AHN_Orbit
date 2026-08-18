@@ -2113,6 +2113,152 @@ produced yet is reported UNSUPPORTED, never stored as zero — a fresh post woul
 otherwise chart as a failed one.
 
 ---
+---
+
+## D-087 — Video means Reels, and the same file takes three different routes
+
+- **Context:** video was declared `video: null` on both Meta descriptors, so the
+  engine refused it. TikTok arrived first and made the media pipeline carry real
+  video; this makes Facebook and Instagram publish it.
+- **Video is a Reel on both, and nothing else.** Meta still has a Page feed
+  video and Instagram still has a legacy video post, but Meta has spent three
+  years moving everything to Reels and the Reels endpoints are the ones with a
+  current documented contract. Supporting both shapes would double the publish
+  paths for a format Meta is retiring.
+
+### Three platforms, three ways to move the same bytes
+
+| | How the file gets there | Why |
+|---|---|---|
+| **Facebook** | Meta fetches it — `file_url` header on `rupload.facebook.com` | Meta accepts any reachable URL |
+| **Instagram** | Meta fetches it — `video_url` on the container | No byte upload is offered at all |
+| **TikTok** | The worker streams it in 5–64 MB chunks | `PULL_FROM_URL` needs a verified domain, and Orbit's media is private |
+
+This is worth stating plainly because it looks like inconsistency and is not.
+A signed S3 URL is enough for Meta and is *refused* by TikTok, so the adapter
+that chunks is not being careful where the others are careless — it is the only
+one that has no choice. The consequence is that a Reel costs the worker almost
+nothing while a TikTok video costs it the whole file.
+
+### The numbers differ, and averaging them would be wrong
+
+Facebook's frame-rate floor is **24**; Instagram's and TikTok's is **23**. A
+23.976fps film-rate export — an ordinary thing to produce — passes two platforms
+and fails one. Facebook requires **9:16**; Instagram accepts 0.01:1 to 10:1 and
+merely *recommends* it. Facebook caps a Reel at **90 seconds**; Instagram allows
+**15 minutes**.
+
+Each of these lives in its own descriptor with its source noted. Collapsing them
+into one "video" rule would refuse posts one platform publishes happily, which
+is the more expensive mistake of the two.
+
+The Facebook aspect bounds are 0.5–0.62 rather than exactly 0.5625, because a
+1080×1921 export is 0.5622 and is not what the check is for. What it catches is
+landscape or square footage sent to a vertical-only surface, where the number is
+not close at all.
+
+### Instagram waits; Facebook does not
+
+An Instagram Reel container is **not ready when it is created** — `media_publish`
+on an `IN_PROGRESS` container fails — so publishing polls `status_code` before
+publishing. Facebook's `finish` phase commits the Reel and transcodes
+afterwards, so there is nothing to wait for.
+
+Both bound the wait well below the engine's call budget. Running out is a
+**timeout**, never a failure: the container may still finish, the id is already
+recorded, and retrying would publish the same Reel twice (**D-027**). `ERROR`
+and `EXPIRED` are different — that is Meta rejecting the file, terminal, and
+reported as a media problem with the fast-start hint, since a `moov` atom at the
+back of the file is the usual cause and is invisible to the person who shot it.
+
+### Two tests that were passing for the wrong reason
+
+Both were found while building this, and both would have gone on lying:
+
+1. **Instagram's "refuses video"** kept passing after Reels shipped — not
+   because video was refused, but because the fixture had no container status
+   and the publish timed out waiting for one. A test that passes for a reason it
+   does not state is worse than no test.
+2. **Facebook's "records the video id before the upload"** checked `order[0]`,
+   which is trivially the first element of a one-element array. Moving the write
+   *after* the upload left it green. It now asserts against the call log.
+
+`share_to_feed` is true on Instagram Reels without a control: an agency posting
+for a client means the grid as well as the Reels tab, and a toggle nobody
+understands is worse than a default that matches the intent.
+---
+
+## D-088 — Threads is Meta's, and shares nothing with the Meta adapters
+
+- **Context:** the fifth platform. It looks like it should slot in beside
+  Instagram — same company, same container-then-publish shape — and almost
+  nothing underneath is shared.
+- **Its own everything.** Host `graph.threads.net`, authorization window on
+  `threads.net`, and its own app credentials: Meta's guide states outright that
+  a Threads app issues **two** id/secret pairs and that these endpoints want the
+  Threads one. Using the Facebook app's pair fails authentication in a way that
+  reads like a dead token, which is why `THREADS_APP_ID` is documented as *not*
+  the Facebook app's id rather than merely as a new variable.
+- **The error mapping is reused, the client is not.** Threads returns the Graph
+  error shape, so `normalizeGraphError` handles it and a second copy of that
+  code map does not exist to drift. The client is separate because the
+  alternative was a Threads conditional inside the Facebook client, and the
+  point of the adapter layer is that no such conditional exists. The one thing
+  the reuse gets wrong is the platform tag, which is rewritten to `THREADS` —
+  otherwise every log line, attempt row and publishing page would name a
+  Facebook Page that was never involved.
+
+### Three things that make it unlike everything else here
+
+**Text is a first-class post.** `media_type: TEXT` needs no media. Threads is
+the only platform in the product that publishes text alone *and* media alone —
+Instagram cannot do the first, TikTok cannot do either.
+
+**500 characters**, four times shorter than Instagram and by a wide margin the
+shortest ceiling in the product. This is where the composer's per-account
+counter stops being a nicety.
+
+**The container must be waited on for *every* post type**, text included. Meta
+asks for roughly 30 seconds. Instagram only makes Reels wait; here a plain text
+post does too, which is easy to miss because it feels like it should be
+instant. Publishing polls `status` and treats exhausting the budget as a
+**timeout** the engine reconciles, never a failure — the container id is
+recorded first, so the question stays answerable (**D-027**).
+
+### The token refreshes itself, and only while it is alive
+
+There is no refresh token. The long-lived token is renewed by presenting
+*itself* to `th_refresh_token`, and that only works while it has not yet
+expired. So `refreshableUntil` is set to the **same instant** as `expiresAt`,
+which looks like a mistake and is not: any grace period would let the sweep skip
+an account until it was past saving, and an expired Threads connection cannot be
+recovered without a human.
+
+The refresh window is therefore a week rather than the hour TikTok uses. Missing
+it costs a reconnection rather than a retry.
+
+The short-lived token is traded for the long-lived one **during connection**,
+not left to the sweep. It lasts an hour — shorter than the gap between
+connecting an account and its first scheduled post — so storing it would give a
+connection that works during setup and is dead by morning.
+
+### Reconciliation prefers the container, and says why it has a fallback
+
+The container id answers "did this go out?" about *this attempt*. Matching
+recent posts by text is kept as a second choice and runs only when no id was
+recorded, because text matching can claim somebody else's post. Preferring the
+weaker answer would be the kind of guess **D-027** exists to forbid.
+
+### What is declared unverified, and why that matters here
+
+Meta documents Threads' endpoints thoroughly and its **media specifications
+barely at all**. Image byte ceilings, video duration and frame rate are all
+marked UNVERIFIED and set generously, or left absent. That is deliberate: an
+over-strict guess refuses posts Threads would have accepted, and the platform
+reports its own refusals clearly enough to be the authority. The publishing
+ceiling — 250 posts per rolling 24 hours — *is* documented, and Meta explicitly
+asks integrators to enforce it themselves "especially if it allows app users to
+schedule posts", which is precisely what Orbit is.
 
 ## Known residual gaps
 

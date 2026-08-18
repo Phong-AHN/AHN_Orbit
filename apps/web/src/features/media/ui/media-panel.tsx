@@ -118,7 +118,8 @@ export function MediaPanel({
       <CardBody className="space-y-3">
         {items.length === 0 ? (
           <p className="text-sm text-ink-muted">
-            Nothing attached. Instagram cannot publish without an image; Facebook can.
+            Nothing attached. Instagram and TikTok need an image or a video; Facebook can post text
+            on its own.
           </p>
         ) : (
           <ul className="space-y-2">
@@ -137,9 +138,9 @@ export function MediaPanel({
                     />
 
                     {item.kind === 'VIDEO' ? (
-                      <p className="text-xs text-warning">
-                        Video publishes to TikTok. Facebook and Instagram do not accept it yet — a
-                        post targeting those accounts will not pass its checks.
+                      <p className="text-xs text-ink-muted">
+                        Publishes as a Reel on Facebook and Instagram, and as a post on TikTok. Each
+                        has its own limits — the checks on the post say which, per account.
                       </p>
                     ) : null}
                   </div>
@@ -211,8 +212,8 @@ export function MediaPanel({
               and this line did not mention it — which reads as "video is not
               supported" and is the reason a perfectly good clip went untried. */}
           <span className="text-xs text-ink-muted">
-            Images: JPEG, PNG, GIF or WebP — Instagram accepts JPEG only. Video: MP4 or MOV, for
-            TikTok.
+            Images: JPEG, PNG, GIF or WebP — Instagram accepts JPEG only. Video: MP4 or MOV,
+            vertical, 3–90 seconds.
           </span>
         </div>
       </CardBody>
