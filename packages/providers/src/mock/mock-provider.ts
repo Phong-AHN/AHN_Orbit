@@ -78,6 +78,17 @@ const MOCK_CAPABILITIES = defineCapabilities({
       maxBytes: 100 * 1024 * 1024,
       minDurationMs: 1000,
       maxDurationMs: 120_000,
+      /**
+       * Every real video platform bounds the frame rate, so the mock does too.
+       *
+       * Without these the mock's window is unbounded, `frameRateAcceptedAnywhere`
+       * says yes to anything, and the upload check silently does nothing in
+       * every test that uses the mock — which is to say, in every test. A stand-in
+       * that is more permissive than everything it stands in for cannot catch a
+       * rule being broken.
+       */
+      minFrameRate: 23,
+      maxFrameRate: 60,
     },
     gif: null,
     maxAttachments: 4,

@@ -19,7 +19,10 @@ import {
   presignUpload,
   sanitiseFilename,
   verifyUploadedObject,
+  type VerifiedMedia,
 } from '@orbit/storage';
+import { frameRateAcceptedAnywhere, videoFrameRateWindows } from '@orbit/providers';
+import { ensureProvidersRegistered } from '@/server/providers';
 import { audit, type AuditInput } from '@/server/audit';
 
 /**
@@ -66,6 +69,63 @@ async function storageLimits(db: TenantDb): Promise<{ storageBytes?: number }> {
 }
 
 // ── Presign ─────────────────────────────────────────────────────────────────
+
+/**
+ * Refuse a video no registered platform could ever publish.
+ *
+ * Checked here, at upload, rather than only at compose time — a file rejected
+ * while somebody is still looking at the picker costs them ten seconds, and the
+ * same rejection arriving when a scheduled post fails costs them a slot and a
+ * conversation with a client. It happened four times in one afternoon.
+ *
+ * **Judged on the peak rate.** A phone records variable frame rate by default:
+ * the file says 30fps, the average is about 30, and the instantaneous rate
+ * spikes far past any ceiling — which is the figure a platform's own checker
+ * reads. Using the average would pass exactly the files that go on to fail.
+ *
+ * The window comes from the provider registry, never from a number written
+ * here. This layer stores media for whatever platforms exist; it does not know
+ * their rules, and the day it does is the day they start to drift.
+ */
+function assertPublishableFrameRate(verified: VerifiedMedia): void {
+  if (verified.kind !== 'VIDEO') return;
+
+  // The registry answers from the descriptors, and it has to be populated.
+  ensureProvidersRegistered();
+
+  const rate = verified.peakFrameRate ?? verified.frameRate;
+  // An unknown rate is not a violation. Some containers do not carry a sample
+  // table we can read, and refusing on absence would reject valid files.
+  if (rate === undefined || !Number.isFinite(rate) || rate <= 0) return;
+
+  if (frameRateAcceptedAnywhere(rate)) return;
+
+  const windows = videoFrameRateWindows();
+  const bounds = windows
+    .map((window) =>
+      window.min !== undefined && window.max !== undefined
+        ? `${window.min}–${window.max}fps`
+        : window.max !== undefined
+          ? `up to ${window.max}fps`
+          : `from ${window.min}fps`,
+    )
+    .join(', ');
+
+  // The distinction that saves an argument: a variable-rate file is not "a
+  // 120fps video" to the person who shot it. Their editor says 30.
+  const varies =
+    verified.peakFrameRate !== undefined &&
+    verified.frameRate !== undefined &&
+    verified.peakFrameRate > verified.frameRate + 1;
+
+  throw new MediaRejected(
+    `Video frame rate ${rate} is outside every supported platform window`,
+    varies
+      ? `This video changes speed between frames, reaching ${Math.round(rate)}fps. Your editor may report it as ${Math.round(verified.frameRate ?? rate)}fps — that is the average. Re-export it at a constant frame rate (${bounds}).`
+      : `This video is ${Math.round(rate)}fps. Supported: ${bounds}.`,
+    { frameRate: rate, variable: varies },
+  );
+}
 
 export interface PresignInput {
   workspaceId: string;
@@ -240,6 +300,8 @@ export async function completeMediaUpload(
         actual: verified.mimeType,
       });
     }
+
+    assertPublishableFrameRate(verified);
 
     const updated = await withTenant(ctx, async (db) => {
       const row = await db.mediaAsset.update({

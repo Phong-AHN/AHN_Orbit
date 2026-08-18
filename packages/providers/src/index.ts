@@ -47,6 +47,8 @@ export {
   resetRegistry,
   supportedPlatforms,
   tryGetProvider,
+  videoFrameRateWindows,
+  frameRateAcceptedAnywhere,
   type RegisterOptions,
 } from './registry.js';
 

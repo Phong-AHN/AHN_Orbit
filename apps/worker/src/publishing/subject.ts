@@ -113,6 +113,8 @@ export async function loadPublishSubject(
                     width: true,
                     height: true,
                     durationMs: true,
+                    frameRate: true,
+                    peakFrameRate: true,
                     storageKey: true,
                     status: true,
                   },

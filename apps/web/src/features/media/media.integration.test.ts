@@ -162,6 +162,129 @@ afterAll(async () => {
   await platformDb.$disconnect();
 });
 
+/**
+ * A real MP4 carrying a real sample table, so the frame rate is read rather
+ * than asserted.
+ *
+ * `stts` is a run-length list of `(sample_count, sample_delta)` in the track's
+ * timescale: one entry is a constant rate, several distinct deltas is variable
+ * frame rate — what a phone records by default, and what TikTok refuses while
+ * the file's own label still says 30fps.
+ */
+function mp4(entries: Array<[count: number, delta: number]>, timescale = 600): Buffer {
+  const out: number[] = [];
+  const push32 = (t: number[], v: number) =>
+    t.push((v >>> 24) & 0xff, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff);
+  const type = (t: number[], s: string) => {
+    for (const ch of s) t.push(ch.charCodeAt(0));
+  };
+  const box = (name: string, payload: number[]): number[] => {
+    const b: number[] = [];
+    push32(b, 8 + payload.length);
+    type(b, name);
+    b.push(...payload);
+    return b;
+  };
+
+  push32(out, 16);
+  type(out, 'ftyp');
+  type(out, 'isom');
+  push32(out, 512);
+
+  const mvhd: number[] = [0, 0, 0, 0];
+  push32(mvhd, 0);
+  push32(mvhd, 0);
+  push32(mvhd, 1000);
+  push32(mvhd, 8000);
+  while (mvhd.length < 100) mvhd.push(0);
+
+  const hdlr: number[] = [0, 0, 0, 0];
+  push32(hdlr, 0);
+  type(hdlr, 'vide');
+  while (hdlr.length < 24) hdlr.push(0);
+
+  const mdhd: number[] = [0, 0, 0, 0];
+  push32(mdhd, 0);
+  push32(mdhd, 0);
+  push32(mdhd, timescale);
+  push32(mdhd, timescale * 8);
+  while (mdhd.length < 24) mdhd.push(0);
+
+  const tkhd: number[] = [0, 0, 0, 0];
+  while (tkhd.length < 84 - 8) tkhd.push(0);
+  push32(tkhd, 1080 * 65_536);
+  push32(tkhd, 1920 * 65_536);
+
+  const stts: number[] = [0, 0, 0, 0];
+  push32(stts, entries.length);
+  for (const [count, delta] of entries) {
+    push32(stts, count);
+    push32(stts, delta);
+  }
+
+  const mdia = box('mdia', [
+    ...box('hdlr', hdlr),
+    ...box('mdhd', mdhd),
+    ...box('minf', box('stbl', box('stts', stts))),
+  ]);
+  const trak = box('trak', [...box('tkhd', tkhd), ...mdia]);
+
+  return Buffer.from([...out, ...box('moov', [...box('mvhd', mvhd), ...trak])]);
+}
+
+/**
+ * Frame rate, refused at the upload rather than at publish time.
+ *
+ * Four scheduled posts failed in one afternoon on a video its owner was certain
+ * was 30fps. It was — on average. Catching it here costs ten seconds; catching
+ * it when a post goes out costs a slot and a conversation with a client.
+ */
+describe('video frame rate', () => {
+  it('accepts a constant 30fps clip', async () => {
+    // 600 ticks per second, one frame every 20 → 30fps.
+    const presigned = await upload(ctxA, mp4([[240, 20]]), 'video/mp4');
+    const asset = await completeMediaUpload(ctxA, presigned.assetId, fingerprint);
+
+    expect(asset.status).toBe('READY');
+  });
+
+  /** The exact production case: average 30, peak 120. */
+  it('refuses a variable-rate clip whose average still looks like 30', async () => {
+    const presigned = await upload(
+      ctxA,
+      mp4([
+        [120, 20],
+        [120, 5],
+      ]),
+      'video/mp4',
+    );
+
+    await expect(completeMediaUpload(ctxA, presigned.assetId, fingerprint)).rejects.toThrow();
+
+    const row = await platformDb.mediaAsset.findUniqueOrThrow({ where: { id: presigned.assetId } });
+    expect(row.status).toBe('REJECTED');
+    // The message has to say the rate *varies*, or somebody re-exports at the
+    // same 30fps their editor already reports and hits it again.
+    expect(row.rejectionReason).toMatch(/changes speed|constant frame rate/i);
+  });
+
+  it('refuses a clip below every platform floor', async () => {
+    // One frame every 60 ticks → 10fps.
+    const presigned = await upload(ctxA, mp4([[80, 60]]), 'video/mp4');
+
+    await expect(completeMediaUpload(ctxA, presigned.assetId, fingerprint)).rejects.toThrow();
+  });
+
+  it('records the rate it read, so a later check does not have to re-read bytes', async () => {
+    const presigned = await upload(ctxA, mp4([[240, 20]]), 'video/mp4');
+    await completeMediaUpload(ctxA, presigned.assetId, fingerprint);
+
+    const row = await platformDb.mediaAsset.findUniqueOrThrow({ where: { id: presigned.assetId } });
+    expect(row.frameRate).toBe(30);
+    expect(row.peakFrameRate).toBe(30);
+  });
+});
+
 // ── The happy path ──────────────────────────────────────────────────────────
 
 describe('upload and verification', () => {

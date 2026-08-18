@@ -120,3 +120,51 @@ function humanise(platform: Platform): string {
     .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
     .join(' ');
 }
+
+/**
+ * Frame-rate windows the registered platforms publish video in.
+ *
+ * Asked at upload time so a file nothing can publish is refused while somebody
+ * is still looking at the picker, rather than hours later when a scheduled post
+ * fails. The media layer must not know TikTok's numbers — that is the rule this
+ * whole layer exists to keep — so it asks the descriptors instead.
+ *
+ * Empty means no registered platform publishes video at all. Storing a file for
+ * a platform added later is a reasonable thing to want, so callers treat that
+ * as "nothing to check" rather than as "refuse everything".
+ */
+export function videoFrameRateWindows(): Array<{
+  platform: Platform;
+  min: number | undefined;
+  max: number | undefined;
+}> {
+  const windows: Array<{ platform: Platform; min: number | undefined; max: number | undefined }> =
+    [];
+
+  for (const platform of supportedPlatforms()) {
+    const video = capabilitiesFor(platform).media.video;
+    if (!video) continue;
+    windows.push({ platform, min: video.minFrameRate, max: video.maxFrameRate });
+  }
+
+  return windows;
+}
+
+/**
+ * Whether **some** platform would take a video at this rate.
+ *
+ * A union rather than an intersection, deliberately: an asset is not tied to a
+ * platform when it is uploaded, and refusing a file that one platform publishes
+ * happily because another would not is the wrong trade. An absent bound on a
+ * window means that side is unbounded there.
+ */
+export function frameRateAcceptedAnywhere(rate: number): boolean {
+  const windows = videoFrameRateWindows();
+  if (windows.length === 0) return true;
+
+  return windows.some(
+    (window) =>
+      (window.min === undefined || rate >= window.min) &&
+      (window.max === undefined || rate <= window.max),
+  );
+}
