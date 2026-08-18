@@ -279,6 +279,7 @@ async function attemptPublish(run: ClaimedRun, subject: PublishSubject): Promise
       },
       draft: subject.draft,
       media: subject.media,
+      ...(subject.previousRef ? { previousRef: subject.previousRef } : {}),
       contentHash: subject.contentHash,
       correlationId: run.correlationId,
       signal: controller.signal,

@@ -162,6 +162,21 @@ export interface PublishContext {
    * was written for.
    */
   recordProviderRef?: ((ref: Record<string, unknown>) => Promise<void>) | undefined;
+  /**
+   * Whatever this adapter recorded on an **earlier attempt**, verbatim.
+   *
+   * Exists so a retry can resume rather than start over. Platforms that build a
+   * container and then transcode it — Threads, Instagram Reels — can take
+   * minutes on a long video, which is longer than any sane per-call budget. If
+   * a retry always created a *new* container the transcode would restart every
+   * time and a slow video could never publish at all: each attempt would run out
+   * of budget at exactly the same point.
+   *
+   * An adapter that finds a usable handle here picks up where it left off. One
+   * that does not recognise the shape ignores it and starts fresh, which is
+   * always safe — an unpublished container is invisible and expires on its own.
+   */
+  previousRef?: Record<string, unknown> | undefined;
 }
 
 export interface PublishResult {

@@ -675,17 +675,29 @@ export class InstagramProvider implements SocialProvider {
     const caption = composeCaption(ctx.draft);
     const igUserId = ctx.account.externalId;
 
+    /**
+     * Resume a container left transcoding by an earlier attempt, when the
+     * content still matches. A fresh container would restart the transcode and
+     * time out at the same point every time.
+     */
+    const resumable =
+      typeof ctx.previousRef?.['containerId'] === 'string' &&
+      ctx.previousRef['contentHash'] === ctx.contentHash
+        ? (ctx.previousRef['containerId'] as string)
+        : undefined;
+
     const containerId =
-      videos.length === 1
+      resumable ??
+      (videos.length === 1
         ? await this.createReelContainer(ctx, igUserId, videos[0]!, caption)
         : images.length === 1
           ? await this.createImageContainer(ctx, igUserId, images[0]!, caption)
-          : await this.createCarouselContainer(ctx, igUserId, images, caption);
+          : await this.createCarouselContainer(ctx, igUserId, images, caption));
 
     // Before the ambiguous call, not after. If `media_publish` times out, this
     // id is the only thing that can answer whether the post went out — and an
     // id written after the call would not exist in exactly that case.
-    await ctx.recordProviderRef?.({ containerId });
+    await ctx.recordProviderRef?.({ containerId, contentHash: ctx.contentHash });
 
     /**
      * A Reel container is not ready when it is created.
@@ -787,10 +799,17 @@ export class InstagramProvider implements SocialProvider {
       }
 
       if (clock.nowMs() >= deadline) {
+        /**
+         * Not ambiguous: `media_publish` has not been called, so no post
+         * exists. Reporting a timeout parked every slow Reel for a human when
+         * all it needed was longer. See the same reasoning in the Threads
+         * adapter — both were written with the wrong assumption.
+         */
         throw toAppError('INSTAGRAM', {
-          kind: 'TIMEOUT',
-          message: `Instagram is still processing container ${containerId}; the outcome is unknown`,
-          userMessage: 'Instagram is still processing this video. We will confirm what happened.',
+          kind: 'UNAVAILABLE',
+          message: `Instagram is still processing container ${containerId}; nothing has been published`,
+          userMessage: 'Instagram is still processing this video. We will try again shortly.',
+          retryAfterSeconds: 60,
           meta: { containerId, lastStatus: status ?? 'unknown' },
         });
       }

@@ -419,16 +419,35 @@ export class ThreadsProvider implements SocialProvider {
     const text = composeText(ctx.draft);
     const userId = ctx.account.externalId;
 
+    /**
+     * Resume rather than restart.
+     *
+     * A container left transcoding on a previous attempt is still transcoding,
+     * and is minutes further along than a fresh one. Building a new container
+     * on every retry is why a long video could never publish: each attempt
+     * restarted the transcode and ran out of budget at exactly the same point.
+     *
+     * The recorded id is only reused when this content still matches — the hash
+     * is stamped alongside it — because a container built from an older draft
+     * would publish text nobody approved.
+     */
+    const resumable =
+      typeof ctx.previousRef?.['containerId'] === 'string' &&
+      ctx.previousRef['contentHash'] === ctx.contentHash
+        ? (ctx.previousRef['containerId'] as string)
+        : undefined;
+
     const containerId =
-      ctx.media.length === 0
+      resumable ??
+      (ctx.media.length === 0
         ? await this.createTextContainer(ctx, userId, text)
         : ctx.media.length === 1
           ? await this.createSingleContainer(ctx, userId, ctx.media[0]!, text)
-          : await this.createCarouselContainer(ctx, userId, ctx.media, text);
+          : await this.createCarouselContainer(ctx, userId, ctx.media, text));
 
     // Before the wait and before the publish. If either is interrupted, this id
     // is the only thing that can answer whether the post went out.
-    await ctx.recordProviderRef?.({ containerId });
+    await ctx.recordProviderRef?.({ containerId, contentHash: ctx.contentHash });
 
     await this.awaitContainer(ctx, containerId);
 
@@ -577,10 +596,24 @@ export class ThreadsProvider implements SocialProvider {
       }
 
       if (clock.nowMs() >= deadline) {
+        /**
+         * **Not ambiguous, and this is the whole point.**
+         *
+         * `threads_publish` has not been called. A container that is
+         * `IN_PROGRESS` or `FINISHED` is by definition not a post — only
+         * publishing moves it to `PUBLISHED` — so nothing went out and there is
+         * nothing to reconcile.
+         *
+         * Reporting a timeout here parked every slow video for a human to look
+         * at, which is the worst outcome available: the post was fine, it just
+         * needed longer. An `UNAVAILABLE` retries with backoff, and the retry
+         * resumes this same container rather than starting the transcode again.
+         */
         throw toAppError('THREADS', {
-          kind: 'TIMEOUT',
-          message: `Threads is still preparing container ${containerId}; the outcome is unknown`,
-          userMessage: 'Threads is still preparing this post. We will confirm what happened.',
+          kind: 'UNAVAILABLE',
+          message: `Threads is still preparing container ${containerId}; nothing has been published`,
+          userMessage: 'Threads is still preparing this post. We will try again shortly.',
+          retryAfterSeconds: 60,
           meta: { containerId, lastStatus: container.status ?? 'unknown' },
         });
       }

@@ -362,16 +362,43 @@ describe('publishing', () => {
   });
 
   /**
-   * Running out of budget is not a failure. The container may still finish, so
-   * it raises a timeout the engine reconciles rather than retries — retrying
-   * would post twice (D-027).
+   * Running out of budget is **not** an ambiguous outcome.
+   *
+   * The publish call has not been made, so nothing exists to be unsure about.
+   * Reporting a timeout here parked every slow video for a human to look at
+   * when all it needed was longer — the worst available outcome, because the
+   * post was fine. A retryable failure lets the queue try again, and the retry
+   * resumes the same container rather than restarting the transcode.
    */
-  it('times out rather than failing while Threads is still preparing', async () => {
+  it('asks to be retried while Threads is still preparing, rather than parking', async () => {
     const local = happyApi().on(/\/container-\d+/, { body: { status: 'IN_PROGRESS' } });
 
     await expect(provider(local).publish(publishContext())).rejects.toMatchObject({
-      code: 'PUBLISHING_TIMEOUT',
+      code: 'PROVIDER_UNAVAILABLE',
+      retryable: true,
     });
+  });
+
+  it('resumes the container an earlier attempt left preparing', async () => {
+    const local = happyApi().on(/\/container-9/, { body: { status: 'FINISHED' } });
+
+    const result = await provider(local).publish(
+      publishContext({ previousRef: { containerId: 'container-9', contentHash: 'hash-1' } }),
+    );
+
+    // Nothing new was built; the recorded container was published.
+    expect(local.called(/\/th-user-1\/threads(\?|$)/)).toBe(0);
+    expect(result.externalPostId).toBe('post-1');
+  });
+
+  it('ignores a recorded container whose content has since changed', async () => {
+    const local = happyApi();
+
+    await provider(local).publish(
+      publishContext({ previousRef: { containerId: 'container-9', contentHash: 'stale' } }),
+    );
+
+    expect(local.called(/\/th-user-1\/threads(\?|$)/)).toBe(1);
   });
 
   it('refuses text over the 500-character ceiling before sending anything', async () => {

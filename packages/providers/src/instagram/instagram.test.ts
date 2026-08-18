@@ -534,11 +534,15 @@ describe('publishing a Reel', () => {
   });
 
   /**
-   * Running out of budget is not a failure. The container may still finish, so
-   * it raises a timeout the engine reconciles rather than retries -- retrying
-   * would publish the same Reel twice (D-027).
+   * Running out of budget is **not** an ambiguous outcome.
+   *
+   * The publish call has not been made, so nothing exists to be unsure about.
+   * Reporting a timeout here parked every slow video for a human to look at
+   * when all it needed was longer — the worst available outcome, because the
+   * post was fine. A retryable failure lets the queue try again, and the retry
+   * resumes the same container rather than restarting the transcode.
    */
-  it('times out rather than failing while Instagram is still transcoding', async () => {
+  it('asks to be retried while Instagram is still transcoding, rather than parking', async () => {
     const local = new FakeGraph()
       .withStore()
       .on(/container-1/, { body: { status_code: 'IN_PROGRESS' } });
@@ -547,7 +551,50 @@ describe('publishing a Reel', () => {
       provider(local, { reelPollBudgetMs: 20, reelPollIntervalMs: 5 }).publish(
         publishContext({ media: [reel()] }),
       ),
-    ).rejects.toMatchObject({ code: 'PUBLISHING_TIMEOUT' });
+    ).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE', retryable: true });
+  });
+
+  /** And the retry picks the container back up instead of building another. */
+  it('resumes the container an earlier attempt left transcoding', async () => {
+    const local = new FakeGraph()
+      .withStore()
+      .on(/container-9/, { body: { status_code: 'FINISHED' } });
+
+    const result = await provider(local).publish(
+      publishContext({
+        media: [reel()],
+        previousRef: { containerId: 'container-9', contentHash: 'hash-1' },
+      }),
+    );
+
+    // No new container was created; the recorded one was published.
+    const creates = local.calls.filter(
+      (call) => call.method === 'POST' && /\/ig-user-1\/media(\?|$)/.test(call.url),
+    );
+    expect(creates).toHaveLength(0);
+    expect(result.externalPostId).toBe('ig-media-1');
+  });
+
+  /**
+   * Only when the content still matches. A container built from an older draft
+   * would publish text nobody approved.
+   */
+  it('ignores a recorded container whose content has since changed', async () => {
+    const local = new FakeGraph()
+      .withStore()
+      .on(/container-1/, { body: { status_code: 'FINISHED' } });
+
+    await provider(local).publish(
+      publishContext({
+        media: [reel()],
+        previousRef: { containerId: 'container-9', contentHash: 'a-different-hash' },
+      }),
+    );
+
+    const creates = local.calls.filter(
+      (call) => call.method === 'POST' && /\/ig-user-1\/media(\?|$)/.test(call.url),
+    );
+    expect(creates).toHaveLength(1);
   });
 
   it('refuses a Reel with photos alongside it', async () => {
@@ -691,7 +738,9 @@ describe('reconciliation by container status', () => {
       }),
     );
 
-    expect(seen).toEqual([{ containerId: 'container-1' }]);
+    // The content hash rides along so a retry can tell whether this container
+    // still matches the draft it was built from.
+    expect(seen).toEqual([{ containerId: 'container-1', contentHash: 'hash-1' }]);
   });
 
   it('reports FOUND when the container published and the post is on the timeline', async () => {

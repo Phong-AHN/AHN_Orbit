@@ -38,6 +38,8 @@ export interface PublishSubject {
   credential: DecryptedCredential;
   draft: VariantDraft;
   media: PublishMedia[];
+  /** What an earlier attempt recorded, for adapters that can resume. */
+  previousRef?: Record<string, unknown> | undefined;
   contentHash: string;
 }
 
@@ -62,6 +64,7 @@ export async function loadPublishSubject(
         firstComment: true,
         platformOptions: true,
         contentHash: true,
+        providerRef: true,
         socialAccountId: true,
         socialAccount: {
           select: {
@@ -233,6 +236,11 @@ export async function loadPublishSubject(
     credential,
     draft,
     media,
+    // What an earlier attempt recorded, so a retry can resume rather than
+    // restart a transcode that has already been running for a minute.
+    ...(variant.providerRef && typeof variant.providerRef === 'object'
+      ? { previousRef: variant.providerRef as Record<string, unknown> }
+      : {}),
     // The hash the scheduler stamped is authoritative — it is what
     // reconciliation matches on, so recomputing it here would break the match
     // if anything about the content had shifted. Falling back keeps a
