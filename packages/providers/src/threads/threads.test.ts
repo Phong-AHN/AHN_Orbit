@@ -524,3 +524,36 @@ describe('analytics', () => {
     expect(result.availability['views']).toBe('UNSUPPORTED');
   });
 });
+
+/**
+ * The scope the descriptor's own claim depends on.
+ *
+ * Found in production: the capability descriptor said `analytics.post: true`,
+ * but every per-post call came back "does not exist, cannot be loaded due to
+ * missing permissions" — which reads like a deleted post rather than a
+ * permission the app never requested. Account-level figures *did* work, so the
+ * gap looked closed from the outside.
+ */
+describe('insights permission', () => {
+  it('asks for threads_manage_insights, which post analytics requires', () => {
+    const { scopes } = provider(new FakeThreads()).getAuthorizationUrl({
+      redirectUri: 'https://app.test/cb',
+      state: 'signed-state',
+    });
+
+    expect(scopes).toContain('threads_manage_insights');
+  });
+
+  /** Claiming a capability the granted scopes cannot deliver is the bug itself. */
+  it('does not claim post analytics without the scope that enables it', () => {
+    const capabilities = provider(new FakeThreads()).capabilities();
+    const { scopes } = provider(new FakeThreads()).getAuthorizationUrl({
+      redirectUri: 'https://app.test/cb',
+      state: 's',
+    });
+
+    if (capabilities.analytics.post) {
+      expect(scopes).toContain('threads_manage_insights');
+    }
+  });
+});

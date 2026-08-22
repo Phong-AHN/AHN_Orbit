@@ -21,8 +21,23 @@ import { defineCapabilities, type PlatformCapabilities } from '../capabilities.j
 /** Verified: required for every Threads endpoint. */
 export const THREADS_DEFAULT_SCOPES = ['threads_basic'] as const;
 
-/** Verified: publishing needs this in addition to the baseline. */
-export const THREADS_PUBLISH_SCOPES = ['threads_basic', 'threads_content_publish'] as const;
+/**
+ * Verified: publishing needs `threads_content_publish` in addition to the
+ * baseline, and reading a post's numbers needs `threads_manage_insights`.
+ *
+ * **The insights scope was missing and the descriptor claimed post analytics
+ * anyway.** Account-level figures happen to come back without it, so the gap
+ * looked closed — but every per-post call was refused with "does not exist,
+ * cannot be loaded due to missing permissions", which reads like a deleted post
+ * rather than a permission this app never asked for. An account connected
+ * before this line was added has to be reconnected: a scope cannot be added to
+ * a grant that has already been issued.
+ */
+export const THREADS_PUBLISH_SCOPES = [
+  'threads_basic',
+  'threads_content_publish',
+  'threads_manage_insights',
+] as const;
 
 /**
  * Reading replies, which Orbit does not do yet.

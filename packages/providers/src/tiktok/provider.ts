@@ -985,6 +985,33 @@ export class TikTokProvider implements SocialProvider {
   ): Promise<MetricSet> {
     void range;
 
+    /**
+     * **A private post has no video id, so it has no numbers.**
+     *
+     * When TikTok publishes to a private audience it returns no
+     * `publicly_available_post_id`, and `settlementFor` stores the `publish_id`
+     * instead so the post stays traceable. That handle is not a video id, and
+     * `video/query` rejects it outright — *"Video ID … is invalid. Must be an
+     * integer!"*.
+     *
+     * Left to reach the API this failed on every sweep, forever: an unaudited
+     * app posts privately by definition (**D-086**), so this is the *normal*
+     * state for a sandbox account rather than an edge case. Reporting every
+     * metric unavailable is the truthful answer — the post exists, its numbers
+     * are not readable — and it stops an error that no retry can fix from
+     * looking like an outage.
+     */
+    if (!isVideoId(ref.externalPostId)) {
+      return {
+        metrics: {},
+        availability: Object.fromEntries(
+          TIKTOK_VIDEO_METRICS.map((name) => [name, 'UNSUPPORTED' as const]),
+        ),
+        capturedAt: clock.now(),
+        apiVersion: this.options.apiVersion,
+      };
+    }
+
     const response = await this.client.request<VideoQueryResponse>({
       path: '/v2/video/query/',
       method: 'POST',
@@ -1186,6 +1213,17 @@ function settlementFor(
   }
 
   return undefined;
+}
+
+/**
+ * Whether this handle is a video id rather than a publish id.
+ *
+ * TikTok's video ids are digits. A publish id looks like
+ * `v_pub_file~v2-1.7674952401715005457` and is what `settlementFor` stores when
+ * a private post yields no public id — see `fetchPostAnalytics`.
+ */
+function isVideoId(value: string): boolean {
+  return /^\d+$/.test(value);
 }
 
 /**

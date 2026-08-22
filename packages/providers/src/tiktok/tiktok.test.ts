@@ -1075,3 +1075,55 @@ describe('lifecycle', () => {
     ).rejects.toMatchObject({ code: 'PROVIDER_VALIDATION_ERROR' });
   });
 });
+
+/**
+ * A post nobody can measure.
+ *
+ * Found in production: every TikTok analytics sweep failed with *"Video ID
+ * v_pub_file~v2-1.767… is invalid. Must be an integer!"*, forever, on a post
+ * that had published perfectly well.
+ */
+describe('analytics for a private post', () => {
+  /**
+   * TikTok returns no `publicly_available_post_id` for a private post, so
+   * `settlementFor` stores the publish id to keep the post traceable. That
+   * handle is not a video id and `video/query` rejects it — and since an
+   * unaudited app publishes privately by definition (**D-086**), this is the
+   * ordinary state of a sandbox account rather than an edge case.
+   */
+  it('reports every metric unavailable instead of calling with a publish id', async () => {
+    const local = new FakeTikTok().ok(/video\/query/, { videos: [{ id: '7123', view_count: 9 }] });
+
+    const set = await provider(local).fetchPostAnalytics(
+      {
+        externalPostId: 'v_pub_file~v2-1.7674952401715005457',
+        accountExternalId: 'open-id-1',
+      },
+      credential,
+      { from: new Date('2026-08-01'), to: new Date('2026-08-22') },
+    );
+
+    // Nothing was asked of TikTok — a retry could never have fixed this.
+    expect(local.calls.find((c) => /video\/query/.test(c.url))).toBeUndefined();
+
+    // And nothing was invented: unavailable, not zero (SRS §18).
+    expect(set.metrics).toEqual({});
+    expect(Object.values(set.availability).every((state) => state === 'UNSUPPORTED')).toBe(true);
+  });
+
+  /** A real video id must still go to the API, or the fix would break analytics. */
+  it('still queries TikTok when the id is a real video id', async () => {
+    const local = new FakeTikTok().ok(/video\/query/, {
+      videos: [{ id: '7674952401715005457', view_count: 12 }],
+    });
+
+    const set = await provider(local).fetchPostAnalytics(
+      { externalPostId: '7674952401715005457', accountExternalId: 'open-id-1' },
+      credential,
+      { from: new Date('2026-08-01'), to: new Date('2026-08-22') },
+    );
+
+    expect(local.calls.find((c) => /video\/query/.test(c.url))).toBeDefined();
+    expect(set.metrics['view_count']).toBe(12);
+  });
+});

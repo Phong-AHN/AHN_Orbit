@@ -2667,6 +2667,85 @@ refusing rather than guessing when a response is not the shape it expected.
 
 ---
 
+## D-094 — Why the analytics page was empty, and it was four things
+
+**Context.** Reported from the running app: the analytics tab shows nothing.
+
+The pipeline was working the whole time. The cron fires hourly, the sweep runs,
+the worker writes rows — 89 `PostAnalytics` and 20 `AnalyticsSnapshot` rows,
+the newest minutes old. **Every `metrics` object was `{}`.** Diagnosed against
+the live platforms with the account's own credentials rather than reasoned
+about, which is the only reason the four causes separated cleanly.
+
+### 1. Threads asked for a scope it never requested — *code*
+
+The descriptor declared `analytics.post: true`, and every per-post call came
+back **"does not exist, cannot be loaded due to missing permissions"** — which
+reads like a deleted post. `THREADS_PUBLISH_SCOPES` was
+`['threads_basic', 'threads_content_publish']`; per-post insights need
+`threads_manage_insights`.
+
+What hid it: **account-level insights work without the scope.** The account
+sweep wrote real numbers (`followers_count: 6`) on the same schedule, so the
+integration looked alive from the outside while the post half was refused every
+single time.
+
+Fixed by adding the scope. **An account connected before this change has to be
+reconnected** — a scope cannot be added to a grant already issued.
+
+### 2. TikTok cannot measure a private post — *code, but not a bug in publishing*
+
+Every TikTok sweep failed with *"Video ID `v_pub_file~v2-1.767…` is invalid.
+Must be an integer!"*, forever, on a post that had published perfectly.
+
+`settlementFor` was right: TikTok returns no `publicly_available_post_id` for a
+private post, so it stores the `publish_id` to keep the post traceable. That
+handle is not a video id and `video/query` rejects it. And because an unaudited
+app publishes privately by definition (**D-086**), this is the *ordinary* state
+of a sandbox account, not an edge case — so the failure repeated on every sweep
+and no retry could ever have fixed it.
+
+`fetchPostAnalytics` now recognises a publish id and reports every metric
+`UNSUPPORTED` without calling TikTok. The post exists; its numbers are not
+readable. That is the truthful answer, and it is not zero (SRS §18).
+
+### 3. Instagram's token is dead while Orbit shows the account ACTIVE — *operational*
+
+Meta answers `Cannot parse access token` (code 190) for that account, yet its
+status in Orbit is still `ACTIVE`. Error 190 *is* mapped to `AUTHENTICATION`
+and `probeHealth` *would* demote on it, so this is a stale verdict rather than a
+mapping bug — the token died after the last successful probe. Worth watching: if
+the account is still ACTIVE after the next health sweep, the sweep is not
+reaching it, and that is a real defect.
+
+### 4. Facebook's posts belong to a page that is no longer connected — *operational*
+
+All eight published Facebook variants sit on a page whose connection is
+`REVOKED`; the page that *is* connected has no posts at all (`/feed` → 400).
+Nothing to measure, and correctly nothing measured.
+
+Separately confirmed while looking: the surviving `AVAILABLE_METRICS` are still
+valid names — `page_media_view`, `page_follows`, `page_post_engagements` and
+`page_views_total` all return HTTP 200 with `{"data":[]}` for a page with no
+activity, while `page_impressions` and `page_fans` error with *"(#100) The value
+must be a valid insights metric"*. The deprecation list is accurate; the page is
+simply quiet.
+
+### What this cost, and the lesson
+
+Two of the four causes were invisible because a *neighbouring* signal was
+healthy: Threads' account numbers arriving on schedule, and TikTok's post
+publishing successfully. An empty chart was the only symptom either produced,
+and an empty chart is indistinguishable from "no engagement yet" — which is
+exactly the confusion `availability` exists to prevent, applied to metrics but
+not to the *reason a metric is missing*.
+
+A useful follow-up, not built here: surface the last ingestion outcome per
+account, so "we could not read this" is visible somewhere other than a worker
+log.
+
+---
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`
