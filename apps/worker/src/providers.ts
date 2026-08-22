@@ -5,6 +5,9 @@ import { FacebookProvider } from '@orbit/providers/facebook';
 import { InstagramProvider } from '@orbit/providers/instagram';
 import { TikTokProvider } from '@orbit/providers/tiktok';
 import { ThreadsProvider } from '@orbit/providers/threads';
+import { LinkedInProvider } from '@orbit/providers/linkedin';
+import { YouTubeProvider } from '@orbit/providers/youtube';
+import { PinterestProvider } from '@orbit/providers/pinterest';
 import { MockProvider } from '@orbit/providers/mock';
 
 /**
@@ -69,6 +72,26 @@ async function readMediaRange(input: {
   return new Uint8Array(await response.arrayBuffer());
 }
 
+/**
+ * Read a whole media object, for platforms that take the bytes in one request.
+ *
+ * A plain GET against the signed URL the publish subject already built, for the
+ * same reason `readMediaRange` uses one: `@orbit/providers` must not depend on
+ * `@orbit/storage`.
+ *
+ * **This holds the entire file in memory**, which is the price of an API that
+ * offers no chunking. The 15-minute signing window (`MEDIA_URL_TTL_SECONDS`)
+ * bounds it in practice — a file too large to fetch inside that window fails
+ * loudly on an expired URL rather than silently truncating.
+ */
+async function readWholeMedia(media: PublishMedia): Promise<Uint8Array> {
+  const response = await fetch(media.url);
+  if (!response.ok) {
+    throw new Error(`Reading media ${media.id} returned HTTP ${response.status}`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
 export function ensureProvidersRegistered(): void {
   if (bootstrapped) return;
   bootstrapped = true;
@@ -95,6 +118,49 @@ export function ensureProvidersRegistered(): void {
         appId: env.THREADS_APP_ID,
         appSecret: env.THREADS_APP_SECRET,
         apiVersion: 'v1.0',
+      }),
+    );
+    registeredAny = true;
+  }
+
+  if (env.LINKEDIN_CLIENT_ID && env.LINKEDIN_CLIENT_SECRET) {
+    registerProvider(
+      new LinkedInProvider({
+        clientId: env.LINKEDIN_CLIENT_ID,
+        clientSecret: env.LINKEDIN_CLIENT_SECRET,
+        apiVersion: env.LINKEDIN_API_VERSION,
+        // LinkedIn will not fetch an image from a URL, so the worker reads the
+        // object and pushes the bytes. Only the worker: the web app publishes
+        // nothing.
+        readMedia: readWholeMedia,
+      }),
+    );
+    registeredAny = true;
+  }
+
+  if (env.YOUTUBE_CLIENT_ID && env.YOUTUBE_CLIENT_SECRET) {
+    registerProvider(
+      new YouTubeProvider({
+        clientId: env.YOUTUBE_CLIENT_ID,
+        clientSecret: env.YOUTUBE_CLIENT_SECRET,
+        apiVersion: 'v3',
+        // YouTube will not fetch from a URL: a resumable session takes the
+        // bytes and nothing else. Only the worker wires this.
+        readMedia: readWholeMedia,
+      }),
+    );
+    registeredAny = true;
+  }
+
+  if (env.PINTEREST_CLIENT_ID && env.PINTEREST_CLIENT_SECRET) {
+    registerProvider(
+      new PinterestProvider({
+        clientId: env.PINTEREST_CLIENT_ID,
+        clientSecret: env.PINTEREST_CLIENT_SECRET,
+        apiVersion: 'v5',
+        // A video pin is uploaded to a storage bucket Pinterest nominates; an
+        // image pin is fetched from its URL and needs none of this.
+        readMedia: readWholeMedia,
       }),
     );
     registeredAny = true;

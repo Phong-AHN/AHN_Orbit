@@ -2,7 +2,8 @@
 
 > Đối chiếu từng mục trong bảng phân loại tính năng (`docs/BUILD-PLAN.md` §1,
 > trả lời SRS §40) với **mã thật đang có trong repo**, kiểm chứng bằng grep vào
-> ngày 2026-08-17 (cập nhật sau TikTok và Reels). Không mục nào ở đây được đánh dấu dựa trên trí nhớ.
+> ngày 2026-08-19 (cập nhật sau TikTok, Reels, Threads, LinkedIn, YouTube và
+> Pinterest). Không mục nào ở đây được đánh dấu dựa trên trí nhớ.
 >
 > **✅ xong** · **⚠️ một phần** (làm rõ thiếu gì) · **❌ chưa làm**
 >
@@ -12,10 +13,10 @@
 
 | | P0 | P1 | P2 | Tổng |
 |---|:--:|:--:|:--:|:--:|
-| ✅ xong | 47 | 19 | 3 | **69** |
+| ✅ xong | 47 | 21 | 5 | **73** |
 | ⚠️ một phần | 2 | 1 | 0 | **3** |
-| ❌ chưa làm | 0 | 7 | 11 | **18** |
-| **Tổng** | **49** | **27** | **14** | **90** |
+| ❌ chưa làm | 0 | 7 | 10 | **17** |
+| **Tổng** | **49** | **29** | **15** | **93** |
 
 **Toàn bộ P0 đã có mã chạy được.** Hai mục P0 còn ⚠️ là *chất lượng nền tảng*
 (responsive, accessibility): đã làm theo từng trang nhưng **chưa quét có hệ
@@ -63,10 +64,12 @@ thống** — xem cuối tài liệu.
 | Facebook: Reels | P1 | ✅ | 9:16, 3–90 giây, 24–60fps |
 | Refresh token + luồng kết nối lại | P0 | ✅ | `features/social/health.ts` |
 | Instagram | P1 | ✅ | Ảnh, carousel 2–10, và **Reels** (`media_type=REELS`, chờ container) |
-| LinkedIn, X | P1 | ❌ | **Chờ anh chọn thứ tự ưu tiên** |
+| **LinkedIn** | P1 | ✅ | Text/ảnh/link lên company page; **xoá được bài** (**D-089**). Video và analytics chưa làm |
+| X | P1 | ❌ | |
 | **TikTok** | P2 | ✅ | Video + photo, chunk upload, reconcile theo `publish_id` (**D-086**) |
 | **Threads** | P2 | ✅ | Text/ảnh/carousel, chờ container mọi loại bài, token tự làm mới (**D-088**) |
-| YouTube, Pinterest | P2 | ❌ | |
+| **YouTube** | P2 | ✅ | Upload video resumable; khai báo *made for kids* bắt buộc, Orbit không tự chọn (**D-090**) |
+| **Pinterest** | P2 | ✅ | Pin ảnh và video; bắt buộc chọn board, video pin bắt buộc có ảnh bìa (**D-091**) |
 | Webhook từ provider | P2 | ❌ | |
 
 ## 4. Nội dung & xuất bản (SRS §9–§14)
@@ -74,6 +77,7 @@ thống** — xem cuối tài liệu.
 | Tính năng | Pri | | Ghi chú |
 |---|:--:|:--:|---|
 | Composer: text, đính kèm media, chọn nhiều account | P0 | ✅ | `features/posts/ui/composer.tsx` |
+| Thiết lập riêng theo nền tảng, hiện cùng lúc cho mọi account | P1 | ✅ | Một thẻ liệt kê mọi account còn thiếu (**D-092**) |
 | Variant theo từng account | P0 | ✅ | Kèm first comment nơi platform hỗ trợ |
 | Validate theo capability (client + server) | P0 | ✅ | Một engine duy nhất, chạy server-side |
 | **Preview** | P0 | ✅ | **D-084** — Facebook và Instagram vẽ khác nhau |
@@ -177,8 +181,7 @@ Chi tiết trong [OWNER-TODO.md](OWNER-TODO.md):
 
 1. **Thư viện PDF** cho export báo cáo — đề xuất `pdfkit`.
 2. **Chi phí Identity Platform** cho 2FA.
-3. **Thứ tự ưu tiên** 6 provider còn thiếu (LinkedIn, X, TikTok, YouTube,
-   Threads, Pinterest).
+3. **Thứ tự ưu tiên** provider còn thiếu — hiện chỉ còn **X (Twitter)**.
 4. **Nộp Meta App Review** — không có nó thì Facebook/Instagram chỉ chạy được
    với tài khoản test.
 

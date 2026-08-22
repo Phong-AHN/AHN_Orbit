@@ -41,6 +41,27 @@ const LABEL: Record<string, string> = {
   like_count: 'Likes',
   comment_count: 'Comments',
   share_count: 'Shares',
+
+  // YouTube's Data API, which uses its own camelCase names. `favoriteCount` is
+  // kept because YouTube still returns it, though it has been frozen at 0 for
+  // years — labelling it honestly beats hiding a number a client can see on
+  // the platform itself.
+  viewCount: 'Views',
+  likeCount: 'Likes',
+  commentCount: 'Comments',
+  favoriteCount: 'Favourites',
+
+  // Pinterest, which shouts its metric names. `SAVE` is the one that matters
+  // there — a save is what puts a pin in front of a new audience — and
+  // `OUTBOUND_CLICK` is the click that leaves Pinterest for the client's site,
+  // which is different from `PIN_CLICK` (opening the pin itself).
+  IMPRESSION: 'Impressions',
+  SAVE: 'Saves',
+  PIN_CLICK: 'Pin clicks',
+  OUTBOUND_CLICK: 'Outbound clicks',
+  VIDEO_MRC_VIEW: 'Video views',
+  VIDEO_AVG_WATCH_TIME: 'Average watch time',
+  QUARTILE_95_PERCENT_VIEW: 'Watched to 95%',
 };
 
 export function metricLabel(name: string): string {
@@ -118,6 +139,23 @@ const PRIORITY: Record<string, readonly string[]> = {
    * in alphabetically ahead of the others.
    */
   TIKTOK: ['view_count', 'like_count', 'comment_count', 'share_count'],
+  /** The funnel YouTube reports: seen, then the three ways people responded. */
+  YOUTUBE: ['viewCount', 'likeCount', 'commentCount', 'favoriteCount'],
+  /**
+   * Pinterest's funnel is genuinely different from a feed's: a pin is seen,
+   * *saved* — which is what puts it in front of somebody else — then opened,
+   * and only then does anybody leave for the client's site. Ordered that way
+   * rather than by size, because the interesting drop-off is between the steps.
+   */
+  PINTEREST: [
+    'IMPRESSION',
+    'SAVE',
+    'PIN_CLICK',
+    'OUTBOUND_CLICK',
+    'VIDEO_MRC_VIEW',
+    'VIDEO_AVG_WATCH_TIME',
+    'QUARTILE_95_PERCENT_VIEW',
+  ],
 };
 
 /**

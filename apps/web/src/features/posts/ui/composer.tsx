@@ -27,7 +27,8 @@ import { AssigneeSelect } from './assignee-select';
 import { AIAssist } from '@/features/ai/ui/ai-assist';
 import { PublishNowButton } from './publish-now-button';
 import { PostPreview } from './preview';
-import { TikTokOptionsPanel, type TikTokOptions } from './tiktok-options';
+import { PlatformSettingsPanel } from './platform-settings-panel';
+import { missingPlatformSettings, requiresPlatformSettings } from './platform-settings';
 
 /**
  * The composer (SRS §9, §31).
@@ -367,6 +368,32 @@ export function Composer(props: ComposerProps) {
           onSave={saveAccounts}
         />
 
+        {/* Above the per-account text on purpose: these are the settings that
+            decide whether the post can go out at all, and burying them under an
+            editor somebody may never scroll past is how a multi-platform post
+            gets scheduled with two of them unanswered. */}
+        {post.variants.length > 0 ? (
+          <PlatformSettingsPanel
+            orgSlug={props.orgSlug}
+            variants={post.variants}
+            media={media}
+            readOnly={readOnly}
+            onSave={async (variantId, next) => {
+              // Deliberately does not catch: the panel shows the error beside
+              // the controls that produced it, which is nearer than any shared
+              // error line. Rethrowing is how it gets there.
+              const { variant } = await api.updateVariant(post.id, variantId, {
+                platformOptions: next,
+              });
+              setPost((p) => ({
+                ...p,
+                variants: p.variants.map((v) => (v.id === variant.id ? variant : v)),
+              }));
+              runValidation();
+            }}
+          />
+        ) : null}
+
         {post.variants.length > 0 ? (
           <VariantEditor
             orgSlug={props.orgSlug}
@@ -642,19 +669,6 @@ function VariantEditor({
   const inherits = override.length === 0;
   const counted = inherits ? post.body : override;
 
-  /**
-   * Persist the platform panel's settings.
-   *
-   * Deliberately does **not** catch: the panel shows the error next to the
-   * controls that produced it, which is nearer than this editor's shared error
-   * line and survives switching tabs. Rethrowing is how it gets there.
-   */
-  async function savePlatformOptions(next: TikTokOptions) {
-    if (!active) return;
-    const { variant } = await api.updateVariant(post.id, active.id, { platformOptions: next });
-    onSaved(variant);
-  }
-
   async function saveOverride() {
     if (!active) return;
     setSaving(true);
@@ -681,25 +695,47 @@ function VariantEditor({
       </CardHeader>
       <CardBody className="space-y-4">
         <div role="tablist" aria-label="Accounts" className="flex flex-wrap gap-1.5">
-          {post.variants.map((variant) => (
-            <button
-              key={variant.id}
-              type="button"
-              role="tab"
-              aria-selected={variant.id === active.id}
-              onClick={() => {
-                onSelect(variant.id);
-              }}
-              className={cn(
-                'rounded-full px-3 py-1.5 text-sm transition-colors',
-                variant.id === active.id
-                  ? 'bg-accent text-accent-ink'
-                  : 'bg-surface-sunken text-ink-muted hover:text-ink',
-              )}
-            >
-              {variant.socialAccount.displayName}
-            </button>
-          ))}
+          {post.variants.map((variant) => {
+            /* A dot, not a colour change: the tab's colour already carries
+               which one is open, and a second meaning on the same channel
+               would be unreadable. The label spells it out for anyone not
+               seeing the dot. */
+            const unfinished =
+              requiresPlatformSettings(variant.platform) &&
+              missingPlatformSettings({
+                platform: variant.platform,
+                options: variant.platformOptions,
+                media,
+              }).length > 0;
+
+            return (
+              <button
+                key={variant.id}
+                type="button"
+                role="tab"
+                aria-selected={variant.id === active.id}
+                onClick={() => {
+                  onSelect(variant.id);
+                }}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors',
+                  variant.id === active.id
+                    ? 'bg-accent text-accent-ink'
+                    : 'bg-surface-sunken text-ink-muted hover:text-ink',
+                )}
+              >
+                {variant.socialAccount.displayName}
+                {unfinished ? (
+                  <>
+                    <span aria-hidden="true" className="text-warning">
+                      &bull;
+                    </span>
+                    <span className="sr-only">(settings needed)</span>
+                  </>
+                ) : null}
+              </button>
+            );
+          })}
         </div>
 
         <Field
@@ -766,20 +802,15 @@ function VariantEditor({
           </Button>
         ) : null}
 
-        {/* TikTok's settings are per account and mandatory there, so they sit
-            with the account's own text rather than in a global panel. Saved on
-            change, not behind "Save override": a half-chosen visibility is the
-            one state that blocks publishing entirely. */}
-        {active.platform === 'TIKTOK' ? (
-          <TikTokOptionsPanel
-            orgSlug={orgSlug}
-            socialAccountId={active.socialAccountId}
-            accountName={active.socialAccount.displayName}
-            saved={(active.platformOptions ?? {}) as TikTokOptions}
-            disabled={readOnly}
-            onSave={savePlatformOptions}
-          />
-        ) : null}
+        {/* The platform's own settings are NOT here.
+
+            They used to be, one account at a time, and that was the bug: a post
+            composed for Facebook, YouTube and Pinterest showed YouTube's
+            mandatory declaration only after somebody clicked YouTube's tab. They
+            now live in `PlatformSettingsPanel` above, where every account that
+            needs something is visible at once. Rendering them in both places
+            would mean two components fetching the same boards and two Save
+            buttons that can disagree. */}
 
         {/* Follows the open tab, and reads the *unsaved* text — the question it
             answers is "does this read well", which is only useful while typing.

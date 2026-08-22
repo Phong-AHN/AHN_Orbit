@@ -45,8 +45,9 @@ const linkUrl = z
  * privacy level against what the creator currently allows — while this checks
  * only their shape.
  *
- * TikTok is the only platform with entries today. A second one adds its keys
- * here, and adapters ignore keys they do not recognise.
+ * TikTok, YouTube and Pinterest have entries. Each adapter reads only its own
+ * keys and ignores the rest, so the flat shape costs nothing — a `boardId` on a
+ * TikTok variant is inert rather than wrong.
  */
 const platformOptions = z
   .object({
@@ -57,6 +58,27 @@ const platformOptions = z
     disableComment: z.boolean().optional(),
     disableDuet: z.boolean().optional(),
     disableStitch: z.boolean().optional(),
+
+    // ── YouTube ────────────────────────────────────────────────────────────
+    /**
+     * The COPPA audience declaration. Shape-checked here; the adapter refuses
+     * to publish without it rather than defaulting a legal statement.
+     */
+    madeForKids: z.boolean().optional(),
+    privacyStatus: z.enum(['public', 'unlisted', 'private']).optional(),
+    /** YouTube's category ids are numeric strings. */
+    categoryId: z
+      .string()
+      .regex(/^\d{1,3}$/)
+      .optional(),
+
+    // ── Pinterest ──────────────────────────────────────────────────────────
+    /**
+     * Which board the pin is filed on. Opaque here — the adapter is what talks
+     * to Pinterest, and a board id from another account simply 404s there.
+     */
+    boardId: z.string().trim().min(1).max(64).optional(),
+    boardSectionId: z.string().trim().min(1).max(64).optional(),
   })
   .strict();
 

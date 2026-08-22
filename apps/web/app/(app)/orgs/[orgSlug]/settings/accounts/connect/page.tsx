@@ -22,7 +22,15 @@ export const metadata: Metadata = { title: 'Connect an account' };
  * back. TikTok is its own portal, its own app, its own key pair — and, unlike
  * either Meta surface, one authorization yields exactly **one** account.
  */
-const PLATFORMS = ['FACEBOOK', 'INSTAGRAM', 'TIKTOK', 'THREADS'] as const;
+const PLATFORMS = [
+  'FACEBOOK',
+  'INSTAGRAM',
+  'TIKTOK',
+  'THREADS',
+  'LINKEDIN',
+  'YOUTUBE',
+  'PINTEREST',
+] as const;
 type ConnectablePlatform = (typeof PLATFORMS)[number];
 
 const PLATFORM_LABEL: Record<ConnectablePlatform, string> = {
@@ -30,6 +38,9 @@ const PLATFORM_LABEL: Record<ConnectablePlatform, string> = {
   INSTAGRAM: 'Instagram account',
   TIKTOK: 'TikTok account',
   THREADS: 'Threads account',
+  LINKEDIN: 'LinkedIn page',
+  YOUTUBE: 'YouTube channel',
+  PINTEREST: 'Pinterest account',
 };
 
 const PLATFORM_ARTICLE: Record<ConnectablePlatform, string> = {
@@ -37,6 +48,9 @@ const PLATFORM_ARTICLE: Record<ConnectablePlatform, string> = {
   INSTAGRAM: 'an Instagram account',
   TIKTOK: 'a TikTok account',
   THREADS: 'a Threads account',
+  LINKEDIN: 'a LinkedIn page',
+  YOUTUBE: 'a YouTube channel',
+  PINTEREST: 'a Pinterest account',
 };
 
 const PLATFORM_NOTE: Record<ConnectablePlatform, string> = {
@@ -48,6 +62,12 @@ const PLATFORM_NOTE: Record<ConnectablePlatform, string> = {
     'You will sign in at TikTok with the account itself — there is no Page to go through, and one sign-in connects one account. Access tokens are exchanged and stored server-side; they never reach your browser.',
   THREADS:
     'You will sign in at Threads with the account itself. Threads connections last 60 days and renew themselves while they are in use — one left idle for longer has to be reconnected by hand.',
+  LINKEDIN:
+    'You will sign in at LinkedIn, and Orbit will list the company pages you administer. A LinkedIn account with no admin role on a page has nothing to connect — the role has to be granted on the page first.',
+  YOUTUBE:
+    'You will sign in with Google, and Orbit will list the YouTube channels that account owns. A Google account with no channel has nothing to connect — create one on YouTube first.',
+  PINTEREST:
+    'You will sign in at Pinterest with the account itself. One sign-in connects one account, and Orbit will read the boards you can pin to so a post can be filed on the right one.',
 };
 
 /** The sign-in each platform actually shows, so the button does not mislead. */
@@ -56,6 +76,9 @@ const CONTINUE_LABEL: Record<ConnectablePlatform, string> = {
   INSTAGRAM: 'Continue with Facebook',
   TIKTOK: 'Continue with TikTok',
   THREADS: 'Continue with Threads',
+  LINKEDIN: 'Continue with LinkedIn',
+  YOUTUBE: 'Continue with Google',
+  PINTEREST: 'Continue with Pinterest',
 };
 
 interface PageProps {
@@ -145,7 +168,10 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
    */
   const unconfigured =
     (platform === 'TIKTOK' && !(env.TIKTOK_CLIENT_KEY && env.TIKTOK_CLIENT_SECRET)) ||
-    (platform === 'THREADS' && !(env.THREADS_APP_ID && env.THREADS_APP_SECRET));
+    (platform === 'THREADS' && !(env.THREADS_APP_ID && env.THREADS_APP_SECRET)) ||
+    (platform === 'LINKEDIN' && !(env.LINKEDIN_CLIENT_ID && env.LINKEDIN_CLIENT_SECRET)) ||
+    (platform === 'YOUTUBE' && !(env.YOUTUBE_CLIENT_ID && env.YOUTUBE_CLIENT_SECRET)) ||
+    (platform === 'PINTEREST' && !(env.PINTEREST_CLIENT_ID && env.PINTEREST_CLIENT_SECRET));
 
   const accountsHref = `/orgs/${orgSlug}/settings/accounts`;
   const returnTo = `/orgs/${orgSlug}/settings/accounts/connect?workspaceId=${workspaceId}&brandId=${brandId}&platform=${platform}`;
@@ -194,9 +220,15 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
         <Empty
           title={`${PLATFORM_LABEL[platform]}s are not set up on this deployment`}
           description={
-            platform === 'THREADS'
-              ? 'Threads needs its own app credentials — a Threads app issues two id/secret pairs and this wants the Threads one. An administrator has to set THREADS_APP_ID and THREADS_APP_SECRET on both the web app and the worker.'
-              : 'TikTok needs its own app, separate from the Meta one. An administrator has to create it at developers.tiktok.com and set TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET on both the web app and the worker.'
+            platform === 'YOUTUBE'
+              ? 'YouTube needs a Google Cloud OAuth client with the YouTube Data API enabled. An administrator has to set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET on both the web app and the worker.'
+              : platform === 'PINTEREST'
+                ? 'Pinterest needs its own app, in standard access rather than trial. An administrator has to create it at developers.pinterest.com and set PINTEREST_CLIENT_ID and PINTEREST_CLIENT_SECRET on both the web app and the worker.'
+                : platform === 'LINKEDIN'
+                  ? 'LinkedIn needs an app approved for the Community Management API. An administrator has to set LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET on both the web app and the worker.'
+                  : platform === 'THREADS'
+                    ? 'Threads needs its own app credentials — a Threads app issues two id/secret pairs and this wants the Threads one. An administrator has to set THREADS_APP_ID and THREADS_APP_SECRET on both the web app and the worker.'
+                    : 'TikTok needs its own app, separate from the Meta one. An administrator has to create it at developers.tiktok.com and set TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET on both the web app and the worker.'
           }
         />
       ) : staged.length > 0 ? (
@@ -219,9 +251,13 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
           description={
             platform === 'INSTAGRAM'
               ? 'The account you authorized administers no Page with an Instagram professional account linked to it.'
-              : platform === 'TIKTOK'
-                ? 'TikTok returned no account for that sign-in. It usually means the permissions were declined at the consent screen.'
-                : 'The account you authorized does not administer any Page this brand could publish to.'
+              : platform === 'YOUTUBE'
+                ? 'That Google account owns no YouTube channel. Create one on YouTube, then try again.'
+                : platform === 'LINKEDIN'
+                  ? 'That LinkedIn account does not administer any company page. Somebody with access to the page has to grant an admin role first.'
+                  : platform === 'TIKTOK'
+                    ? 'TikTok returned no account for that sign-in. It usually means the permissions were declined at the consent screen.'
+                    : 'The account you authorized does not administer any Page this brand could publish to.'
           }
           action={startButton('Try a different account')}
         />

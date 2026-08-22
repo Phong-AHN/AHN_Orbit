@@ -55,7 +55,7 @@ function reply(text: string, tokens = { promptTokenCount: 100, candidatesTokenCo
 }
 
 function provider(fetchImpl: typeof fetch) {
-  return new GeminiProvider({ apiKey: 'test-key', model: 'gemini-2.0-flash', fetchImpl });
+  return new GeminiProvider({ apiKey: 'test-key', model: 'gemini-3.6-flash', fetchImpl });
 }
 
 describe('prompt assembly and injection', () => {
@@ -189,7 +189,7 @@ describe('the Gemini provider', () => {
     });
 
     expect(result.value).toBe('A warm caption.');
-    expect(result.model).toBe('gemini-2.0-flash');
+    expect(result.model).toBe('gemini-3.6-flash');
     expect(result.inputTokens).toBe(100);
     expect(result.outputTokens).toBe(20);
   });
@@ -444,5 +444,173 @@ describe('the mock adapter', () => {
     });
 
     expect(result.value.length).toBeLessThanOrEqual(50);
+  });
+});
+
+/**
+ * What a **thinking** model does differently, and the three ways it broke.
+ *
+ * Every case here was reproduced against the live API on `gemini-3.6-flash`
+ * before it was written down — none of it is speculative.
+ */
+describe('reasoning models', () => {
+  /**
+   * **The model's working is not the caption.**
+   *
+   * With thought summaries on, the reasoning arrives as a part alongside the
+   * reply. Reading `parts[0]` blindly pasted the model's internal monologue
+   * into a client's post.
+   */
+  it('returns the answer, never the thinking that produced it', async () => {
+    const result = await provider(
+      graph({
+        candidates: [
+          {
+            content: {
+              parts: [
+                { text: 'The user wants a warm greeting. I will avoid clichés.', thought: true },
+                { text: 'Good morning — the kettle is on.' },
+              ],
+            },
+            finishReason: 'STOP',
+          },
+        ],
+        usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 18 },
+      }),
+    ).generateCaption({ ...base, intent: 'Morning post' });
+
+    expect(result.value).toBe('Good morning — the kettle is on.');
+    expect(result.value).not.toContain('The user wants');
+  });
+
+  /** A reply split across parts was silently truncated to its first fragment. */
+  it('joins a reply that arrives in several parts', async () => {
+    const result = await provider(
+      graph({
+        candidates: [
+          {
+            content: { parts: [{ text: 'Fresh beans, ' }, { text: 'Tuesday morning.' }] },
+            finishReason: 'STOP',
+          },
+        ],
+        usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 8 },
+      }),
+    ).generateCaption({ ...base, intent: 'Delivery day' });
+
+    expect(result.value).toBe('Fresh beans, Tuesday morning.');
+  });
+
+  /**
+   * **A truncated caption is a failure, not a result.**
+   *
+   * Measured: a 300-word brief at a 200-token ceiling spent 189 tokens thinking
+   * and returned seven tokens of caption — `"**Did you know that every sip"` —
+   * with `finishReason: MAX_TOKENS`. It looks like a finished draft. Handing
+   * that to somebody to publish is worse than refusing.
+   */
+  it('refuses a fragment cut off at the token ceiling', async () => {
+    await expect(
+      provider(
+        graph({
+          candidates: [
+            {
+              content: { parts: [{ text: '**Did you know that every sip' }] },
+              finishReason: 'MAX_TOKENS',
+            },
+          ],
+          usageMetadata: {
+            promptTokenCount: 29,
+            candidatesTokenCount: 7,
+            thoughtsTokenCount: 189,
+          },
+        }),
+      ).generateCaption({ ...base, intent: 'Sustainable sourcing' }),
+    ).rejects.toThrow(/token ceiling/i);
+  });
+
+  /**
+   * Thinking is **billed as output** and is absent from `candidatesTokenCount`.
+   * Measured: 268 thinking tokens behind an 18-token caption — a credit ledger
+   * counting only the visible tail understates the call fifteenfold.
+   */
+  it('counts thinking tokens as output, because they are billed as output', async () => {
+    const result = await provider(
+      graph({
+        candidates: [{ content: { parts: [{ text: 'Good morning.' }] }, finishReason: 'STOP' }],
+        usageMetadata: {
+          promptTokenCount: 10,
+          candidatesTokenCount: 18,
+          thoughtsTokenCount: 268,
+        },
+      }),
+    ).generateCaption({ ...base, intent: 'Morning post' });
+
+    expect(result.outputTokens).toBe(286);
+  });
+
+  /** No thinking reported is not zero output — the old shape still works. */
+  it('still reports output correctly when a model does not think', async () => {
+    const result = await provider(graph(reply('Good morning.'))).generateCaption({
+      ...base,
+      intent: 'Morning post',
+    });
+
+    expect(result.outputTokens).toBe(20);
+  });
+});
+
+/**
+ * The failure that started this: every AI call returning "that could not be
+ * generated, try rewording the brief" when the brief was never the problem.
+ */
+describe('a retired model', () => {
+  /**
+   * Google withdraws a model and answers **404** for every call thereafter.
+   * The generic copy sent people editing a brief that could not be fixed by
+   * editing; naming `GEMINI_MODEL` points at the one person who can fix it.
+   */
+  it('says the model is gone rather than blaming the brief', async () => {
+    const gone = graph(
+      {
+        error: {
+          message:
+            'This model models/gemini-2.0-flash is no longer available. Please update your code to use models/gemini-3.6-flash.',
+          status: 'NOT_FOUND',
+        },
+      },
+      404,
+    );
+
+    const failure = await provider(gone)
+      .generateCaption({ ...base, intent: 'Morning post' })
+      .catch((error: { userMessage?: string; retryable?: boolean }) => error);
+
+    expect(failure.userMessage).toMatch(/GEMINI_MODEL/);
+    expect(failure.userMessage).not.toMatch(/reword/i);
+  });
+
+  /**
+   * The vendor string names a model and may name a project or a quota; it
+   * belongs in the log, keyed by correlation id, and never in front of a client
+   * (SRS §33).
+   */
+  it('keeps the vendor wording out of what a person is shown', async () => {
+    const gone = graph(
+      {
+        error: {
+          message: 'models/secret-internal-name is no longer available',
+          status: 'NOT_FOUND',
+        },
+      },
+      404,
+    );
+
+    const failure = await provider(gone)
+      .generateCaption({ ...base, intent: 'Morning post' })
+      .catch((error: { userMessage?: string; message?: string }) => error);
+
+    expect(failure.userMessage).not.toContain('secret-internal-name');
+    // Still recoverable from the log, which is the whole point of keeping it.
+    expect(failure.message).toContain('secret-internal-name');
   });
 });

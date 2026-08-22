@@ -40,6 +40,9 @@ const CONNECTABLE = [
   ['INSTAGRAM', 'Instagram'],
   ['TIKTOK', 'TikTok'],
   ['THREADS', 'Threads'],
+  ['LINKEDIN', 'LinkedIn'],
+  ['YOUTUBE', 'YouTube'],
+  ['PINTEREST', 'Pinterest'],
 ] as const;
 
 /**

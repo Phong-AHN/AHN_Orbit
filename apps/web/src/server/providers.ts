@@ -5,6 +5,9 @@ import { FacebookProvider } from '@orbit/providers/facebook';
 import { InstagramProvider } from '@orbit/providers/instagram';
 import { TikTokProvider } from '@orbit/providers/tiktok';
 import { ThreadsProvider } from '@orbit/providers/threads';
+import { LinkedInProvider } from '@orbit/providers/linkedin';
+import { YouTubeProvider } from '@orbit/providers/youtube';
+import { PinterestProvider } from '@orbit/providers/pinterest';
 import { MockProvider } from '@orbit/providers/mock';
 
 /**
@@ -90,6 +93,44 @@ export function ensureProvidersRegistered(): void {
     );
     registeredAny = true;
     logger.info('registered Threads provider', { platforms: ['THREADS'] });
+  }
+
+  if (allowed && env.LINKEDIN_CLIENT_ID && env.LINKEDIN_CLIENT_SECRET) {
+    // No `readMedia`: the web app never moves bytes.
+    registerProvider(
+      new LinkedInProvider({
+        clientId: env.LINKEDIN_CLIENT_ID,
+        clientSecret: env.LINKEDIN_CLIENT_SECRET,
+        apiVersion: env.LINKEDIN_API_VERSION,
+      }),
+    );
+    registeredAny = true;
+    logger.info('registered LinkedIn provider', { platforms: ['LINKEDIN'] });
+  }
+
+  if (allowed && env.YOUTUBE_CLIENT_ID && env.YOUTUBE_CLIENT_SECRET) {
+    // No `readMedia`: the web app never moves bytes.
+    registerProvider(
+      new YouTubeProvider({
+        clientId: env.YOUTUBE_CLIENT_ID,
+        clientSecret: env.YOUTUBE_CLIENT_SECRET,
+        apiVersion: 'v3',
+      }),
+    );
+    registeredAny = true;
+    logger.info('registered YouTube provider', { platforms: ['YOUTUBE'] });
+  }
+
+  if (allowed && env.PINTEREST_CLIENT_ID && env.PINTEREST_CLIENT_SECRET) {
+    registerProvider(
+      new PinterestProvider({
+        clientId: env.PINTEREST_CLIENT_ID,
+        clientSecret: env.PINTEREST_CLIENT_SECRET,
+        apiVersion: 'v5',
+      }),
+    );
+    registeredAny = true;
+    logger.info('registered Pinterest provider', { platforms: ['PINTEREST'] });
   }
 
   if (allowed && env.FACEBOOK_APP_ID && env.FACEBOOK_APP_SECRET) {

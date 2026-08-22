@@ -2260,6 +2260,413 @@ ceiling — 250 posts per rolling 24 hours — *is* documented, and Meta explici
 asks integrators to enforce it themselves "especially if it allows app users to
 schedule posts", which is precisely what Orbit is.
 
+---
+
+## D-089 — LinkedIn: a versioned API that expires, and the only post that can be deleted
+
+- **Context:** the sixth platform, and structurally the least like the other
+  five. Not a Graph and not a container-then-publish flow: a versioned REST API
+  where the version is a **header with an expiry date**.
+
+### The version is an operational obligation, not a constant
+
+Every call carries `LinkedIn-Version: YYYYMM` and `X-Restli-Protocol-Version:
+2.0.0`; omitting either yields a 400 that names neither. LinkedIn **sunsets a
+version roughly a year after release** — the documentation read while building
+this carried a live deprecation notice for a version expiring within months.
+
+So `LINKEDIN_API_VERSION` is pinned rather than floating. "Latest" would mean the
+integration changing under us on LinkedIn's schedule; pinning makes a bump a
+deliberate act with a changelog to read first, and puts the expiry on somebody's
+calendar rather than into a future incident.
+
+### Three shapes that exist nowhere else here
+
+**The post id arrives in a response header.** A 201 with an empty body and the
+URN in `x-restli-id`. Reading the body for it finds nothing and looks exactly
+like a platform fault.
+
+**A post can be deleted**, idempotently — 204 even for one already gone.
+LinkedIn is the only platform in the product where `lifecycle.delete` is true,
+and the only one where the composer's "this cannot be undone" caveat does not
+apply.
+
+**An image is pushed, not fetched.** There is no `image_url` anywhere: the image
+is registered with `initializeUpload`, then its bytes are PUT to a one-shot URL.
+Meta pulls from a signed link, TikTok chunks, LinkedIn does a third thing. The
+upload happens **before** the post is created, so a media failure leaves an
+orphaned asset nobody can see rather than a visible post with the wrong content.
+
+### Discovery asks a different question
+
+Not "who signed in" but "which pages may this person post to". `organizationAcls`
+is walked and filtered to the three roles LinkedIn documents as permitting
+publishing — ADMINISTRATOR, DIRECT_SPONSORED_CONTENT_POSTER, CONTENT_ADMIN — and
+to APPROVED grants only, since a pending invitation is not access.
+
+A member who administers no page authorises perfectly and has **nothing to
+connect**. That is a real state, not an error, and the connect flow says so: an
+empty list on its own reads as a bug.
+
+The same asymmetry shapes health. Reading the page back proves the token *and*
+the role, and losing an admin role is the thing that actually changes. The
+message says "no longer has permission to post to that page" rather than
+implying a reconnect will fix it — it will not, until somebody restores the role.
+
+### Refresh tokens are not guaranteed
+
+LinkedIn issues them only to approved partners. Without one a 60-day token simply
+expires, so `refreshableUntil` is set **only when a refresh token exists**.
+Claiming a refresh window we cannot use would have the sweep skip an account it
+should have been warning about, and the reconnect message says plainly that this
+app has no refresh tokens rather than implying something broke.
+
+### What is deliberately absent
+
+**Video.** LinkedIn's Videos API is a separate multipart upload flow. Declaring a
+video constraint without building it would let the composer accept a file the
+worker then refuses — the web-says-valid/worker-says-no split that cost four
+scheduled posts on TikTok. `video: null` is the honest state.
+
+**Multiple images.** Organic multi-image needs the MultiImage API, a different
+endpoint with a different body. `maxAttachments: 1` describes what exists.
+
+**Analytics.** `post: false` and `account: false`, so the ingestion sweep skips
+LinkedIn rather than calling a method that throws — which would read as an outage
+rather than as a feature that does not exist.
+
+**Mentions.** They need the entity's URN and an exact name match; Orbit has no
+URN lookup, so `mentions: { supported: false }` rather than something
+half-working.
+
+### A fixture that fabricated a network failure
+
+The delete test failed with "the platform could not be reached" — not because
+delete was broken, but because `new Response('', { status: 204 })` **throws**:
+204 must be constructed with a null body. The fake was inventing a network error
+and hiding what the code actually did. Worth recording because a fixture that
+lies is worse than no fixture, and this is the third time this session a test has
+been wrong in a way that pointed at the wrong culprit.
+
+## D-090 — YouTube: a legal declaration Orbit will not make for anyone
+
+**Context.** YouTube is the seventh platform and the first that is a video host
+rather than a feed. Two things about it do not fit the shape the other six
+share.
+
+**Decision.**
+
+**The made-for-kids declaration has no default, and a post without one is
+refused before anything is uploaded.** `status.selfDeclaredMadeForKids` is
+mandatory on every `videos.insert`. It is not a preference: it is an audience
+declaration under COPPA, it changes what YouTube does with comments,
+personalised ads, notifications and playlists, and getting it wrong has cost
+creators money. Defaulting it either way would put a regulatory statement in a
+client's mouth that nobody in the agency ever saw. This is the same reasoning
+as TikTok's privacy level (**D-086**), one step further: TikTok's default would
+have been rude, YouTube's would have been a false declaration.
+
+**A Short is not a mode.** YouTube classifies an upload as a Short when it is
+vertical and short enough. There is no flag and no separate endpoint, so nothing
+in the adapter or the composer offers one — a "post as a Short" switch would be
+a control the platform does not have.
+
+**The narrow scopes, and therefore no delete.** `youtube.upload` and
+`youtube.readonly` are what publishing and discovery need. `videos.delete`
+requires the broad `.../auth/youtube`, which also grants deleting *any* video on
+a connected channel and editing its playlists. Asking every client's channel for
+that to support a feature nobody requested is the wrong trade, so
+`lifecycle.delete: false` and the composer never offers the button. The privacy
+dropdown defaults to **private** for the same reason: an upload that goes public
+by accident cannot be taken back by this app.
+
+**The upload is a session, and the session URL is recorded before the bytes
+move.** `POST /upload/youtube/v3/videos?uploadType=resumable` answers with a
+`Location` header and an empty body; the bytes go to that URL. Everything after
+the session opens is ambiguous on failure — YouTube may have finished an upload
+whose response was lost — so `recordProviderRef` writes the session URL first
+(**D-027**).
+
+**`quotaExceeded` is client standing.** It is about the deployment's Google
+project and every channel on it, not about the connection that happened to hit
+it. Marked so the engine records the failure and leaves the account ACTIVE
+(**D-085**) — demoting it would send an account manager to reconnect a channel
+that works perfectly. `uploadLimitExceeded`, which *is* per channel, is
+deliberately not marked.
+
+**Verified, and worth stating because most guides are wrong:** uploads bill to
+their own bucket of **100 calls per day**, separate from the 10,000-unit pool.
+`videos.insert` cost 1,600 units until December 2025, which capped a project at
+six uploads a day; encoding the old figure would have throttled an agency to a
+handful of videos.
+
+**Access tokens live one hour**, which makes this the busiest refresh path in
+the product by a wide margin — every other platform measures its window in
+weeks. Two consequences: the refresh window is ten minutes rather than days, and
+`probeHealth` deliberately does **not** treat an expired access token as a
+verdict. Reporting NEEDS_RECONNECT on it would mark every healthy channel broken
+several times a day. Only an expired token with no refresh token is terminal.
+
+**Google returns a refresh token once.** `access_type=offline` and
+`prompt=consent` are what make it issue one at all; a refresh response does not
+include one, so the stored token is carried forward. Trusting the response
+verbatim would turn hourly renewal into a one-time renewal — the connection
+would work all afternoon and be dead by morning, with nothing in the logs.
+
+**`revoke()` deliberately does nothing.** Google's revoke endpoint invalidates
+the credential for *every* channel on that Google account, and Orbit connects
+channels individually. Disconnecting one client's channel must not break
+another's; deleting the stored token locally is the part that matters.
+
+### What is deliberately absent
+
+**Channel analytics.** They need the YouTube Analytics API — a different API
+with its own scope and reporting model. `analytics.account: false`, so the
+ingestion sweep skips rather than calling a method that throws.
+
+**Provider-side scheduling.** `status.publishAt` exists. Orbit's queue is the
+scheduler (SRS §13), and using both would create two answers to "when does this
+go out".
+
+---
+
+## D-091 — Pinterest: a pin has to be filed, and a video needs a face
+
+**Context.** Pinterest is not a feed, it is a filing cabinet, and two of its
+requirements have no equivalent on any other platform here.
+
+**Decision.**
+
+**A board is required and Orbit will not choose one.** There is no "post to
+Pinterest", only "pin to *this* board", and Pinterest offers no default. Filing
+a client's content under whichever board came back first would be an editorial
+decision made by a machine. So `providerOptions.boardId` is mandatory, the
+composer reads the real board list from the account, nothing is preselected, and
+a post without one is refused before any upload.
+
+**A video pin requires a cover image, and Orbit will not generate one.**
+`POST /v5/pins` answers 400 for a video pin with no `cover_image_url`, and
+Pinterest will not take a frame from the video for you. Orbit does not either:
+the post carries a second, image attachment which becomes the cover, and a video
+with no cover is refused with a message saying to add one. Generating a still
+would put an unreviewed image in front of a client's audience — a picture nobody
+approved, on a platform that is almost entirely pictures.
+
+That is why `maxAttachments` is 2 and `allowsMixedKinds` is true while
+`carousel` stays false. The two slots are "the pin" and "the still for it", not
+a gallery.
+
+**The bytes do not go to Pinterest.** `POST /v5/media` returns a storage bucket
+URL and a bag of policy fields; the upload is a multipart POST to that host with
+the policy fields written **before** the file part and **no** Authorization
+header — a bearer token the bucket did not expect makes it refuse the whole
+request. `media_id` is recorded through `recordProviderRef` before the bytes
+move, and a retry that finds it resumes at the polling step. Without that resume
+a video slower than one poll budget could never publish: every attempt would
+re-register, re-upload and run out of budget at the same point in the transcode
+(the failure first found on Threads, **D-088**).
+
+**Running out of transcode budget is UNAVAILABLE, not TIMEOUT.** No pin has been
+created at that point, so nothing is ambiguous and there is nothing to
+reconcile. A timeout would park every slow video for a human when all it needed
+was longer.
+
+**Scopes are the narrow set.** `user_accounts:read`, `boards:read`, `pins:read`,
+`pins:write`. Deliberately not `boards:write` — Orbit never creates a board — and
+deliberately no `*_secret` scope: a secret board is private by intent, it never
+appears in the picker, and an agency tool should not be quietly publishing into
+one.
+
+**A 429 is client standing** (**D-085**): the account's own daily allowance, not
+a broken connection.
+
+**Two protocol details that are easy to get wrong and fail late.** Pinterest
+comma-delimits its OAuth scopes — a space-joined list is accepted, grants
+nothing, and surfaces much later as a 403 on the first publish, which reads like
+a dead connection. And the token endpoint authenticates with HTTP **Basic**;
+putting the secret in the form body returns a 401 that says nothing about the
+header being the problem.
+
+**Tokens: 30 days, refreshable for 60.** Recorded honestly as
+`refreshableUntil`, because an account idle for two months genuinely does need a
+human and the sweep should say so before a publish fails.
+
+### What is deliberately absent
+
+**Account analytics.** `GET /v5/user_account/analytics` is business-account only
+and reports on a different model. Not built, so `analytics.account: false`.
+
+**Edit.** `PATCH /v5/pins/{id}` exists, but Orbit has no edit-after-publish flow
+on any platform, and Pinterest would be the only one claiming it.
+
+### The gap both of these share, stated plainly
+
+A mandatory per-post setting — TikTok's privacy level, YouTube's declaration,
+Pinterest's board — is enforced **at publish time, inside the adapter**, not at
+validate time. `validateDraft` is platform-agnostic by design and deliberately
+does not read `providerOptions` (**D-086**), and the web validation path calls
+it directly rather than going through `provider.validate()`, so the composer's
+green tick does not know about these.
+
+In practice the panels prevent the state: each one says in place that the post
+will not publish until the setting is chosen. But a post scheduled with the
+setting missing fails at its scheduled time rather than at approval, which is
+hours later than it could be. Closing it properly means teaching the capability
+descriptor which per-post settings a platform requires, so `validateDraft` can
+check them without learning any platform's name — a descriptor change affecting
+all seven adapters, which is why it is recorded here rather than done quietly.
+
+**Narrowed by D-092**, which surfaces all of it in the composer up front. The
+server-side half of this gap is unchanged.
+
+---
+
+## D-092 — Every platform's settings, visible at once
+
+**Context.** Three platforms require a per-post setting Orbit refuses to choose
+(**D-086**, **D-090**, **D-091**). Those panels lived inside the per-account text
+editor, which shows **one account at a time**.
+
+So the ordinary way to compose a multi-platform post was to never see them. Pick
+Facebook, YouTube and Pinterest, write the copy, attach the video, approve,
+schedule — and YouTube's mandatory declaration was behind a tab nobody clicked.
+The post looked finished at every step and failed at its scheduled time, which
+is the worst moment available to find out.
+
+Reported plainly: *"khi tôi chọn nhiều nền tảng 1 lúc thì mỗi nền tảng đều phải
+nên hiện những setting cần thiết cho bài post đó."*
+
+**Decision.**
+
+**One card, above the per-account text, listing every account that needs
+something.** Accounts with an outstanding setting sort first and open by default;
+finished ones collapse to a "Ready" line that is still there and still openable.
+The card renders nothing at all when no selected account requires anything —
+`FACEBOOK + INSTAGRAM` sees no new furniture.
+
+**The collapsed row says what is missing**, in words rather than field names
+("still needs which board to pin it to"). A closed section that only says
+"incomplete" forces somebody to open every one of them to find the one that
+matters.
+
+**Open/closed is initial state only.** It deliberately does not re-sync as
+settings are filled in: collapsing a section the instant somebody answers would
+snatch the controls away at exactly the moment they might reconsider, and a
+panel that moves under the cursor reads as a bug.
+
+**A warning dot on the account tab, not a colour change.** The tab strip already
+uses colour for "which one is open"; a second meaning on the same channel is
+unreadable. The dot is `aria-hidden` with an `sr-only` "(settings needed)"
+beside it.
+
+**Rendered in exactly one place.** The panels were removed from the per-account
+editor rather than duplicated. Two copies would mean two components fetching the
+same Pinterest boards and two Save buttons that can disagree about what is
+stored.
+
+### Where the platform names live now
+
+`apps/web/src/features/posts/ui/platform-settings.ts` names TikTok, YouTube and
+Pinterest, which the "no `if (platform === 'X')` outside the provider directory"
+rule forbids. It is a deliberate, single-file exception, for two reasons:
+
+1. The capability descriptor still has no vocabulary for "requires a per-post
+   setting" — the open gap above. This module does not close it; it stops the
+   gap being invisible while the decision is pending.
+2. **Everything in it is presentation.** It decides which panel to draw and
+   which sentence to show. It cannot permit a publish: the adapter still
+   refuses, server-side, whatever the browser believes. The worst a mistake
+   there can do is show the wrong prompt.
+
+Before it, the same names were spread across three `active.platform === …`
+branches in the composer, so this is fewer of them, in one file, with the reason
+written down.
+
+### The one rule that reads media rather than settings
+
+Pinterest's cover image is not a stored choice — it is "a video is attached and
+no image is". So `missingPlatformSettings` takes the composer's **live**
+attachments rather than the saved post: what is on screen is what somebody is
+looking at while they fix it. It stays quiet until a video is actually attached,
+because a warning about a cover for a video nobody has added is noise, and noise
+is what teaches people to ignore the panel.
+
+`false` is a complete answer, and the YouTube check tests `typeof !== 'boolean'`
+rather than falsiness for that reason — "no, not made for kids" is the answer
+almost every post gives, and a falsiness check would nag everybody who gave it
+correctly. Both that and the cover rule have tests that fail when the check is
+weakened.
+
+---
+
+## D-093 — A model that was retired, and three things a thinking model broke
+
+**Context.** Reported from the running app: every writing-assistant call came
+back `PROVIDER_VALIDATION_ERROR` — *"That could not be generated. Try rewording
+the brief."*
+
+The brief was `good morning have a nice day`. There is no rewording of that.
+
+**Root cause, confirmed against the live API rather than reasoned about:**
+`GEMINI_MODEL` was `gemini-2.0-flash`, which Google has withdrawn. The API
+answers **404 NOT_FOUND** — *"This model models/gemini-2.0-flash is no longer
+available. Please update your code to use models/gemini-3.6-flash"* — for every
+call. `toError` had no 404 branch, so a retired model fell through to the
+catch-all 4xx copy and told every user in the product to reword a brief that was
+never the problem.
+
+**Decision: `gemini-3.6-flash`, and treat the model id as a value with an expiry
+date** — the same operational category as `LINKEDIN_API_VERSION` (**D-089**), not
+something to set once and forget. Changed in `packages/config/src/env.ts`,
+`.env`, `.env.example` and `.env.vercel.production`.
+
+**A 404 now says what it is:** *"The writing assistant is pointed at a model
+that no longer exists. An administrator has to update GEMINI_MODEL."* The vendor
+string still never reaches a person — it may name a model, a project or a quota
+(SRS §33) — but it stays in the log under the correlation id, and there is a
+test that it does.
+
+### Then the replacement turned out to be a thinking model
+
+Verifying the fix surfaced three defects that had nothing to do with the outage
+and would have shipped quietly. All three were reproduced against the live API
+on `gemini-3.6-flash` before being written down.
+
+**1. The model's reasoning could be published as the caption.** With thought
+summaries on, reasoning arrives as a `part` with `thought: true` alongside the
+reply. The adapter read `parts[0].text`. A reply split across several parts was
+also silently truncated to its first fragment. It now joins every non-thought
+part and takes nothing else.
+
+**2. A caption cut off mid-word was returned as if finished.** Thinking is
+charged against `maxOutputTokens`, and it is usually far longer than the answer.
+Measured: a 300-word brief at a 200-token ceiling spent **189 tokens thinking
+and returned seven tokens of caption** — `"**Did you know that every sip"` —
+with `finishReason: MAX_TOKENS` and a non-empty text part. The old code handed
+that over as a finished draft.
+
+`MAX_TOKENS` is now a refusal whether or not text came back, and the ceiling
+rose from 1,024 to 4,096 so the reply rather than the reasoning decides the
+length. A fragment that looks finished is worse than an error: somebody
+publishes it.
+
+**3. Cost was under-reported by more than tenfold.** `thoughtsTokenCount` is
+billed as output and is **absent from `candidatesTokenCount`**. Measured: 268
+thinking tokens behind an 18-token caption; on the caption that reproduced the
+original report, 506 output tokens behind roughly 30 visible ones. The credit
+ledger and every cost figure counted only the visible tail. `outputTokens` is
+now the sum.
+
+### What this says about the next model bump
+
+Two of these three are invisible until somebody looks: a truncated caption reads
+as a short caption, and an under-counted bill reads as a cheap feature. Both
+arrived from a *config change*, not a code change — which is the argument for
+the model id being an operational item with an owner, and for the adapter
+refusing rather than guessing when a response is not the shape it expected.
+
+---
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

@@ -137,22 +137,18 @@ tới khi có khách hàng thật yêu cầu.
 
 ---
 
-### 6. Thứ tự ưu tiên 6 nền tảng còn lại
+### 6. Nền tảng còn lại — chỉ còn X (Twitter)
 
-Mỗi nền tảng khoảng **1–1.5 tuần**. Kiến trúc adapter đã sẵn sàng.
+Sáu nền tảng đã xong: Facebook, Instagram, TikTok, Threads, LinkedIn, YouTube,
+Pinterest.
 
 | Nền tảng | Độ khó | Ghi chú |
 |---|---|---|
-| LinkedIn | Dễ nhất | API ổn định, review nhẹ |
-| Threads | Dễ | Cùng hệ Meta, tái dùng được nhiều |
-| Pinterest | Trung bình | |
-| X | Trung bình | Chi phí API cao |
-| TikTok | Khó | Upload chia khúc, review khắt khe |
-| YouTube | Khó | Upload resumable |
+| X (Twitter) | Trung bình | **Chi phí API cao** — bậc trả phí bắt buộc để đăng bài |
 
-**Em đề xuất:** LinkedIn → Threads trước. Cần anh cho biết **khách hàng của anh
-thực sự dùng nền tảng nào** — làm TikTok trước sẽ tốn 1.5 tuần cho thứ có thể
-không ai cần.
+**Cần anh quyết:** X là nền tảng duy nhất còn thiếu, và nó là nền tảng duy nhất
+phải **trả tiền hàng tháng** mới đăng được. Anh cho biết có khách nào thực sự
+cần X không trước khi em bỏ 1–1.5 tuần vào nó.
 
 ---
 
@@ -253,3 +249,135 @@ Em sẽ không hỏi gì về những mục này.
 - Media specifications are barely documented by Meta. The limits Orbit enforces
   for Threads images and video are deliberately generous and marked UNVERIFIED;
   Threads itself remains the authority and its refusals are reported verbatim.
+
+## LinkedIn (added 2026-08-18)
+
+### 🔴 Blocking
+
+- [ ] **Create a LinkedIn app** and request the **Community Management API**
+      product. `w_organization_social` — posting to a company page — is only
+      granted through it, and approval is a review, not a checkbox.
+- [ ] Set `LINKEDIN_CLIENT_ID` / `LINKEDIN_CLIENT_SECRET` on **both** Vercel and
+      Railway.
+- [ ] **Register the redirect URI**:
+      `https://ahn-orbit-web.vercel.app/api/v1/social/oauth/linkedin/callback`
+- [ ] Make sure whoever connects **holds an admin role on the company page**.
+      LinkedIn only offers pages where that person is ADMINISTRATOR,
+      DIRECT_SPONSORED_CONTENT_POSTER or CONTENT_ADMIN. Someone who administers
+      no page can sign in successfully and have nothing to connect.
+
+### 🟡 On a calendar, not a checklist
+
+- [ ] **`LINKEDIN_API_VERSION` expires.** It is `YYYYMM` and LinkedIn sunsets a
+      version roughly a year after release — currently pinned to `202608`. This
+      is the only integration in the product with a scheduled end date; put a
+      reminder somewhere before it becomes an incident.
+
+### Not built, deliberately
+
+- **Video** — needs LinkedIn's separate Videos API. Declared `video: null` so
+  the composer refuses it rather than accepting a file publishing would reject.
+- **Multiple images** — needs the MultiImage API. One image per post today.
+- **Analytics** — not collected. The ingestion sweep skips LinkedIn.
+
+---
+
+## YouTube (added 2026-08-19)
+
+### 🔴 Blocking
+
+- [ ] **Tạo OAuth client** trong Google Cloud Console, bật **YouTube Data API
+      v3**. Loại client: *Web application*.
+- [ ] Đặt `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET` trên **cả** Vercel và
+      Railway.
+- [ ] **Đăng ký redirect URI**:
+      `https://ahn-orbit-web.vercel.app/api/v1/social/oauth/youtube/callback`
+- [ ] **Cấu hình OAuth consent screen** ở chế độ *External*. Chưa được Google
+      xác minh thì **chỉ những email nằm trong danh sách test user mới kết nối
+      được** — người khác thấy màn hình cảnh báo và không đi tiếp được.
+- [ ] **Xin Google verification.** `youtube.upload` là *sensitive scope*: chưa
+      xác minh thì app kẹt ở 100 test user. Quy trình này là một cuộc rà soát,
+      không phải ô tích.
+
+### 🟡 Cần biết trước khi lên lịch nhiều video
+
+- **Hạn mức là của *dự án*, không phải của kênh: 100 lượt upload mỗi ngày cho
+  toàn bộ deployment.** Mọi khách hàng dùng chung con số này. Vượt hạn mức,
+  Orbit ghi nhận lỗi và **không** hạ trạng thái kênh — nhưng bài vẫn không đăng
+  được cho tới nửa đêm giờ Thái Bình Dương.
+- **Token Google sống 1 tiếng.** Đây là kết nối làm mới thường xuyên nhất trong
+  sản phẩm. Nó tự làm mới; chỉ cần biết để không hoảng khi thấy log refresh dày.
+- **Một tài khoản Google có thể không có kênh YouTube nào.** Trường hợp đó là
+  thật và Orbit nói rõ — phải tạo kênh trên YouTube trước rồi kết nối lại.
+
+### Cố ý không làm
+
+- **Xoá video** — cần scope rộng `.../auth/youtube`, thứ cũng cho phép xoá *bất
+  kỳ* video nào của kênh. Không đáng đổi, nên khai `delete: false`; muốn xoá thì
+  vào YouTube Studio.
+- **Analytics theo kênh** — cần YouTube Analytics API, một API khác hẳn.
+- **"Đăng dạng Shorts"** — YouTube không có công tắc đó. Video dọc và đủ ngắn thì
+  tự thành Shorts.
+
+### Điều mỗi bài đăng bắt buộc phải chọn
+
+**Made for kids.** YouTube bắt buộc khai báo trên mọi lần upload, và đó là một
+tuyên bố pháp lý (COPPA) chứ không phải một tuỳ chọn. **Orbit không chọn thay.**
+Bài chưa chọn sẽ *không đăng* — báo lỗi ngay trong composer, không phải im lặng
+chọn giùm.
+
+---
+
+## Pinterest (added 2026-08-19)
+
+### 🔴 Blocking
+
+- [ ] **Tạo app** tại developers.pinterest.com và **xin standard access**. Trial
+      access chỉ với tới tài khoản của chính người phát triển — đủ để thử, không
+      đủ để chạy khách.
+- [ ] Đặt `PINTEREST_CLIENT_ID` / `PINTEREST_CLIENT_SECRET` trên **cả** Vercel và
+      Railway.
+- [ ] **Đăng ký redirect URI**:
+      `https://ahn-orbit-web.vercel.app/api/v1/social/oauth/pinterest/callback`
+
+### 🟡 Cần biết
+
+- **Mỗi pin phải nằm trên một board, và Orbit không tự chọn.** Composer đọc danh
+  sách board thật từ tài khoản; chưa chọn thì bài không đăng.
+- **Pin video bắt buộc có ảnh bìa.** Pinterest hiển thị ảnh tĩnh ở mọi chỗ video
+  chưa chạy, và **không** tự lấy khung hình. Cách làm: đính kèm thêm **một ảnh**
+  vào bài — ảnh đó thành bìa. Orbit không tự sinh ảnh bìa, vì đó sẽ là một tấm
+  hình chưa ai duyệt xuất hiện trước khán giả của khách.
+- **Board bí mật không hiện ra.** Orbit không xin scope đọc chúng — cố ý.
+- **Token: 30 ngày, làm mới được trong 60 ngày.** Tài khoản có đăng bài đều thì
+  không bao giờ phải kết nối lại; để không dùng quá 2 tháng thì phải kết nối lại
+  bằng tay.
+
+### Cố ý không làm
+
+- **Analytics theo tài khoản** — chỉ dành cho business account và mô hình báo cáo
+  khác hẳn.
+- **Sửa pin sau khi đăng** — Orbit chưa có luồng sửa-sau-khi-đăng ở bất kỳ nền
+  tảng nào.
+
+---
+
+## Một khoảng trống chung của TikTok, YouTube và Pinterest
+
+Ba nền tảng này có **thiết lập bắt buộc theo từng bài** (quyền riêng tư của
+TikTok, khai báo made-for-kids của YouTube, board của Pinterest). Hiện tại việc
+kiểm tra nằm **ở lúc đăng**, không phải lúc duyệt bài.
+
+Composer **đã cảnh báo ngay từ đầu** (**D-092**): một thẻ riêng liệt kê *mọi*
+tài khoản còn thiếu thiết lập, mở sẵn, kèm câu nói rõ thiếu cái gì — chọn 5 nền
+tảng cùng lúc thì thấy cả 5, không phải bấm từng tab. Tài khoản đã đủ thì thu
+gọn lại thành một dòng "Ready".
+
+Nhưng cảnh báo đó nằm ở **trình duyệt**. Server `/validate` vẫn chưa biết về các
+thiết lập này, nên **một bài lên lịch mà thiếu thiết lập vẫn hỏng đúng giờ
+đăng** nếu ai đó bỏ qua cảnh báo — chứ không bị chặn lúc duyệt.
+
+Sửa triệt để cần dạy cho capability descriptor biết nền tảng nào bắt buộc thiết
+lập gì, để bộ validate kiểm tra được mà không cần biết tên nền tảng nào. Đó là
+thay đổi chạm cả bảy adapter, nên em ghi lại (**D-090/D-091**) thay vì làm lặng
+lẽ. Anh muốn em làm thì nói.

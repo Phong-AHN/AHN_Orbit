@@ -12,7 +12,10 @@
     "./facebook": "./dist/facebook/index.js",
     "./instagram": "./dist/instagram/index.js",
     "./tiktok": "./dist/tiktok/index.js",
-    "./threads": "./dist/threads/index.js"
+    "./threads": "./dist/threads/index.js",
+    "./linkedin": "./dist/linkedin/index.js",
+    "./youtube": "./dist/youtube/index.js",
+    "./pinterest": "./dist/pinterest/index.js"
   },
   "scripts": {
     "build": "tsc -b",

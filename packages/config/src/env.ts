@@ -194,9 +194,61 @@ export const serverEnvSchema = z.object({
   THREADS_APP_ID: optionalString,
   THREADS_APP_SECRET: optionalString,
 
+  /**
+   * ── LinkedIn (SRS §7) ────────────────────────────────────────────────────
+   *
+   * Posting to a company page needs `w_organization_social`, which LinkedIn
+   * grants through its Community Management API — a product an app has to be
+   * approved for. Absent credentials mean LinkedIn is not offered.
+   *
+   * `LINKEDIN_API_VERSION` is `YYYYMM` and **expires**: LinkedIn sunsets a
+   * version roughly a year after release, so this is a scheduled operational
+   * task rather than a value to set once and forget.
+   */
+  LINKEDIN_CLIENT_ID: optionalString,
+  LINKEDIN_CLIENT_SECRET: optionalString,
+  LINKEDIN_API_VERSION: z
+    .string()
+    .regex(/^\d{6}$/)
+    .default('202608'),
+
+  /**
+   * ── YouTube (SRS §7) ─────────────────────────────────────────────────────
+   *
+   * A Google Cloud OAuth client with the YouTube Data API enabled. Uploading
+   * bills against a **per-project** daily allowance rather than the requesting
+   * channel's, so one deployment's quota is shared by every client it
+   * publishes for — worth knowing before an agency schedules a hundred videos.
+   *
+   * Absent credentials mean YouTube is not offered at all.
+   */
+  YOUTUBE_CLIENT_ID: optionalString,
+  YOUTUBE_CLIENT_SECRET: optionalString,
+
+  /**
+   * ── Pinterest (SRS §7) ───────────────────────────────────────────────────
+   *
+   * A Pinterest app in **standard** access. Trial access is capped and only
+   * reaches the developer's own account, which is enough to connect and
+   * publish while an app review is pending but not enough to run clients on.
+   *
+   * Absent credentials mean Pinterest is not offered at all.
+   */
+  PINTEREST_CLIENT_ID: optionalString,
+  PINTEREST_CLIENT_SECRET: optionalString,
+
   // ── AI (SRS §51) ──────────────────────────────────────────────────────────
   GEMINI_API_KEY: optionalString,
-  GEMINI_MODEL: z.string().default('gemini-2.0-flash'),
+  /**
+   * **Google retires these on a schedule, and a retired one 404s every call.**
+   *
+   * `gemini-2.0-flash` was the default and was withdrawn — the API answers
+   * "This model is no longer available", which surfaced to users as "that could
+   * not be generated, try rewording the brief" and sent them editing a brief
+   * that was never the problem. Treat this like `LINKEDIN_API_VERSION`: a value
+   * with an expiry date, not one to set once and forget.
+   */
+  GEMINI_MODEL: z.string().default('gemini-3.6-flash'),
 
   // ── Billing (SRS §38) ─────────────────────────────────────────────────────
   STRIPE_SECRET_KEY: optionalString,

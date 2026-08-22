@@ -57,6 +57,39 @@ const SHAPES: Record<string, PreviewShape> = {
     // A URL in a TikTok caption is plain text, as on Instagram.
     linksClickable: false,
   },
+  /**
+   * YouTube, where the "caption" is two different things.
+   *
+   * A viewer sees the **title** under the player and nothing else until they
+   * expand the description, so the fold is the title's own 100-character
+   * ceiling rather than a feed's truncation. Links in a description really are
+   * clickable, which is the one respect in which the generic shape was right.
+   */
+  YOUTUBE: {
+    captionBelow: true,
+    foldAt: 100,
+    foldLabel: 'more',
+    // 16:9 is what a player draws, however the file was shot. A vertical file
+    // becomes a Short, which is a different frame — and not something this
+    // sketch should promise either way.
+    aspect: 'natural',
+    linksClickable: true,
+  },
+  /**
+   * Pinterest, which is a tall card and nothing like a feed post.
+   *
+   * The recommended 2:3 is the whole visual language of the platform, and a
+   * landscape sketch would misrepresent the crop badly. A URL in a description
+   * is plain text — the pin's destination link is a separate field, which is
+   * worth knowing before somebody writes their call to action into the body.
+   */
+  PINTEREST: {
+    captionBelow: true,
+    foldAt: 100,
+    foldLabel: 'more',
+    aspect: 'portrait',
+    linksClickable: false,
+  },
   INSTAGRAM: {
     captionBelow: true,
     // The feed shows about one line of caption. The exact figure moves; the

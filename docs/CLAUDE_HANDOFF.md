@@ -715,7 +715,9 @@ from inside), **D-066** (one request is one credit; a failed call still counts),
 
 **Configuration:** `GEMINI_API_KEY` is optional. Absent, the mock answers
 locally and production refuses at first use. `GEMINI_MODEL` defaults to
-`gemini-2.0-flash`.
+`gemini-3.6-flash` — and **has an expiry date**: Google retires models and then
+404s every call, which surfaces as "try rewording the brief" unless the adapter
+is told otherwise (**D-093**).
 
 ### Outstanding from this phase
 

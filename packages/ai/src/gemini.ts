@@ -56,17 +56,46 @@ const DEFAULT_TIMEOUT_MS = 30_000;
  */
 const TEMPERATURE = 0.7;
 
-/** A cap in tokens, so a runaway generation cannot become a runaway bill. */
-const MAX_OUTPUT_TOKENS = 1_024;
+/**
+ * A cap in tokens, so a runaway generation cannot become a runaway bill.
+ *
+ * **Thinking counts against this**, and on a reasoning model the thinking is
+ * usually far longer than the answer. At 1,024 a 300-word brief came back with
+ * 189 tokens of thinking and *seven* tokens of caption, truncated mid-word — so
+ * the ceiling is now high enough that the reply, not the reasoning, is what
+ * decides the length. The real guard against a runaway bill is the credit
+ * ledger in `features/ai/service.ts`, which counts thinking tokens too.
+ */
+const MAX_OUTPUT_TOKENS = 4_096;
 
 interface GeminiResponse {
   candidates?: Array<{
-    content?: { parts?: Array<{ text?: string }> };
+    content?: {
+      parts?: Array<{
+        text?: string;
+        /**
+         * True on a **reasoning** part, which is not the answer.
+         *
+         * Thinking models return their working alongside the reply when
+         * thought summaries are on. Reading `parts[0]` blindly would paste the
+         * model's internal monologue into a client's post.
+         */
+        thought?: boolean;
+      }>;
+    };
     finishReason?: string;
   }>;
   usageMetadata?: {
     promptTokenCount?: number;
     candidatesTokenCount?: number;
+    /**
+     * Tokens spent thinking. **Billed as output and charged against
+     * `maxOutputTokens`**, but reported separately and absent from
+     * `candidatesTokenCount` — so a cost report that ignores it can understate
+     * a call by more than tenfold. Measured on `gemini-3.6-flash`: 268 thinking
+     * tokens behind an 18-token caption.
+     */
+    thoughtsTokenCount?: number;
   };
   error?: { message?: string; status?: string };
 }
@@ -184,10 +213,33 @@ export class GeminiProvider implements AIProvider {
 
     if (!response.ok) throw this.toError(response.status, body);
 
-    const text = body.candidates?.[0]?.content?.parts?.[0]?.text;
-    const finishReason = body.candidates?.[0]?.finishReason;
+    const candidate = body.candidates?.[0];
+    const finishReason = candidate?.finishReason;
 
-    if (typeof text !== 'string' || text.trim().length === 0) {
+    /**
+     * Every part that is the answer, joined — and no part that is thinking.
+     *
+     * Two failures this replaces, both of which reach a client's post:
+     * `parts[0]` is the model's reasoning whenever thought summaries are on,
+     * and a reply split across parts was silently truncated to its first
+     * fragment.
+     */
+    const text = (candidate?.content?.parts ?? [])
+      .filter((part) => part.thought !== true && typeof part.text === 'string')
+      .map((part) => part.text as string)
+      .join('')
+      .trim();
+
+    /**
+     * Thinking is billed as output. Counted here so a credit ledger and a cost
+     * report describe what was actually spent rather than the visible tail of
+     * it.
+     */
+    const outputTokens =
+      (body.usageMetadata?.candidatesTokenCount ?? 0) +
+      (body.usageMetadata?.thoughtsTokenCount ?? 0);
+
+    if (text.length === 0) {
       // A blocked or empty completion is a normal outcome, not a crash: safety
       // filters fire on ordinary marketing copy more often than anyone expects.
       throw new ProviderValidationError(
@@ -196,7 +248,28 @@ export class GeminiProvider implements AIProvider {
           userMessage:
             finishReason === 'SAFETY'
               ? 'The model declined to write that. Try rewording the brief.'
-              : 'The model returned nothing usable. Try again.',
+              : finishReason === 'MAX_TOKENS'
+                ? 'The writing assistant ran out of room before it wrote anything. Try a shorter brief.'
+                : 'The model returned nothing usable. Try again.',
+        },
+      );
+    }
+
+    /**
+     * **A truncated caption is a failure, not a result.**
+     *
+     * `MAX_TOKENS` with text attached is the dangerous case: the reply stops
+     * mid-word and looks like a finished draft. Measured on `gemini-3.6-flash`,
+     * thinking consumed 189 of a 200-token budget and left seven tokens of
+     * caption — `"**Did you know that every sip"` — which the old code would
+     * have handed over as the caption.
+     */
+    if (finishReason === 'MAX_TOKENS') {
+      throw new ProviderValidationError(
+        `The model stopped at the token ceiling with only a fragment (${outputTokens} output tokens)`,
+        {
+          userMessage:
+            'The writing assistant ran out of room and only produced part of an answer. Try a shorter brief.',
         },
       );
     }
@@ -204,7 +277,7 @@ export class GeminiProvider implements AIProvider {
     return {
       text,
       inputTokens: body.usageMetadata?.promptTokenCount ?? 0,
-      outputTokens: body.usageMetadata?.candidatesTokenCount ?? 0,
+      outputTokens,
       latencyMs: Date.now() - started,
     };
   }
@@ -234,6 +307,22 @@ export class GeminiProvider implements AIProvider {
     if (status >= 500) {
       return new ProviderUnavailableError(`Gemini is unavailable: ${detail}`, {
         userMessage: 'The writing assistant is having trouble. Try again in a moment.',
+      });
+    }
+
+    /**
+     * **A retired model is a configuration problem, not a bad brief.**
+     *
+     * Google removes a model and answers 404 `NOT_FOUND` — "This model
+     * models/… is no longer available" — for *every* call. Falling through to
+     * the generic copy told everyone to reword a brief that was never the
+     * problem, and there is nothing a person can write that fixes it. Naming
+     * `GEMINI_MODEL` points at the one person who can.
+     */
+    if (status === 404) {
+      return new ProviderValidationError(`Gemini has no such model: ${detail}`, {
+        userMessage:
+          'The writing assistant is pointed at a model that no longer exists. An administrator has to update GEMINI_MODEL.',
       });
     }
 

@@ -101,6 +101,32 @@ describe('what a feed does to a post', () => {
     expect(notes).not.toContainEqual(expect.stringContaining('square'));
   });
 
+  /**
+   * Pinterest is a tall card. The generic shape drew it landscape, which
+   * misrepresents the one thing everybody knows about the platform.
+   */
+  it('draws Pinterest as a tall card with the title beneath it', () => {
+    const shape = previewShape('PINTEREST');
+
+    expect(shape.aspect).toBe('portrait');
+    expect(shape.captionBelow).toBe(true);
+    // A pin's destination link is its own field; a URL in the description is
+    // plain text, and somebody writing their call to action into the body
+    // should find that out here.
+    expect(shape.linksClickable).toBe(false);
+  });
+
+  /**
+   * YouTube is the one platform here whose description links really do work,
+   * so the note must *not* fire — a false warning teaches people to ignore the
+   * true ones.
+   */
+  it('says nothing about links on YouTube, where they are clickable', () => {
+    expect(
+      previewNotes({ ...base, platform: 'YOUTUBE', text: 'more at https://example.com' }),
+    ).not.toContainEqual(expect.stringContaining('not clickable'));
+  });
+
   /** A platform nobody has taught it about still draws, and claims nothing. */
   it('falls back to a generic shape for an unknown platform', () => {
     const shape = previewShape('SOME_FUTURE_NETWORK');
