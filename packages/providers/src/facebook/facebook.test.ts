@@ -191,17 +191,32 @@ describe('authorization URL', () => {
     expect(url).toContain('https://www.facebook.com/v21.0/dialog/oauth');
   });
 
-  it('requests exactly the scopes we submitted for review', () => {
+  /**
+   * **This assertion was reversed on purpose, and the reason is worth keeping.**
+   *
+   * `read_insights` was deliberately *not* requested in Phase 1 (commit
+   * cee771f): asking for it at connect time widened the App Review submission
+   * for a feature that did not ship yet. Phase 3 shipped analytics, so the
+   * trade-off inverted — and the cost of leaving it was invisible, because
+   * publishing never touches an insights scope. Every account connected while
+   * this held reads back nothing and has to be reconnected.
+   *
+   * `pages_read_user_content` was never named at all, and it is the one that
+   * gates a post's comments and reactions.
+   */
+  it('requests the scopes analytics needs, not only the ones publishing needs', () => {
     const { url, scopes } = provider(healthyGraph()).getAuthorizationUrl({
       redirectUri: 'https://app.test/cb',
       state: 's',
     });
 
-    // `read_insights` is deliberately not requested (commit cee771f). It is
-    // still exported as `FACEBOOK_INSIGHTS_SCOPE` so analytics can ask for it
-    // as an extra scope later, but asking for it at connect time widens the
-    // App Review submission for a feature Phase 1 does not ship.
-    expect(scopes).toEqual(['pages_show_list', 'pages_read_engagement', 'pages_manage_posts']);
+    expect(scopes).toEqual([
+      'pages_show_list',
+      'pages_read_engagement',
+      'pages_manage_posts',
+      'read_insights',
+      'pages_read_user_content',
+    ]);
     expect(new URL(url).searchParams.get('scope')).toBe(scopes.join(','));
   });
 
@@ -966,5 +981,105 @@ describe('publishing a Reel', () => {
     expect(video!.maxAspectRatio!).toBeGreaterThan(0.5625);
     // Square and landscape footage is.
     expect(video!.maxAspectRatio!).toBeLessThan(1);
+  });
+});
+
+/**
+ * Likes and comments, which are not Page Insights.
+ *
+ * Found in production: a post with visible likes and comments read as "not
+ * measured yet". Facebook keeps engagement on the **post object**, and
+ * `/insights` has never carried it — so the only numbers a person could see
+ * were the ones Orbit never asked for.
+ */
+describe('post engagement', () => {
+  const credential = { accessToken: 'page-token-1', scopes: [], keyVersion: 1 };
+  const ref = { externalPostId: '100000000000001_999', accountExternalId: '100000000000001' };
+
+  function graphWithEngagement(): FakeGraph {
+    return healthyGraph().on(/999\?fields=reactions/, {
+      body: {
+        id: '100000000000001_999',
+        reactions: { summary: { total_count: 12 } },
+        comments: { summary: { total_count: 3 } },
+        shares: { count: 2 },
+      },
+    });
+  }
+
+  it('reads reactions, comments and shares off the post', async () => {
+    const set = await provider(graphWithEngagement()).fetchPostAnalytics(ref, credential, {
+      from: new Date('2026-08-01'),
+      to: new Date('2026-08-22'),
+    });
+
+    expect(set.metrics['post_reactions']).toBe(12);
+    expect(set.metrics['post_comments']).toBe(3);
+    expect(set.metrics['post_shares']).toBe(2);
+    expect(set.availability['post_reactions']).toBe('AVAILABLE');
+  });
+
+  /**
+   * Insights are empty for hours after publishing while engagement is
+   * immediate. The two calls are independent so a post an hour old still
+   * reports what it has.
+   */
+  it('keeps engagement when insights come back empty', async () => {
+    const graph = graphWithEngagement().on(/\/insights/, { body: { data: [] } });
+
+    const set = await provider(graph).fetchPostAnalytics(ref, credential, {
+      from: new Date('2026-08-01'),
+      to: new Date('2026-08-22'),
+    });
+
+    expect(set.metrics['post_reactions']).toBe(12);
+  });
+
+  /**
+   * **The failure that started this.** An app without Advanced Access is
+   * refused with `(#10)`. Losing the whole capture over it is how a post with
+   * real numbers ends up showing none.
+   */
+  it('keeps insights when the engagement read is refused', async () => {
+    const graph = healthyGraph().on(/999\?fields=reactions/, {
+      status: 400,
+      body: {
+        error: {
+          message: "(#10) This endpoint requires the 'pages_read_user_content' permission",
+          code: 10,
+          type: 'OAuthException',
+        },
+      },
+    });
+
+    const set = await provider(graph).fetchPostAnalytics(ref, credential, {
+      from: new Date('2026-08-01'),
+      to: new Date('2026-08-22'),
+    });
+
+    // Refused, so unavailable — never a zero, which would claim a post nobody
+    // engaged with (SRS §18).
+    expect(set.metrics['post_reactions']).toBeUndefined();
+    expect(set.availability['post_reactions']).toBe('UNSUPPORTED');
+    expect(set.availability['post_comments']).toBe('UNSUPPORTED');
+  });
+
+  /** A post with no shares has no `shares` object. That zero is real. */
+  it('records a genuine zero for a post nobody shared', async () => {
+    const graph = healthyGraph().on(/999\?fields=reactions/, {
+      body: {
+        id: '100000000000001_999',
+        reactions: { summary: { total_count: 5 } },
+        comments: { summary: { total_count: 0 } },
+      },
+    });
+
+    const set = await provider(graph).fetchPostAnalytics(ref, credential, {
+      from: new Date('2026-08-01'),
+      to: new Date('2026-08-22'),
+    });
+
+    expect(set.metrics['post_shares']).toBe(0);
+    expect(set.availability['post_shares']).toBe('AVAILABLE');
   });
 });

@@ -21,6 +21,12 @@ const LABEL: Record<string, string> = {
   post_reactions_by_type_total: 'Reactions',
   post_clicks: 'Clicks',
 
+  // Read off the post object rather than Page Insights — the numbers a person
+  // actually sees under a Facebook post.
+  post_reactions: 'Reactions',
+  post_comments: 'Comments',
+  post_shares: 'Shares',
+
   // Instagram. `views` replaced the whole impressions family in v22.0.
   views: 'Views',
   reach: 'Reach',
@@ -121,6 +127,11 @@ export function compactNumber(value: number): string {
  */
 const PRIORITY: Record<string, readonly string[]> = {
   FACEBOOK: [
+    // Engagement first: it is what a client asks about, and it is available
+    // within seconds while insights lag for hours.
+    'post_reactions',
+    'post_comments',
+    'post_shares',
     'post_media_view',
     'post_total_media_view_unique',
     'post_reactions_by_type_total',

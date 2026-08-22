@@ -2746,6 +2746,65 @@ log.
 
 ---
 
+## D-095 — Likes and comments are not Page Insights
+
+**Context.** Reported from the running app: a Facebook post with visible likes
+and comments showed **"Not measured yet"**.
+
+Probed against the live post with its own page token rather than reasoned about.
+
+**The gap.** `fetchPostAnalytics` only ever called `/{post-id}/insights`, and
+**Page Insights has never carried likes, comments or shares.** Those live on the
+post object — `reactions.summary(true)`, `comments.summary(true)`, `shares`.
+Every number a person could see under the post was on the one edge Orbit never
+queried, and `/insights` correctly returned `{"data":[]}` for a post minutes old
+with no reach yet. Both halves were behaving; neither produced a figure.
+
+**Decision: read both edges, and let them fail independently.** Insights lag for
+hours after publishing while engagement is immediate, so a post an hour old has
+one and not the other. A failure of either must not discard the other.
+
+### Meta refuses the whole request when one field is gated
+
+The three fields sit behind **two different permissions** and `shares` behind
+none: `likes` needs `pages_read_engagement`, `comments` and `reactions` need
+`pages_read_user_content`. Asking for all three in one `fields=` call returns
+`(#10)` and **nothing at all** — which is why the first version of this fix
+still captured zero metrics.
+
+So the combined call is tried first (the cheap path once the app has Advanced
+Access), and on refusal each field is fetched on its own. On the reporting
+account that took the capture from **0 metrics to 1**: `post_shares`, the only
+field Standard Access can read. The other two report unavailable — never zero,
+which would claim a post nobody engaged with (SRS §18).
+
+### Two scopes were missing, and one had been dead since Phase 1
+
+`read_insights` was declared as `FACEBOOK_INSIGHTS_SCOPE` and **never requested
+by anything**. It was deliberately withheld in Phase 1 (commit cee771f) to keep
+the App Review submission narrow for a feature that had not shipped; Phase 3
+shipped analytics and nobody revisited it. `pages_read_user_content` was never
+named at all.
+
+Both are now in `FACEBOOK_ANALYTICS_SCOPES` and requested at connect time. **An
+account connected before this has to be reconnected** — a scope cannot be added
+to a grant already issued.
+
+The cost of the original decision was invisible because *publishing never
+touches an insights scope*: the account stayed healthy, posts went out, and the
+only symptom was an empty chart. That is the same shape as **D-094** — a
+neighbouring signal being healthy is what kept all of these hidden.
+
+### What code cannot fix
+
+`pages_read_engagement` is granted at the user level (`debug_token` confirms it
+in `granular_scopes`) and Meta still refuses the read: the app holds **Standard
+Access**, and these permissions need **Advanced Access** through App Review.
+Until that lands, likes and comments are unreadable no matter what this adapter
+does — and the honest display is "unavailable", not a zero.
+
+---
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

@@ -27,6 +27,7 @@ import { safeEquals } from '../credential-cipher.js';
 import { createHmac } from 'node:crypto';
 import { GraphClient, uploadReelSource, type GraphClientOptions } from './client.js';
 import {
+  FACEBOOK_ENGAGEMENT_METRICS,
   FACEBOOK_DEFAULT_SCOPES,
   FACEBOOK_PUBLISH_SCOPES,
   facebookPageCapabilities,
@@ -83,6 +84,38 @@ interface AccountsResponse {
 
 /** Tasks Meta grants on a Page. CREATE_CONTENT is what publishing needs. */
 const REQUIRED_PAGE_TASK = 'CREATE_CONTENT';
+
+/**
+ * What a post carries about its own engagement.
+ *
+ * `readable` records whether *any* field came back — the difference between
+ * "nobody shared this" and "we were not allowed to look".
+ */
+interface PostEngagement {
+  likes?: { summary?: { total_count?: number } };
+  reactions?: { summary?: { total_count?: number } };
+  comments?: { summary?: { total_count?: number } };
+  shares?: { count?: number };
+  readable: boolean;
+}
+
+/** The metrics that come from the post edge rather than from Page Insights. */
+const ENGAGEMENT_METRICS: readonly string[] = FACEBOOK_ENGAGEMENT_METRICS;
+
+/** Store a number, or say it was not available. Never a zero standing in. */
+function record(
+  metrics: Record<string, number>,
+  availability: MetricSet['availability'],
+  name: string,
+  value: number | undefined,
+): void {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    metrics[name] = value;
+    availability[name] = 'AVAILABLE';
+  } else {
+    availability[name] = 'UNSUPPORTED';
+  }
+}
 
 export class FacebookProvider implements SocialProvider {
   readonly platform: Platform = 'FACEBOOK';
@@ -665,12 +698,145 @@ export class FacebookProvider implements SocialProvider {
 
   // ── Analytics ─────────────────────────────────────────────────────────────
 
+  /**
+   * A published post's numbers, from **two** places.
+   *
+   * Page Insights carries reach and views. It has never carried likes, comments
+   * or shares — those live on the post object itself, behind
+   * `likes.summary(true)`, `comments.summary(true)` and `shares`. Asking only
+   * `/insights` is why a post with visible engagement reported nothing at all:
+   * every figure a person could see on Facebook was on the edge nobody queried.
+   *
+   * The two calls are independent on purpose. Insights are empty for hours
+   * after publishing and engagement is immediate, so a post an hour old has one
+   * and not the other — and a failure of either must not throw the other away.
+   */
   async fetchPostAnalytics(
     ref: ExternalPostRef,
     credential: DecryptedCredential,
   ): Promise<MetricSet> {
-    const metrics = this.capabilityCache.analytics.metrics.filter((m) => m.startsWith('post_'));
-    return this.fetchInsights(`/${ref.externalPostId}/insights`, metrics, credential);
+    const insightNames = this.capabilityCache.analytics.metrics.filter(
+      (m) => m.startsWith('post_') && !ENGAGEMENT_METRICS.includes(m),
+    );
+
+    const insights = await this.fetchInsights(
+      `/${ref.externalPostId}/insights`,
+      insightNames,
+      credential,
+    );
+
+    const engagement = await this.fetchEngagement(ref.externalPostId, credential);
+
+    return {
+      ...insights,
+      metrics: { ...insights.metrics, ...engagement.metrics },
+      availability: { ...insights.availability, ...engagement.availability },
+    };
+  }
+
+  /**
+   * Reactions, comments and shares, read off the post.
+   *
+   * Every field is requested in one call and each is allowed to fail on its
+   * own: `pages_read_user_content` gates comments and reactions while
+   * `pages_read_engagement` gates likes, and an app with Standard Access is
+   * refused some of them and not others. Meta answers `(#10)` for the whole
+   * request when any requested field is refused, so a refusal is reported as
+   * unavailable for all three rather than guessed at — never as zero, which
+   * would claim a post nobody engaged with (SRS §18).
+   */
+  private async fetchEngagement(
+    externalPostId: string,
+    credential: DecryptedCredential,
+  ): Promise<{
+    metrics: Record<string, number>;
+    availability: MetricSet['availability'];
+  }> {
+    const metrics: Record<string, number> = {};
+    const availability: MetricSet['availability'] = {};
+
+    /**
+     * One call first, then one call per field if that is refused.
+     *
+     * **Meta refuses the whole request when any single requested field is
+     * gated**, and the three fields sit behind two different permissions:
+     * `shares` needs neither, `likes` needs `pages_read_engagement`, and
+     * `comments` and `reactions` need `pages_read_user_content`. An app with
+     * Standard Access holds some and not others, so a combined request returns
+     * `(#10)` and *nothing* — which is how a post with real engagement reported
+     * not a single number.
+     *
+     * The combined call is kept because it is the cheap path once the app has
+     * Advanced Access. The per-field retry is what makes partial access useful
+     * instead of useless.
+     */
+    const combined = await this.readPostFields(
+      externalPostId,
+      'reactions.summary(true).limit(0),comments.summary(true).limit(0),shares',
+      credential,
+    );
+
+    const post = combined ?? (await this.readFieldsIndividually(externalPostId, credential));
+
+    // `reactions` counts every reaction type; `likes` counts only the thumb.
+    // Reactions is the figure a person sees under the post, so it wins where
+    // both are present.
+    const reactions = post.reactions?.summary?.total_count ?? post.likes?.summary?.total_count;
+    const comments = post.comments?.summary?.total_count;
+
+    record(metrics, availability, 'post_reactions', reactions);
+    record(metrics, availability, 'post_comments', comments);
+    /**
+     * A post with no shares carries no `shares` object at all, so an absent
+     * field is a genuine zero here — but only when the field was *readable*.
+     * `shares` needs no permission, so `post === {}` from a total refusal is
+     * the one case that must not become a zero.
+     */
+    record(
+      metrics,
+      availability,
+      'post_shares',
+      post.readable ? (post.shares?.count ?? 0) : undefined,
+    );
+
+    return { metrics, availability };
+  }
+
+  /** One `fields=` read, or undefined when Meta refuses it. */
+  private async readPostFields(
+    externalPostId: string,
+    fields: string,
+    credential: DecryptedCredential,
+  ): Promise<PostEngagement | undefined> {
+    try {
+      const body = await this.client.request<PostEngagement>({
+        path: `/${externalPostId}`,
+        params: { fields },
+        accessToken: credential.accessToken,
+      });
+      return { ...body, readable: true };
+    } catch {
+      // Deliberately swallowed: a refused field is a permission the app has not
+      // been granted, not an outage, and the caller reports it as unavailable.
+      return undefined;
+    }
+  }
+
+  /** Each field on its own, so one refusal does not hide the others. */
+  private async readFieldsIndividually(
+    externalPostId: string,
+    credential: DecryptedCredential,
+  ): Promise<PostEngagement> {
+    const parts = await Promise.all(
+      ['reactions.summary(true).limit(0)', 'comments.summary(true).limit(0)', 'shares'].map(
+        (field) => this.readPostFields(externalPostId, field, credential),
+      ),
+    );
+
+    return parts.reduce<PostEngagement>(
+      (merged, part) => (part ? { ...merged, ...part, readable: true } : merged),
+      { readable: false },
+    );
   }
 
   async fetchAccountAnalytics(

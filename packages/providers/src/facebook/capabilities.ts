@@ -17,10 +17,30 @@ export const FACEBOOK_PUBLISH_SCOPES = [
   'pages_manage_posts',
 ] as const;
 
-/** Additional scope needed for Page Insights. */
+/**
+ * Scopes required to *read back* how a post did.
+ *
+ * These were the missing half. `read_insights` was declared here and then
+ * **never requested by anything** — a dead constant — so Page Insights was
+ * asked for with a token that had no insights permission. And reading a post's
+ * reactions or comments needs `pages_read_user_content`, which was not named at
+ * all: Meta refuses `comments.summary(true)` with *"(#10) requires the
+ * 'pages_read_user_content' permission"* and the account looks healthy the whole
+ * time, because publishing never touches it.
+ *
+ * Asked for at connect time rather than on demand — a scope cannot be added to
+ * a grant that has already been issued, so an account connected before this
+ * change has to be reconnected.
+ */
+export const FACEBOOK_ANALYTICS_SCOPES = ['read_insights', 'pages_read_user_content'] as const;
+
+/** @deprecated Superseded by `FACEBOOK_ANALYTICS_SCOPES`, which is requested. */
 export const FACEBOOK_INSIGHTS_SCOPE = 'read_insights';
 
-export const FACEBOOK_DEFAULT_SCOPES = [...FACEBOOK_PUBLISH_SCOPES] as const;
+export const FACEBOOK_DEFAULT_SCOPES = [
+  ...FACEBOOK_PUBLISH_SCOPES,
+  ...FACEBOOK_ANALYTICS_SCOPES,
+] as const;
 
 /**
  * Page Insights metrics, post-deprecation.
@@ -32,7 +52,26 @@ export const FACEBOOK_DEFAULT_SCOPES = [...FACEBOOK_PUBLISH_SCOPES] as const;
  * v25.0 changelog announces another for v26.0 — those names are listed as
  * deprecated below *before* they break, so nothing gets built on one.
  */
+/**
+ * Engagement counters, which do **not** come from Page Insights.
+ *
+ * Facebook keeps these on the post object — `likes.summary(true)`,
+ * `comments.summary(true)`, `shares` — and `/insights` has never carried them.
+ * Reported here so the composer and the analytics table treat them like any
+ * other metric, but `fetchPostAnalytics` fetches them from a different edge.
+ *
+ * This is the gap that made a post with visible likes and comments read as
+ * "not measured yet": every number a person could see on Facebook lived on the
+ * one edge Orbit never asked for.
+ */
+export const FACEBOOK_ENGAGEMENT_METRICS = [
+  'post_reactions',
+  'post_comments',
+  'post_shares',
+] as const;
+
 const AVAILABLE_METRICS = [
+  ...FACEBOOK_ENGAGEMENT_METRICS,
   'page_media_view',
   'post_media_view',
   'page_total_media_view_unique',
