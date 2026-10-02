@@ -11,3 +11,4 @@ export * from './ids.js';
 export * from './clock.js';
 export * from './content-hash.js';
 export * from './tenant.js';
+export { withProbeBudget, type ProbeOutcome } from './probe-budget.js';
