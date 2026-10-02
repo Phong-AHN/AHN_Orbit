@@ -2805,6 +2805,89 @@ does — and the honest display is "unavailable", not a zero.
 
 ---
 
+## D-096 — The proof-on-paper identity, and what OpenUI is not for
+
+**Context.** Asked to "use OpenUI and the frontend-design skill to redo the UI,
+and make features easier to reach".
+
+### OpenUI was the wrong tool, and that is worth writing down
+
+OpenUI is a **generative UI** framework: OpenUI Lang is a language for a *model*
+to emit UI at runtime, plus a chat shell. It is not a component library, no
+`@openuidev/*` package was installed, and its own skill says not to use it for
+design-system work.
+
+Rebuilding Orbit's 34 pages on model-generated UI would also contradict this
+product's own rules. The approval queue, the publishing log and every
+RBAC-gated screen have to be deterministic and auditable; a model composing
+them is the same category of risk as letting AI write into content without
+acceptance (**D-067**).
+
+**Where it does belong:** the AI assistant. Gemini currently returns plain text
+into a textarea. A generative panel — per-platform caption cards to choose
+from, a repurpose panel, idea boards — is exactly what OpenUI is for, is bounded
+to a surface that is already advisory, and needs a Thesys account first. Not
+built; recorded as the honest place for it.
+
+### The identity: a proof on paper
+
+The chosen direction was editorial. The first palette drafted for it was warm
+cream, a serif, and a clay accent — which is, almost exactly, the generated-page
+cliché the design skill warns about (cream near `#F4F1EA`, serif display, clay
+near `#D97757`). The brief's own words win on paper-and-serif, but the paper's
+hue and the accent were free axes, so three things changed:
+
+1. **The paper is biased yellow-green, not orange.** Manila and newsprint rather
+   than latte, keeping the existing system's discipline of hue-biased neutrals.
+2. **Proof red replaced the clay.** `hsl(357 52% 38%)` — a proof-reader's pencil.
+   It is subject-grounded: it is the colour of "send this back for changes",
+   which is a real state in the publishing state machine, not a decoration.
+3. **`--accent` stayed meaningful, not decorative.** It is ink-green and still
+   carries "settled / approved / verified", as the previous palette's own comment
+   said it should.
+
+**What the design spends its boldness on:** `PageHeader` became a masthead — the
+page's name in the display face above a single rule. Everything around it went
+quieter: `Card` lost its shadow, `Stat` lost its shadow, radii now vary by
+hierarchy (controls `sm`, panels default, overlays `lg`) instead of one radius on
+everything. Separation is the job of rules and whitespace.
+
+**Typefaces:** Fraunces for display (variable, kept variable because `next/font`
+rejects `axes` beside a fixed weight list — and optical sizing is why it was
+chosen), Source Sans 3 for body. Both were **checked against Google's subset
+list for `vietnamese`** before being chosen: client and brand names reach
+headings directly, and a face without the subset renders "Nguyễn" out of a
+fallback, which reads as a rendering bug.
+
+**Four typographic habits were removed** from the design system and two app
+files: monospace standing in for "data", capitals standing in for "label",
+letter-spacing standing in for care, and the tracked-out eyebrow above every
+heading. `grep -rn uppercase` across `packages/ui/src` and `apps/web/src` now
+returns nothing. Two of those tells were in panels written earlier in the same
+session.
+
+### Contrast was measured, not eyeballed
+
+Changing every colour while accessibility is still an open ⚠️ P0 is the wrong
+moment to trust an eye. Both themes were scored against WCAG for twelve
+foreground/background pairs. One real failure turned up: `--ink-muted` at 45%
+lightness gave **4.27:1** on `--surface`, under AA for normal text — and that
+token carries hints and timestamps, which are normal size. At 42% it measures
+**4.79:1**. Nothing else fell below 4.5 in either theme.
+
+### Not verified: how it actually looks
+
+**No screenshot was taken and no page was rendered.** There is no browser
+tooling in this environment, and local `dev` cannot reach a database because
+`.env` still points at the deleted Supabase project (**D-094** aftermath). So
+this change is verified by typecheck, lint, 1,078 unit tests, a production
+build, and measured contrast — and *not* by looking at it. The layout work
+across the 34 pages, which mostly inherits from these tokens, has not been
+reviewed on screen either. Treat the identity as landed and the page-level
+composition as unreviewed.
+
+---
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

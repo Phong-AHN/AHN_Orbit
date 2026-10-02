@@ -269,9 +269,7 @@ export function TikTokOptionsPanel({
           ) : null}
 
           <fieldset className="space-y-1.5">
-            <legend className="text-xs font-medium uppercase tracking-wide text-ink-muted">
-              Interactions
-            </legend>
+            <legend className="text-xs font-medium text-ink-muted">Interactions</legend>
 
             <Interaction
               id={`tiktok-comment-${socialAccountId}`}

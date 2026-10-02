@@ -3,13 +3,17 @@ import { cn } from '../lib/cn';
 
 // ── Card ────────────────────────────────────────────────────────────────────
 
+/**
+ * A panel.
+ *
+ * No shadow: this design separates things with rules and whitespace, and a
+ * soft grey shadow under every card is what makes a page read as a kit of
+ * identical boxes. The radius is the middle step of the scale — inputs sit
+ * tighter, only overlays sit looser — so the radius itself says what kind of
+ * surface this is.
+ */
 export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      className={cn('rounded-lg border border-line bg-surface shadow-sm', className)}
-      {...props}
-    />
-  );
+  return <div className={cn('rounded border border-line bg-surface', className)} {...props} />;
 }
 
 export function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
@@ -18,7 +22,10 @@ export function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDiv
 
 export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
-    <h2 className={cn('text-sm font-semibold tracking-tight text-ink', className)} {...props} />
+    <h2
+      className={cn('font-display text-display-sm font-semibold text-ink', className)}
+      {...props}
+    />
   );
 }
 
@@ -51,8 +58,8 @@ export function Badge({ className, tone = 'neutral', ...props }: BadgeProps) {
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded border px-2 py-0.5',
-        'text-xs font-medium tracking-wide',
+        'inline-flex items-center gap-1 rounded-sm border px-2 py-0.5',
+        'text-xs font-medium',
         BADGE_TONES[tone],
         className,
       )}
@@ -122,7 +129,7 @@ export const Input = React.forwardRef<
     <input
       ref={ref}
       className={cn(
-        'h-9 w-full rounded border border-line-strong bg-surface px-3 text-sm text-ink',
+        'h-9 w-full rounded-sm border border-line-strong bg-surface px-3 text-sm text-ink',
         'placeholder:text-ink-muted',
         'aria-[invalid=true]:border-danger',
         'disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-muted',
@@ -149,7 +156,7 @@ export const Select = React.forwardRef<
     <select
       ref={ref}
       className={cn(
-        'h-9 w-full rounded border border-line-strong bg-surface px-2.5 text-sm text-ink',
+        'h-9 w-full rounded-sm border border-line-strong bg-surface px-2.5 text-sm text-ink',
         'aria-[invalid=true]:border-danger',
         'disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-muted',
         className,
@@ -167,7 +174,7 @@ export const Textarea = React.forwardRef<
     <textarea
       ref={ref}
       className={cn(
-        'w-full rounded border border-line-strong bg-surface px-3 py-2 text-sm text-ink',
+        'w-full rounded-sm border border-line-strong bg-surface px-3 py-2 text-sm text-ink',
         'placeholder:text-ink-muted',
         'aria-[invalid=true]:border-danger',
         'disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-muted',
@@ -187,19 +194,33 @@ export interface PageHeaderProps {
   eyebrow?: React.ReactNode;
 }
 
+/**
+ * The masthead, and the one place this design raises its voice.
+ *
+ * Everything else on a screen stays quiet — no shadows, few boxes — so the
+ * page's own name can be set large in the display face above a single rule.
+ * That rule is the whole device: it does the job a row of bordered cards was
+ * doing, with one line.
+ *
+ * The eyebrow is a **dateline**: sentence case, in the body face, at reading
+ * weight. It used to be tracked-out monospace capitals, which is three
+ * generated-page habits in one line — a monospace face standing in for
+ * "data", capitals standing in for "label", and letter-spacing standing in
+ * for care. It says which client and which day; it does not need to shout.
+ */
 export function PageHeader({ title, description, actions, eyebrow }: PageHeaderProps) {
   return (
-    <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
-      <div className="min-w-0">
-        {eyebrow ? (
-          <p className="mb-1 font-mono text-xs uppercase tracking-widest text-accent">{eyebrow}</p>
-        ) : null}
-        <h1 className="text-xl font-semibold tracking-tight text-ink">{title}</h1>
-        {description ? (
-          <p className="mt-1 max-w-prose text-sm text-ink-muted">{description}</p>
-        ) : null}
+    <header className="mb-6 border-b border-line pb-4">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+        <div className="min-w-0">
+          {eyebrow ? <p className="mb-1.5 text-sm text-ink-muted">{eyebrow}</p> : null}
+          <h1 className="font-display text-display font-semibold text-ink">{title}</h1>
+        </div>
+        {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </div>
-      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+      {description ? (
+        <p className="mt-3 max-w-measure text-sm text-ink-secondary">{description}</p>
+      ) : null}
     </header>
   );
 }
@@ -208,7 +229,7 @@ export function PageHeader({ title, description, actions, eyebrow }: PageHeaderP
 export function Scroller({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('overflow-x-auto rounded-lg border border-line bg-surface', className)}
+      className={cn('overflow-x-auto rounded border border-line bg-surface', className)}
       {...props}
     />
   );

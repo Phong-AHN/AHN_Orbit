@@ -48,7 +48,7 @@ export function TH({
     <th
       scope="col"
       className={cn(
-        'whitespace-nowrap px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-ink-muted',
+        'whitespace-nowrap px-4 py-2.5 text-xs font-semibold text-ink-muted',
         align === 'right' && 'text-right',
         align === 'center' && 'text-center',
         align === 'left' && 'text-left',
@@ -101,13 +101,20 @@ const STAT_TONES: Record<NonNullable<StatProps['tone']>, string> = {
 export function Stat({ label, value, hint, tone = 'neutral', href }: StatProps) {
   const body = (
     <>
-      <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">{label}</dt>
-      <dd className={cn('mt-1 text-2xl font-semibold tabular-nums', STAT_TONES[tone])}>{value}</dd>
+      <dt className="order-2 text-xs font-medium text-ink-muted">{label}</dt>
+      <dd
+        className={cn(
+          'order-1 font-display text-display font-semibold tabular-nums',
+          STAT_TONES[tone],
+        )}
+      >
+        {value}
+      </dd>
       {hint ? <p className="mt-1 text-xs text-ink-muted">{hint}</p> : null}
     </>
   );
 
-  const shell = 'rounded-lg border border-line bg-surface px-4 py-3 shadow-sm';
+  const shell = 'rounded border border-line bg-surface px-4 py-3';
 
   if (href) {
     return (

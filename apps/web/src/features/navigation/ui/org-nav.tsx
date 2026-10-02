@@ -80,9 +80,7 @@ export function OrgNav({ groups }: OrgNavProps) {
           <div className="mx-auto max-w-6xl space-y-4 px-6 py-4">
             {groups.map((group) => (
               <div key={group.label}>
-                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">
-                  {group.label}
-                </p>
+                <p className="mb-1 text-xs font-semibold text-ink-muted">{group.label}</p>
                 <div className="flex flex-col">
                   {group.items.map((item) => (
                     <NavLink key={item.href} {...item} active={item.href === activeHref} block />
