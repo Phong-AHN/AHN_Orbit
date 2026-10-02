@@ -14,7 +14,13 @@ export {
 } from './session.js';
 
 export { devIdentityProvider, assertDevelopmentOnly, resetDevSessions } from './dev-provider.js';
-export { firebaseIdentityProvider } from './firebase-provider.js';
+export {
+  firebaseIdentityProvider,
+  probeIdentityProvider,
+  classifyIdentityProbeError,
+  type IdentityProbeResult,
+  type IdentityProbeFailure,
+} from './firebase-provider.js';
 
 export {
   resolveUser,

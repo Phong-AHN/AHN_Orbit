@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { HeadBucketCommand } from '@aws-sdk/client-s3';
+import { probeIdentityProvider } from '@orbit/auth';
 import { describeEnv, serverEnv } from '@orbit/config';
 import { clock } from '@orbit/core';
 import { platformDb } from '@orbit/db';
@@ -82,6 +83,43 @@ async function workerCheck(): Promise<Check> {
   }
 }
 
+/**
+ * Can anybody sign in?
+ *
+ * The other checks cover the things a request needs *after* authentication, and
+ * every one of them can be green while sign-in is impossible — which is exactly
+ * the outage that is hardest to place, because the app looks fine until a
+ * person tries to get in.
+ *
+ * The reason is a category, never a message: this route answers without a
+ * session, so it has to be useful to an operator and useless to anyone else.
+ */
+async function authCheck(): Promise<Check> {
+  const started = Date.now();
+
+  try {
+    const result = await probeIdentityProvider();
+
+    return {
+      name: 'auth',
+      ok: result.ok,
+      latencyMs: Date.now() - started,
+      ...(result.ok ? {} : { detail: REASONS[result.reason] }),
+    };
+  } catch (error) {
+    logError('health check failed: auth', error, { check: 'auth' });
+    return { name: 'auth', ok: false, latencyMs: Date.now() - started, detail: 'unreachable' };
+  }
+}
+
+/** Each reason says where to look, without saying anything about the key. */
+const REASONS: Record<string, string> = {
+  NOT_CONFIGURED: 'FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL or FIREBASE_PRIVATE_KEY is not set',
+  CREDENTIAL_REJECTED:
+    'the service account was rejected — wrong project, revoked key, or a malformed private key',
+  UNREACHABLE: 'the identity provider could not be reached',
+};
+
 export async function GET() {
   const checks = await Promise.all([
     check('database', () => platformDb.$queryRaw`SELECT 1`),
@@ -91,6 +129,9 @@ export async function GET() {
     // A `HeadBucket` rather than a read: it proves reachability and credentials
     // without touching an object, so the probe cannot become a way to fetch one.
     check('storage', () => s3().send(new HeadBucketCommand({ Bucket: serverEnv().S3_BUCKET }))),
+    // Listed with the dependencies because that is what it is: without it the
+    // app is reachable, healthy, and impossible to enter.
+    authCheck(),
     workerCheck(),
   ]);
 

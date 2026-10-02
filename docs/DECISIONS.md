@@ -2888,6 +2888,70 @@ composition as unreviewed.
 
 ---
 
+## D-097 — The health check had no answer for "nobody can sign in"
+
+**Context.** Asked for a health API that says which environment is broken,
+because sign-in was failing.
+
+`/api/health/deep` already checked database, Redis, storage and the worker, and
+reported configuration by presence. **It did not check authentication** — the one
+dependency whose failure looks exactly like the symptom being reported. Every
+other check can be green while nobody can get in, and that is the hardest
+outage to place, because the app looks healthy until a person tries the door.
+
+**Decision: `probeIdentityProvider()` asks for a user at an address that cannot
+exist.** `orbit-health-probe@orbit.invalid` uses a TLD reserved by RFC 2606, so
+it can never belong to anyone. A `user-not-found` is the **success** case: the
+request was signed, accepted and answered, which proves the service account
+works — without reading a real user, minting a token or writing anything.
+
+`verifyIdToken` would be the obvious probe and is the wrong one: a malformed
+token fails locally before any credential is used, so it reports a healthy
+provider while the service account is broken.
+
+### What the endpoint is allowed to say
+
+It answers **without a session** — it has to, because the thing it exists to
+diagnose is a sign-in that will not work. So the reason is one of three fixed
+categories and never a provider message:
+
+| Reason | Where to look |
+|---|---|
+| `NOT_CONFIGURED` | the three `FIREBASE_*` variables |
+| `CREDENTIAL_REJECTED` | wrong project, revoked key, malformed PEM — or a drifted clock |
+| `UNREACHABLE` | the network |
+
+Clock drift is filed under `CREDENTIAL_REJECTED` deliberately: a machine far
+enough out of sync signs a JWT that Google reads as expired and answers
+`invalid_grant`. It is neither a bad key nor an outage, but it *is* Google
+refusing the credential, which is the half of the system to go and look at.
+
+`classifyIdentityProbeError` is split out and exported because it is the only
+part worth testing — pure, alias-free, and the place this gets quietly wrong. A
+rejected service account filed as `UNREACHABLE` sends an operator to a status
+page instead of to their own key. Nine tests cover the three error shapes
+Firebase actually produces (a `code`, a nested `errorInfo.code`, a bare
+message), and one asserts that a provider message containing a project id and a
+key cannot escape through the return value. Verified by sabotage.
+
+**`describeEnv` gained `hasFirebaseClient`.** The three `NEXT_PUBLIC_FIREBASE_*`
+variables are the *browser* half of sign-in. A deployment can hold a perfect
+service account and still refuse every sign-in because one of them is missing,
+and from the server's side everything looks fine. Reported separately for that
+reason, alongside `usesFirebaseEmulator`.
+
+### What it found, which was nothing
+
+Run against the live app, every check came back green — including `auth`, with a
+real 707 ms round trip to Google. The reported sign-in failure was **not an
+environment problem at all**: the local database carries one user with a
+membership in one organization, and signing in as anyone else lands correctly on
+`/orgs` with "You are not in an organization yet". Worth recording, because a
+health endpoint that says "everything is fine" is doing its job when that is
+true, and the next place to look is data rather than configuration.
+
+---
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

@@ -405,6 +405,20 @@ export function describeEnv(env: ServerEnv = serverEnv()): Record<string, string
     graphVersion: env.FACEBOOK_GRAPH_VERSION,
     aiModel: env.GEMINI_MODEL,
     hasFirebaseAdmin: Boolean(env.FIREBASE_PROJECT_ID && env.FIREBASE_PRIVATE_KEY),
+    /**
+     * The *browser* half of sign-in, and reported separately on purpose.
+     *
+     * These three are what the sign-in page needs to reach Firebase at all. A
+     * deployment can have a perfect service account and still refuse every
+     * sign-in because one of these is missing — and from the server's side
+     * everything looks healthy, which is the worst kind of outage to diagnose.
+     */
+    hasFirebaseClient: Boolean(
+      env.NEXT_PUBLIC_FIREBASE_API_KEY &&
+      env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN &&
+      env.NEXT_PUBLIC_FIREBASE_APP_ID,
+    ),
+    usesFirebaseEmulator: Boolean(env.FIREBASE_AUTH_EMULATOR_HOST),
     hasFacebookApp: Boolean(env.FACEBOOK_APP_ID && env.FACEBOOK_APP_SECRET),
     hasGemini: Boolean(env.GEMINI_API_KEY),
     hasStripe: Boolean(env.STRIPE_SECRET_KEY),

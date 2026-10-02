@@ -64,6 +64,106 @@ function toIdentity(claims: {
   };
 }
 
+/**
+ * Why the identity provider is not usable, in categories safe to publish.
+ *
+ * The health endpoint is reachable without a session — it has to be, because
+ * the thing it most needs to diagnose is a sign-in that will not work. So what
+ * it says must be useful to an operator and useless to everyone else: these
+ * four values name the *class* of failure and never a project id, an email, a
+ * key, or a provider message.
+ */
+export type IdentityProbeFailure =
+  /** Env vars absent. The server cannot even construct a credential. */
+  | 'NOT_CONFIGURED'
+  /** Google rejected the service account: wrong project, revoked key, bad PEM. */
+  | 'CREDENTIAL_REJECTED'
+  /** Credential looks fine; Google could not be reached. */
+  | 'UNREACHABLE';
+
+export type IdentityProbeResult = { ok: true } | { ok: false; reason: IdentityProbeFailure };
+
+/**
+ * Sort a probe failure into a category.
+ *
+ * Split out and exported because it is the only part worth testing: it is pure,
+ * it has no `@/` import, and the mapping is where this gets quietly wrong. A
+ * misfiled error turns "your service account is for the wrong project" into
+ * "Google is down", and those send an operator in opposite directions.
+ *
+ * Firebase reports the same underlying problem through several shapes — a
+ * `code`, a wrapped `errorInfo.code`, or only a message — so all three are
+ * read.
+ */
+export function classifyIdentityProbeError(error: unknown): IdentityProbeFailure {
+  const parts = [
+    (error as { code?: unknown })?.code,
+    (error as { errorInfo?: { code?: unknown } })?.errorInfo?.code,
+    (error as { message?: unknown })?.message,
+  ]
+    .filter((part): part is string => typeof part === 'string')
+    .join(' ')
+    .toLowerCase();
+
+  // Checked before the credential patterns: "invalid_grant" also appears when a
+  // machine's clock has drifted far enough for the signed JWT to look expired,
+  // and that is neither a bad key nor an outage — but it is still Google
+  // refusing the credential, which is where an operator should look.
+  if (
+    parts.includes('invalid-credential') ||
+    parts.includes('invalid_grant') ||
+    parts.includes('invalid jwt') ||
+    parts.includes('pem') ||
+    parts.includes('decoder') ||
+    parts.includes('project-not-found') ||
+    parts.includes('insufficient permission') ||
+    parts.includes('unauthorized')
+  ) {
+    return 'CREDENTIAL_REJECTED';
+  }
+
+  return 'UNREACHABLE';
+}
+
+/**
+ * Can this process actually act as the Firebase Admin?
+ *
+ * Asks for a user at an address that cannot exist. A `user-not-found` is the
+ * **success** case: it means the request was signed, accepted and answered, so
+ * the service account works — and it proves that without reading a real user,
+ * minting a token, or writing anything.
+ *
+ * `verifyIdToken` would be the obvious probe and is the wrong one: a malformed
+ * token fails locally before any credential is used, so it reports a healthy
+ * provider when the service account is broken.
+ */
+export async function probeIdentityProvider(): Promise<IdentityProbeResult> {
+  const env = serverEnv();
+  if (!env.FIREBASE_PROJECT_ID || !env.FIREBASE_CLIENT_EMAIL || !env.FIREBASE_PRIVATE_KEY) {
+    return { ok: false, reason: 'NOT_CONFIGURED' };
+  }
+
+  try {
+    // `.invalid` is reserved by RFC 2606 and can never be registered, so this
+    // address cannot belong to anyone.
+    await adminAuth().getUserByEmail('orbit-health-probe@orbit.invalid');
+    // Reaching here would mean the address exists, which is impossible — but a
+    // round trip is a round trip, so the provider works.
+    return { ok: true };
+  } catch (error) {
+    const code = [
+      (error as { code?: unknown })?.code,
+      (error as { errorInfo?: { code?: unknown } })?.errorInfo?.code,
+    ].find((part): part is string => typeof part === 'string');
+
+    if (code?.includes('user-not-found') || code?.includes('email-already-exists')) {
+      return { ok: true };
+    }
+
+    return { ok: false, reason: classifyIdentityProbeError(error) };
+  }
+}
+
 export const firebaseIdentityProvider: IdentityProvider = {
   kind: 'firebase',
 
