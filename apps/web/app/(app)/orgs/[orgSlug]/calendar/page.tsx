@@ -71,7 +71,7 @@ export default async function CalendarPage({ params, searchParams }: PageProps) 
     })
   ) {
     return (
-      <main id="main" className="mx-auto max-w-6xl px-6 py-10">
+      <main id="main" className="mx-auto max-w-content-wide px-4 sm:px-6 py-10">
         <PermissionDenied action="see the calendar" />
       </main>
     );
@@ -131,7 +131,7 @@ export default async function CalendarPage({ params, searchParams }: PageProps) 
   });
 
   return (
-    <main id="main" className="mx-auto max-w-6xl px-6 py-10">
+    <main id="main" className="mx-auto max-w-content-wide px-4 sm:px-6 py-10">
       <PageHeader
         eyebrow={organization.name}
         title="Calendar"

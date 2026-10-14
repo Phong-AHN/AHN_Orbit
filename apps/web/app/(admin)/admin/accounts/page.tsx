@@ -22,7 +22,7 @@ export default async function AdminAccountsPage() {
   const broken = accounts.filter((account) => account.status === 'NEEDS_RECONNECT');
 
   return (
-    <main id="main" className="mx-auto max-w-5xl px-6 py-10">
+    <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
       <PageHeader
         title="Connections"
         description="Platform-wide connection status. Names and Page ids stay with the agency."

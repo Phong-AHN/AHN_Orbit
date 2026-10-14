@@ -164,6 +164,29 @@ platform. `SKIP_ENV_VALIDATION=true` is the designed seam for `next build`, whic
    The worker gains a `reports` queue with this release. It needs no configuration — queues are
    declared in code — but a worker deployed **before** the migration will fail every render job it
    picks up.
+
+   **Also outstanding, and currently broken in production:
+   `20261013000000_social_comments`.** Creates the `SocialComment` table plus the
+   `SocialCommentOrigin` and `SocialCommentState` enums, with RLS, five composite tenant foreign
+   keys and two check constraints.
+
+   **This one is not merely additive-and-waiting — the code is already deployed without it.**
+   Migrations are applied by hand (this section), not by the Vercel build, so commit `61e3cb9`
+   shipped `/orgs/{slug}/community` and its four API routes to a database that has no table behind
+   them. Every request to that page fails on its first query. Nothing else is affected: no other
+   feature reads the table, and publishing, analytics and approvals are untouched.
+
+   Applying it fixes the page. The queue will then be **empty** until two further things happen,
+   neither of which a migration can do:
+
+   - The worker must be running the release that has the `engagement` queue, since that is what
+     reads comments back.
+   - Every Facebook account must be **reconnected**. Replying needs
+     `pages_manage_engagement`, a new scope that also requires App Review, and a scope cannot be
+     added to a grant already issued. Until an account is reconnected its queue can be read and
+     Reply will refuse — which the product says in advance rather than discovering at the button,
+     because the descriptor names the scope under `engagement.replyScopes`.
+
 2. **Worker.** It drains on SIGTERM and reports `outcome: DRAINED`. **Do not set the grace period
    below 90s** — a publish may be mid-call with a 60s timeout, and killing it produces a variant
    stuck in `PUBLISHING` whose outcome nobody knows (`RUNBOOK.md` §3.3).

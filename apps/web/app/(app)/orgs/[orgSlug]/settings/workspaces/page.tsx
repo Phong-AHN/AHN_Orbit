@@ -64,7 +64,7 @@ export default async function WorkspacesPage({ params, searchParams }: PageProps
 
   if (!pageCan(ctx, 'workspace:read')) {
     return (
-      <main id="main" className="mx-auto max-w-4xl px-6 py-10">
+      <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
         <PermissionDenied action="see client workspaces" />
       </main>
     );
@@ -79,7 +79,7 @@ export default async function WorkspacesPage({ params, searchParams }: PageProps
   const mayConnect = pageCan(ctx, 'social_account:connect');
 
   return (
-    <main id="main" className="mx-auto max-w-4xl px-6 py-10">
+    <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
       <PageHeader
         eyebrow={organization.name}
         title="Clients & brands"

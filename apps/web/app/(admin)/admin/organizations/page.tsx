@@ -20,7 +20,7 @@ export default async function AdminOrganizationsPage() {
   const organizations = await listOrganizations();
 
   return (
-    <main id="main" className="mx-auto max-w-5xl px-6 py-10">
+    <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
       <PageHeader title="Organizations" description="Who is on the platform, and how big." />
 
       {organizations.length === 0 ? (

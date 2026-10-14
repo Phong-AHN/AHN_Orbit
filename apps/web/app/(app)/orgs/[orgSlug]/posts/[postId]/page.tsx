@@ -71,7 +71,7 @@ export default async function ComposerPage({ params }: PageProps) {
 
   if (!pageCan(ctx, 'post:read', scope)) {
     return (
-      <main id="main" className="mx-auto max-w-6xl px-6 py-10">
+      <main id="main" className="mx-auto max-w-content-wide px-4 sm:px-6 py-10">
         <PermissionDenied action="open this post" />
       </main>
     );
@@ -167,7 +167,7 @@ export default async function ComposerPage({ params }: PageProps) {
   }));
 
   return (
-    <main id="main" className="mx-auto max-w-6xl px-6 py-10">
+    <main id="main" className="mx-auto max-w-content-wide px-4 sm:px-6 py-10">
       <PageHeader
         eyebrow={organization.name}
         title={post.title ?? 'Untitled post'}

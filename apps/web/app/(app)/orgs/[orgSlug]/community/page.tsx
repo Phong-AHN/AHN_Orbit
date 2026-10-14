@@ -50,7 +50,7 @@ export default async function CommunityPage({ params, searchParams }: PageProps)
 
   if (!pageCanSomewhere(ctx, 'comment:read_public')) {
     return (
-      <main id="main" className="mx-auto max-w-4xl px-6 py-10">
+      <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
         <PermissionDenied action="see the community inbox" />
       </main>
     );
@@ -80,7 +80,7 @@ export default async function CommunityPage({ params, searchParams }: PageProps)
   const canReply = pageCanSomewhere(ctx, 'comment:reply');
 
   return (
-    <main id="main" className="mx-auto max-w-4xl px-6 py-10">
+    <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
       <PageHeader
         eyebrow={organization.name}
         title="Community"

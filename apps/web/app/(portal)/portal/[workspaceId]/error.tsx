@@ -12,7 +12,7 @@ import { ErrorState } from '@orbit/ui';
  */
 export default function PortalError({ reset }: { error: Error; reset: () => void }) {
   return (
-    <main id="main" className="mx-auto max-w-3xl px-6 py-16">
+    <main id="main" className="mx-auto max-w-3xl px-4 py-16 sm:px-6">
       <ErrorState
         title="Something went wrong"
         description="We couldn't load this just now. Trying again usually works — if it keeps happening, let your agency know."

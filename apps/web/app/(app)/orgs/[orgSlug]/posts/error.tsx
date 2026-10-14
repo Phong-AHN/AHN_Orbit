@@ -18,7 +18,7 @@ export default function PostsError({
   reset: () => void;
 }) {
   return (
-    <main id="main" className="mx-auto max-w-3xl px-6 py-16">
+    <main id="main" className="mx-auto max-w-3xl px-4 py-16 sm:px-6">
       <ErrorState
         title="This page didn't load"
         description="Something went wrong on our side. Trying again often works."

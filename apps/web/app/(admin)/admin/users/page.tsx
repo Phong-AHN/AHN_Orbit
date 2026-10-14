@@ -18,7 +18,7 @@ export default async function AdminUsersPage() {
   const users = await listUsers();
 
   return (
-    <main id="main" className="mx-auto max-w-5xl px-6 py-10">
+    <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
       <PageHeader title="Users" description="Accounts on the platform." />
 
       {users.length === 0 ? (

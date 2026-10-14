@@ -48,7 +48,7 @@ export default async function PublishingPage({ params, searchParams }: PageProps
 
   if (!pageCan(ctx, 'post:read')) {
     return (
-      <main id="main" className="mx-auto max-w-5xl px-6 py-10">
+      <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
         <PermissionDenied action="see publishing logs" />
       </main>
     );
@@ -71,7 +71,7 @@ export default async function PublishingPage({ params, searchParams }: PageProps
   ]);
 
   return (
-    <main id="main" className="mx-auto max-w-5xl px-6 py-10">
+    <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
       <PageHeader
         eyebrow={organization.name}
         title="Publishing"

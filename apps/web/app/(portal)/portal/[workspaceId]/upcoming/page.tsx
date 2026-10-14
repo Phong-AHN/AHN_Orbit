@@ -25,7 +25,7 @@ export default async function PortalUpcomingPage({ params }: PageProps) {
   const posts = await listPortalCalendar(ctx, workspaceId, { from, to });
 
   return (
-    <main id="main" className="mx-auto max-w-3xl px-6 py-10">
+    <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
       <PageHeader
         eyebrow={workspace.name}
         title="Upcoming"

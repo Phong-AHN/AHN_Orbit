@@ -36,7 +36,7 @@ export default async function MembersPage({ params }: PageProps) {
 
   if (!pageCan(ctx, 'member:list')) {
     return (
-      <main id="main" className="mx-auto max-w-4xl px-6 py-10">
+      <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
         <PermissionDenied action="see the team" />
       </main>
     );
@@ -61,7 +61,7 @@ export default async function MembersPage({ params }: PageProps) {
   const inactive = members.filter((member) => member.status !== 'ACTIVE');
 
   return (
-    <main id="main" className="mx-auto max-w-4xl space-y-8 px-6 py-10">
+    <main id="main" className="mx-auto max-w-content space-y-8 px-4 py-10 sm:px-6">
       <PageHeader
         eyebrow={organization.name}
         title="Team"

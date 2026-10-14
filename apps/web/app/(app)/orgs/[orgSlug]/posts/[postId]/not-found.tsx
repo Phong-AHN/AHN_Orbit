@@ -7,7 +7,7 @@ import { Empty } from '@orbit/ui';
  */
 export default function PostNotFound() {
   return (
-    <main id="main" className="mx-auto max-w-3xl px-6 py-16">
+    <main id="main" className="mx-auto max-w-3xl px-4 py-16 sm:px-6">
       <Empty
         title="That post isn't here"
         description="It may have been deleted, or the link may be wrong."

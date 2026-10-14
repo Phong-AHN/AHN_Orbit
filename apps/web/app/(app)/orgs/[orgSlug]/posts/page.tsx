@@ -53,7 +53,7 @@ export default async function PostsPage({ params, searchParams }: PageProps) {
     })
   ) {
     return (
-      <main id="main" className="mx-auto max-w-5xl px-6 py-10">
+      <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
         <PermissionDenied action="see posts here" />
       </main>
     );
@@ -72,7 +72,7 @@ export default async function PostsPage({ params, searchParams }: PageProps) {
   });
 
   return (
-    <main id="main" className="mx-auto max-w-5xl px-6 py-10">
+    <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
       <PageHeader
         eyebrow={organization.name}
         title="Posts"

@@ -120,7 +120,7 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
 
   if (!pageCan(ctx, 'social_account:connect', { workspaceId })) {
     return (
-      <main id="main" className="mx-auto max-w-2xl px-6 py-10">
+      <main id="main" className="mx-auto max-w-content-narrow px-4 sm:px-6 py-10">
         <PermissionDenied action="connect social accounts" />
       </main>
     );
@@ -209,7 +209,7 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
     );
 
   return (
-    <main id="main" className="mx-auto max-w-2xl px-6 py-10">
+    <main id="main" className="mx-auto max-w-content-narrow px-4 sm:px-6 py-10">
       <PageHeader
         eyebrow={organization.name}
         title={`Connect ${PLATFORM_ARTICLE[platform]} to ${brand.name}`}

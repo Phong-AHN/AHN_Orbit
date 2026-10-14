@@ -28,7 +28,7 @@ export default async function NewPostPage({ params }: PageProps) {
 
   if (!pageCan(ctx, 'post:create')) {
     return (
-      <main id="main" className="mx-auto max-w-2xl px-6 py-10">
+      <main id="main" className="mx-auto max-w-content-narrow px-4 sm:px-6 py-10">
         <PermissionDenied action="create posts" />
       </main>
     );
@@ -48,7 +48,7 @@ export default async function NewPostPage({ params }: PageProps) {
     }));
 
   return (
-    <main id="main" className="mx-auto max-w-2xl px-6 py-10">
+    <main id="main" className="mx-auto max-w-content-narrow px-4 sm:px-6 py-10">
       <PageHeader
         eyebrow={organization.name}
         title="New post"

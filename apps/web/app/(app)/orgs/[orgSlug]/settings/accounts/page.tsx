@@ -45,7 +45,7 @@ export default async function AccountsPage({ params }: PageProps) {
 
   if (!pageCan(ctx, 'social_account:read')) {
     return (
-      <main id="main" className="mx-auto max-w-4xl px-6 py-10">
+      <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
         <PermissionDenied action="see connected accounts" />
       </main>
     );
@@ -67,7 +67,7 @@ export default async function AccountsPage({ params }: PageProps) {
   const returnTo = `/orgs/${orgSlug}/settings/accounts`;
 
   return (
-    <main id="main" className="mx-auto max-w-4xl px-6 py-10">
+    <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
       <PageHeader
         eyebrow={organization.name}
         title="Connected accounts"
