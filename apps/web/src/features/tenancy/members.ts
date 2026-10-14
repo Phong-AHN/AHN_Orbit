@@ -153,6 +153,119 @@ export async function updateMemberRole(
   });
 }
 
+/**
+ * Hand the organization to somebody else (SRS §4).
+ *
+ * ## Why this is not two role changes
+ *
+ * It already *was* two: an owner could promote somebody to `OWNER` with
+ * `updateMemberRole`, then demote themselves. Both calls are permitted and the
+ * end state is correct — but the two-step version has a failure mode the
+ * permission matrix cannot express. **If the second call never happens the
+ * organization keeps two owners, silently and permanently.** Nothing reports
+ * it, and the next person to read the member list cannot tell a half-finished
+ * transfer from a deliberate co-ownership.
+ *
+ * One transaction means the organization has exactly one owner before and
+ * exactly one after, with no reachable state in between.
+ *
+ * ## Why it has its own permission
+ *
+ * `org:transfer_ownership` is granted to `OWNER` and **withheld from `ADMIN`**,
+ * unlike `member:update_role` which both hold. That distinction was already in
+ * the matrix with nothing using it; giving away the organization is a different
+ * act from changing a colleague's role, and now the code says so too.
+ *
+ * ## The outgoing owner becomes an Admin, not nothing
+ *
+ * Removing them would lock the person who just did the handover out of the
+ * agency they built. `ADMIN` keeps them able to work and is the role that
+ * differs from `OWNER` by exactly the three things an ex-owner should no longer
+ * hold: deleting the organization, transferring it again, and billing.
+ */
+export async function transferOwnership(
+  ctx: TenantContext,
+  userId: string,
+  fingerprint: Pick<AuditInput, 'ip' | 'userAgent'>,
+) {
+  return withTenant(ctx, async (db) => {
+    // Checked here as well as by the route's permission gate: this function is
+    // the thing that must be safe, and a future caller may not be a route.
+    if (actorRole(ctx) !== 'OWNER') {
+      throw new ForbiddenError('Only an owner may transfer ownership', {
+        userMessage: 'Only an organization owner can hand the organization to someone else.',
+        context: { actorRole: actorRole(ctx) },
+      });
+    }
+
+    const actor = actorId(ctx);
+    const target = await requireMembership(db, userId);
+
+    if (target.userId === actor) {
+      throw new ConflictError('Already the owner', {
+        userMessage: 'You already own this organization.',
+      });
+    }
+
+    // An invitation that has not been accepted is not a person who can run the
+    // agency yet, and handing it to one would leave nobody able to act.
+    if (target.status !== 'ACTIVE') {
+      throw new ConflictError('Member is not active', {
+        userMessage:
+          'That person has not accepted their invitation yet. They have to join before they can own the organization.',
+      });
+    }
+
+    /**
+     * A client cannot be handed the agency.
+     *
+     * `CLIENT` is the role for the people an agency works *for*: the portal is
+     * built so they see one workspace and nothing about the agency itself.
+     * Promoting one straight to owner is almost certainly a misclick on a
+     * member list, and the cost of being wrong is total. Refused with the way
+     * out rather than silently allowed.
+     */
+    if (target.role === 'CLIENT') {
+      throw new ConflictError('A client cannot own the organization', {
+        userMessage:
+          'That member is a client. Change their role to Admin first if they really should own this organization.',
+      });
+    }
+
+    await db.organizationMembership.update({
+      where: { id: target.id },
+      data: { role: 'OWNER' },
+    });
+
+    const outgoing = await db.organizationMembership.findFirst({
+      where: { userId: actor },
+      select: { id: true },
+    });
+
+    // Scoped lookup, so this cannot be missing for a real actor — but the
+    // transaction must not silently skip the demotion if it ever is.
+    if (!outgoing) throw new NotFoundError('Your own membership');
+
+    await db.organizationMembership.update({
+      where: { id: outgoing.id },
+      data: { role: 'ADMIN' },
+    });
+
+    // One entry, not two: a reader of the audit log needs to see a transfer,
+    // and two adjacent role changes are what this used to look like.
+    await audit(db, ctx, {
+      action: 'org.ownership_transferred',
+      resourceType: 'Organization',
+      resourceId: ctx.organizationId,
+      before: { ownerUserId: actor, targetRole: target.role },
+      after: { ownerUserId: userId, previousOwnerRole: 'ADMIN' },
+      ...fingerprint,
+    });
+
+    return { ownerUserId: userId, previousOwnerRole: 'ADMIN' as const };
+  });
+}
+
 export async function removeMember(
   ctx: TenantContext,
   userId: string,

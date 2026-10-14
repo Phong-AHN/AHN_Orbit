@@ -169,6 +169,20 @@ provider layer, in the worker, in memory. This row exists to make that explicit 
 | `comment:create` | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | 🟡 client-visible only |
 | `comment:read_internal` | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | **❌** |
 | `comment:resolve` | ❌ | ✅ | ✅ | ✅ | 🟡 own threads | ✅ | ❌ |
+| `comment:read_public` ⁶ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | **❌** |
+| `comment:reply` ⁶ | ❌ | ✅ | ✅ | ✅ | ✅ | **❌** | **❌** |
+
+⁶ Community management, and the two rows above are the only ones about the
+**public** rather than about the agency and its client. Two absences are
+deliberate. An **Approver** may read the inbox and not answer it: replying is
+publishing — it puts words on a client's channel under the client's name with
+no gate in front of them — and an Approver approves rather than publishes. A
+**Client** gets neither, because routing audience data into the portal is a
+privacy decision rather than an inherited grant; see the note in `matrix.ts`.
+
+Triage — assigning a comment, marking one handled — rides on `comment:reply`
+rather than having a permission of its own: both are *acting on* a comment
+rather than reading it.
 
 ⁵ Internal roles may record a client approval **on the client's behalf** (a common agency reality:
 approval arrives by phone or email). Every such action is audited as `approved_on_behalf_of` with a

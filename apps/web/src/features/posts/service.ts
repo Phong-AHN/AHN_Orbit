@@ -16,6 +16,7 @@ import { withTenant, type TenantDb } from '@orbit/db';
 import { assertTransitionAllowed } from '@orbit/rbac';
 import { logger } from '@orbit/observability';
 import { enqueue } from '@orbit/queue';
+import type { NotificationType } from '@orbit/notifications';
 import { audit, type AuditInput } from '@/server/audit';
 import { openGateFor, voidOpenGates } from '@/features/approvals/records';
 import type { CreatePostInput, UpdatePostInput, UpdateVariantInput } from './contracts';
@@ -312,7 +313,22 @@ export async function getPost(ctx: TenantContext, postId: string) {
             position: true,
             altText: true,
             mediaAsset: {
-              select: { id: true, kind: true, mimeType: true, width: true, height: true },
+              // The measured facts travel with the post, not just the
+              // thumbnail's dimensions. The composer has to be able to say what
+              // a file *is* next to what the platform asked for, and it cannot
+              // re-probe the bytes from the browser.
+              select: {
+                id: true,
+                kind: true,
+                mimeType: true,
+                sizeBytes: true,
+                width: true,
+                height: true,
+                durationMs: true,
+                frameRate: true,
+                peakFrameRate: true,
+                originalFilename: true,
+              },
             },
           },
         },
@@ -787,20 +803,42 @@ export async function transitionPost(
   return result;
 }
 
-/** Which transitions are worth telling someone about (SRS §22). */
-function transitionEvent(
-  to: PostStatus,
-): 'post.approval_requested' | 'post.changes_requested' | null {
+/**
+ * Which transitions are worth telling someone about (SRS §22).
+ *
+ * ## Why this returns a list
+ *
+ * It used to return one event, and `CLIENT_REVIEW` reused the internal one:
+ * both gates read as "someone needs to look at this", and the processor told
+ * them apart by the post's status to pick the wording.
+ *
+ * **The wording was the only thing that differed, and it was not the only thing
+ * that should have.** `post.approval_requested` fans out on
+ * `post:approve_internal`, which no client holds — so opening the client's gate
+ * notified the agency that it was "with the client" and told the client
+ * nothing. One event cannot address two different sets of people.
+ *
+ * So the client's gate now raises two: the agency's status update, and the
+ * client's actual prompt. Same transition, two audiences, two events.
+ */
+function transitionEvents(to: PostStatus): readonly NotificationType[] {
   switch (to) {
-    // Both review gates read as "someone needs to look at this"; the processor
-    // distinguishes internal from client from the post's own status.
     case 'INTERNAL_REVIEW':
+      return ['post.approval_requested'];
+
     case 'CLIENT_REVIEW':
-      return 'post.approval_requested';
+      return ['post.approval_requested', 'post.client_review_requested'];
+
     case 'CHANGES_REQUESTED':
-      return 'post.changes_requested';
+      return ['post.changes_requested'];
+
+    // Nothing fired here before, so an approval — including the client's, which
+    // is the last gate — was something the agency had to notice for itself.
+    case 'APPROVED':
+      return ['post.approved'];
+
     default:
-      return null;
+      return [];
   }
 }
 
@@ -809,26 +847,29 @@ async function notifyTransition(
   post: { id: string; workspaceId: string },
   to: PostStatus,
 ): Promise<void> {
-  const event = transitionEvent(to);
-  if (!event) return;
-
-  try {
-    await enqueue('notifications', {
-      organizationId: ctx.organizationId,
-      correlationId: ctx.correlationId,
-      event,
-      resourceType: 'Post',
-      resourceId: post.id,
-      // So the reviewer who just asked for changes is not told about it.
-      // Suppression only — it can remove a recipient, never add one.
-      ...(actorUserId(ctx) ? { actorUserId: actorUserId(ctx) as string } : {}),
-    });
-  } catch (error) {
-    logger.error('could not enqueue a transition notification', {
-      postId: post.id,
-      to,
-      error: error instanceof Error ? error.message : String(error),
-    });
+  // Enqueued one at a time rather than as a batch so a queue that rejects one
+  // does not silently drop the other — and so the client's prompt is not lost
+  // because the agency's status update failed.
+  for (const event of transitionEvents(to)) {
+    try {
+      await enqueue('notifications', {
+        organizationId: ctx.organizationId,
+        correlationId: ctx.correlationId,
+        event,
+        resourceType: 'Post',
+        resourceId: post.id,
+        // So the reviewer who just asked for changes is not told about it.
+        // Suppression only — it can remove a recipient, never add one.
+        ...(actorUserId(ctx) ? { actorUserId: actorUserId(ctx) as string } : {}),
+      });
+    } catch (error) {
+      logger.error('could not enqueue a transition notification', {
+        postId: post.id,
+        to,
+        event,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }
 

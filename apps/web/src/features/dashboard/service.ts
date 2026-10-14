@@ -6,8 +6,9 @@ import {
   type TenantContext,
 } from '@orbit/core';
 import { withTenant, type TenantDb } from '@orbit/db';
-import { can } from '@orbit/rbac';
+import { can, canSomewhere } from '@orbit/rbac';
 import { collectAlerts, type Alert } from './alerts';
+import { setupProgress, type SetupProgress } from './setup-progress';
 
 /**
  * The agency dashboard (SRS §20, T1.17).
@@ -73,6 +74,14 @@ export interface NextPost {
 
 export interface DashboardSummary {
   workspaces: WorkspaceSummary[];
+  /**
+   * How far this organization is from being able to publish.
+   *
+   * Always computed, never cached: the guide has to disappear the moment the
+   * last step is done and come back if the only workspace is deleted, and a
+   * stored flag cannot do either. See `setup-progress.ts`.
+   */
+  setup: SetupProgress;
   alerts: Alert[];
   accountHealth: AccountHealthSummary | null;
   nextPost: NextPost | null;
@@ -115,6 +124,7 @@ export async function dashboardSummary(ctx: TenantContext): Promise<DashboardSum
       accountHealth,
       nextPost,
       publishedThisWeek,
+      setupCounts,
     ] = await Promise.all([
       // ── The one query that would otherwise have been N ──────────────────
       db.post.groupBy({
@@ -178,6 +188,44 @@ export async function dashboardSummary(ctx: TenantContext): Promise<DashboardSum
           publishedAt: { gte: new Date(now.getTime() - 7 * 86_400_000) },
         },
       }),
+      /**
+       * The four counts the setup guide needs, as one query rather than four.
+       *
+       * `findFirst` on each table would be cheaper still, but Prisma cannot
+       * union them — and these run inside the dashboard's existing transaction
+       * alongside eight other reads, so the cost is one more round trip on a
+       * page that already makes one.
+       *
+       * Scoped like everything else: a Content Creator granted one brand counts
+       * what they can see, so their guide describes their own situation rather
+       * than the agency's.
+       */
+      Promise.all([
+        db.workspace.count({
+          where: {
+            deletedAt: null,
+            ...(workspaces === 'ALL' ? {} : { id: { in: [...workspaces] } }),
+          },
+        }),
+        db.brand.count({
+          where: {
+            deletedAt: null,
+            ...(workspaces === 'ALL' ? {} : { workspaceId: { in: [...workspaces] } }),
+          },
+        }),
+        // Only a connection somebody can publish through counts. A staged row
+        // mid-OAuth, or one that has been revoked, is not a connected account —
+        // counting it would mark the step done and send a person to a composer
+        // that refuses them.
+        db.socialAccount.count({
+          where: {
+            deletedAt: null,
+            status: { in: ['ACTIVE', 'NEEDS_RECONNECT'] },
+            ...(workspaces === 'ALL' ? {} : { workspaceId: { in: [...workspaces] } }),
+          },
+        }),
+        db.post.count({ where: postScope }),
+      ]),
     ]);
 
     // ── Stitch the grouped rows onto the workspaces, in memory ─────────────
@@ -242,8 +290,37 @@ export async function dashboardSummary(ctx: TenantContext): Promise<DashboardSum
       now,
     );
 
+    const [workspaceCount, brandCount, accountCount, postCount] = setupCounts;
+
     return {
       workspaces: summaries,
+      setup: setupProgress({
+        counts: {
+          workspaces: workspaceCount,
+          brands: brandCount,
+          accounts: accountCount,
+          posts: postCount,
+        },
+        /**
+         * `canSomewhere`, not `can(…, {})`.
+         *
+         * `post:create` and `brand:create` are **brand-scoped**, so asking
+         * `can()` with an empty resource denies a Content Creator whose grant
+         * is narrowed to one client (**D-069**) — exactly the person this guide
+         * exists to help. It would have told them "writing a post is not
+         * yours to do" while they can write posts all day.
+         *
+         * This asks the question a menu asks: is this step part of their
+         * product at all. It guards nothing — the route and the API both
+         * re-check with the real resource.
+         */
+        abilities: {
+          createWorkspace: canSomewhere(ctx, 'workspace:create'),
+          createBrand: canSomewhere(ctx, 'brand:create'),
+          connectAccount: canSomewhere(ctx, 'social_account:connect'),
+          createPost: canSomewhere(ctx, 'post:create'),
+        },
+      }),
       alerts,
       accountHealth,
       nextPost,

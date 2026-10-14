@@ -8,6 +8,7 @@ import {
   requireSession,
   resolveUser,
 } from '@orbit/auth';
+import { homeForUser } from '@/server/home';
 import { Badge, Card, CardBody, Empty, PageHeader, buttonClassName } from '@orbit/ui';
 
 export const dynamic = 'force-dynamic';
@@ -22,22 +23,42 @@ export const metadata: Metadata = { title: 'Your organizations' };
  * that does not exist, deliberately, so page navigation cannot be used to
  * enumerate tenants either.
  *
- * Also the landing surface after sign-in. A person with exactly one
- * organization is sent straight into it; the picker exists for the agency
- * founder who also does contract work for another.
+ * **No longer the landing surface after sign-in** — `/continue` is, because
+ * deciding which of the three surfaces is yours needs more than a list of
+ * organizations. This page still has to handle arriving here, though: it is
+ * where `requirePageContext` sends anyone asking for an organization that is
+ * not theirs, and a client can reach it that way.
+ *
+ * A `CLIENT` membership is not a reason to show this page. A client belongs in
+ * the portal, and forwarding one into `/orgs/{slug}/dashboard` — which is what
+ * the single-organization shortcut below used to do to them — put them in the
+ * agency app, whose API refuses them on every call.
  */
 export default async function OrganizationsPage() {
   const cookieStore = await cookies();
 
-  let userId: string;
+  let user: Awaited<ReturnType<typeof resolveUser>>;
   try {
     const identity = await requireSession(cookieStore.get(SESSION_COOKIE_NAME)?.value);
-    userId = (await resolveUser(identity)).id;
+    user = await resolveUser(identity);
   } catch {
     redirect('/sign-in?next=/orgs');
   }
 
-  const organizations = await listAccessibleOrganizations(userId);
+  // Staff memberships only. A client reaching this page is somebody who was
+  // sent here by a failed organization lookup, and listing the organizations
+  // they are a *client* of would both be the wrong product and name the agency
+  // they work with back at them.
+  const organizations = (await listAccessibleOrganizations(user.id)).filter(
+    (organization) => organization.role !== 'CLIENT',
+  );
+
+  if (organizations.length === 0) {
+    // Nothing for them here, but that does not mean nothing anywhere: a client,
+    // or a platform admin, has a home that is not this one.
+    const home = await homeForUser(user);
+    if (home.surface !== 'agency') redirect(home.path ?? '/continue');
+  }
 
   if (organizations.length === 1) {
     redirect(`/orgs/${organizations[0]!.slug}/dashboard`);

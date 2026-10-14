@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { ForbiddenError, type TenantContext } from '@orbit/core';
+import { ForbiddenError, type PostStatus, type TenantContext } from '@orbit/core';
 import { platformDb, withTenant } from '@orbit/db';
 import { listNotifications, markAllRead, markRead, unreadCount } from './read.js';
 import { resolveRecipients } from './recipients.js';
@@ -341,6 +341,188 @@ describe('writing notifications', () => {
 
     expect(result.rows).toBe(0);
     expect(await platformDb.notification.count({ where: { organizationId: ORG } })).toBe(0);
+  });
+});
+
+// ── The two sides of the review conversation ──────────────────────────────
+
+/**
+ * The fan-out bug, and the fix.
+ *
+ * `post.approval_requested` served **both** review gates and fans out on
+ * `post:approve_internal`, which a `CLIENT` does not hold — they hold
+ * `post:approve_client`. The worker varied only the wording by stage, so
+ * opening the client's gate notified the agency that the post was "with the
+ * client" and told the client nothing at all.
+ *
+ * Asserted against the real grant matrix with real memberships, because the
+ * mistake was precisely a permission that looked close enough.
+ */
+describe('the client review gate', () => {
+  const resolveFor = (type: Parameters<typeof resolveRecipients>[2], postStatus: PostStatus) =>
+    withTenant(orgCtx, (db) =>
+      resolveRecipients(db, ORG, type, {
+        workspaceId: WS,
+        brandId: BRAND,
+        postStatus,
+        createdById: CREATOR,
+      }),
+    );
+
+  it('tells the client, which is the whole point', async () => {
+    const recipients = await resolveFor('post.client_review_requested', 'CLIENT_REVIEW');
+
+    expect(recipients).toContain(CLIENT);
+  });
+
+  /**
+   * The agency's own status update is a separate event. If the client's prompt
+   * also reached internal approvers they would get two notifications for one
+   * transition, and the client's would be addressed to the wrong reader.
+   *
+   * This failed when first written, and the code was right to make it fail:
+   * **Owner and Account Manager both hold `post:approve_client`**, so they can
+   * record a client's decision on the client's behalf (docs/RBAC.md note 5).
+   * Permission alone could not express "addressed to", which is what the
+   * audience gate in `resolveRecipients` now does.
+   */
+  it('does not send the client\u2019s prompt to the agency', async () => {
+    const recipients = await resolveFor('post.client_review_requested', 'CLIENT_REVIEW');
+
+    expect(recipients).not.toContain(OWNER);
+    expect(recipients).not.toContain(APPROVER_IN);
+    expect(recipients).not.toContain(CREATOR);
+  });
+
+  /**
+   * The bug itself, pinned so it cannot come back: the agency-facing event must
+   * not be what a client relies on, because its permission excludes them.
+   */
+  it('still does not reach the client through the agency event', async () => {
+    const recipients = await resolveFor('post.approval_requested', 'CLIENT_REVIEW');
+
+    expect(recipients).not.toContain(CLIENT);
+    // And the agency does still hear about it.
+    expect(recipients).toContain(OWNER);
+  });
+
+  /** Nobody is told about a gate that is not open. */
+  it('tells nobody while the post is still in internal review', async () => {
+    const recipients = await resolveFor('post.client_review_requested', 'INTERNAL_REVIEW');
+
+    expect(recipients).not.toContain(CLIENT);
+  });
+
+  /**
+   * `post:update` was the first answer here and resolved to **nobody**: that
+   * grant carries `requiresEditable`, and an APPROVED post is edit-locked by
+   * design. Asking who may update a post that has just been approved correctly
+   * returns an empty set; the useful question is who can schedule it.
+   */
+  it('reports a decision back to the people who act on it next', async () => {
+    const recipients = await resolveFor('post.approved', 'APPROVED');
+
+    expect(recipients).toContain(OWNER);
+    // An Approver approves; scheduling is not theirs, so neither is this.
+    expect(recipients).not.toContain(CLIENT);
+  });
+
+  /**
+   * The row a client is given carries no agency facts, and this checks the
+   * stored row rather than the rendered copy — a notification is written once
+   * and read for as long as it exists.
+   */
+  it('writes the client a row that names nobody at the agency', async () => {
+    await withTenant(orgCtx, (db) =>
+      notify(db, orgCtx, {
+        event: { type: 'post.client_review_requested', postTitle: 'Spring launch' },
+        resource: postResource,
+        scope: { postStatus: 'CLIENT_REVIEW', createdById: CREATOR },
+      }),
+    );
+
+    const rows = await platformDb.notification.findMany({ where: { userId: CLIENT } });
+    expect(rows.length).toBeGreaterThan(0);
+
+    for (const row of rows) {
+      const text = `${row.title} ${row.body ?? ''}`;
+      for (const leak of ['owner', 'approver', 'creator', 'internal', 'agency']) {
+        expect(text.toLowerCase(), row.type).not.toContain(leak);
+      }
+    }
+  });
+});
+
+// ── Audience ────────────────────────────────────────────────────────────
+
+/**
+ * The agency bell and the client portal read the same table.
+ *
+ * One person can be staff at one agency and a client of another, so their own
+ * inbox can legitimately hold rows of both kinds. Identity narrowing does not
+ * separate those — they are all theirs — so audience has to.
+ */
+describe('audience separation', () => {
+  async function seedBoth(userId: string) {
+    await platformDb.notification.createMany({
+      data: [
+        {
+          organizationId: ORG,
+          userId,
+          type: 'publishing.failed',
+          title: 'An agency row',
+          channel: 'IN_APP' as const,
+        },
+        {
+          organizationId: ORG,
+          userId,
+          type: 'post.client_review_requested',
+          title: 'A client row',
+          channel: 'IN_APP' as const,
+        },
+      ],
+    });
+  }
+
+  it('shows each surface only its own rows', async () => {
+    await seedBoth(OWNER);
+    const ctx = contextFor(OWNER);
+
+    const agency = await withTenant(ctx, (db) =>
+      listNotifications(db, ctx, { audience: 'AGENCY' }),
+    );
+    const client = await withTenant(ctx, (db) =>
+      listNotifications(db, ctx, { audience: 'CLIENT' }),
+    );
+
+    expect(agency.notifications.map((n) => n.title)).toEqual(['An agency row']);
+    expect(client.notifications.map((n) => n.title)).toEqual(['A client row']);
+  });
+
+  /**
+   * A badge counting rows the panel will not show reads as the product losing
+   * a notification.
+   */
+  it('counts only what the surface will display', async () => {
+    await seedBoth(OWNER);
+    const ctx = contextFor(OWNER);
+
+    expect(await withTenant(ctx, (db) => unreadCount(db, ctx, 'AGENCY'))).toBe(1);
+    expect(await withTenant(ctx, (db) => unreadCount(db, ctx, 'CLIENT'))).toBe(1);
+    // Unscoped still means everything, for a caller that genuinely wants it.
+    expect(await withTenant(ctx, (db) => unreadCount(db, ctx))).toBe(2);
+  });
+
+  /**
+   * Tidying up a client portal must not clear an agency inbox the person was
+   * never shown.
+   */
+  it('clears only the surface that asked', async () => {
+    await seedBoth(OWNER);
+    const ctx = contextFor(OWNER);
+
+    expect(await withTenant(ctx, (db) => markAllRead(db, ctx, 'CLIENT'))).toBe(1);
+    expect(await withTenant(ctx, (db) => unreadCount(db, ctx, 'AGENCY'))).toBe(1);
   });
 });
 

@@ -385,6 +385,11 @@ const MEDIA_SELECT = {
   width: true,
   height: true,
   durationMs: true,
+  // Both rates, because they disagree on phone video and the peak is the one
+  // platforms check. Selecting only the average is what left somebody staring
+  // at a 30fps file refused for its frame rate.
+  frameRate: true,
+  peakFrameRate: true,
   originalFilename: true,
   tags: true,
   status: true,

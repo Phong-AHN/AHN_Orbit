@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button, Field, Input } from '@orbit/ui';
 import { ApiError } from '@/features/posts/ui/api';
+import { continuePath, type Entrance } from '@/features/navigation/home';
 
 /**
  * Development sign-in.
@@ -22,17 +23,32 @@ import { ApiError } from '@/features/posts/ui/api';
  *
  * The Google sign-in that replaces it lives in `google-sign-in-button.tsx`.
  */
-export function SignInForm() {
+export interface SignInFormProps {
+  /**
+   * Which entrance this form is on.
+   *
+   * A statement of intent only — the role decides where somebody lands. A
+   * client who signs in at the agency door still ends up in their portal, and a
+   * person who is not a platform admin cannot reach operations by using its
+   * entrance. Refusing at the door would lock out anyone with the wrong
+   * bookmark, and would turn the three entrances into an oracle reporting what
+   * kind of account an address is.
+   */
+  entrance: Entrance;
+}
+
+export function SignInForm({ entrance }: SignInFormProps) {
   const router = useRouter();
   const search = useSearchParams();
   const [email, setEmail] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  // Only relative paths, so `next` cannot become an open redirect — the same
-  // rule the OAuth `returnTo` follows.
-  const rawNext = search.get('next');
-  const next = rawNext?.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/orgs';
+  // Where to go once the cookie exists. `/continue` resolves the home
+  // surface server-side — the browser must not work out where somebody
+  // belongs, because that means reading memberships. `continuePath` also
+  // carries the open-redirect guard that used to be copied into both forms.
+  const next = continuePath(entrance, search.get('next'));
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();

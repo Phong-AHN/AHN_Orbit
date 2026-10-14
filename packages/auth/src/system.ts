@@ -38,6 +38,22 @@ export const ANALYTICS_WORKER_CAPABILITIES = [
 ] as const satisfies readonly Permission[];
 
 /**
+ * The comment ingestion worker reads published posts and writes what the
+ * audience said about them.
+ *
+ * **No `comment:reply`.** Ingestion reads; it must never be able to speak as
+ * the brand. A reply is initiated by a person and goes out from the request
+ * that person made, so nothing in this list would ever use the permission —
+ * and a background job holding it is a job that can post in public if it is
+ * ever given the wrong payload.
+ */
+export const ENGAGEMENT_WORKER_CAPABILITIES = [
+  'post:read',
+  'social_account:read',
+  'comment:read_public',
+] as const satisfies readonly Permission[];
+
+/**
  * The report renderer reads published posts and their stored analytics.
  *
  * `analytics:read` and `post:read` and nothing else. It writes only to the

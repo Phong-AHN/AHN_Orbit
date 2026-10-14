@@ -424,6 +424,53 @@ single door that **D-028** and **D-029** exist to protect. `GET /admin/jobs/{id}
 **Both mutating routes require a `reason`** and write it into the **affected organization's own**
 audit log with the administrator named as the actor (**D-046**, T1.18 DoD).
 
+### 2.15 Community management (§22)
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/orgs/{orgId}/community?state=NEW&workspaceId=&brandId=&includeOurs=&before=&limit=` | Returns `{ comments, unhandled }` |
+| `POST` | `/orgs/{orgId}/community/{commentId}/reply` | `{ message }` — posts to the platform, then records |
+| `POST` | `/orgs/{orgId}/community/{commentId}/handled` | `{ handled: boolean }` — both directions, one route |
+| `POST` | `/orgs/{orgId}/community/{commentId}/assign` | `{ assignedToId: string \| null }` |
+
+**A comment is always addressed by Orbit's uuid, never the platform's id.** A
+body carrying `externalId` would let a caller post a comment on any object their
+Page token can reach — which is the whole platform rather than this tenant's
+post. The service resolves the platform id from a row it has already scoped.
+
+**The list route declares no `permission`, for the opposite reason to
+Notifications above.** There *is* a grant — `comment:read_public` — but it is
+**brand-scoped** for a Content Creator and an Approver, so checking it on the
+route with an empty resource would deny exactly the people the queue is for
+(**D-069**, and the same trap as **D-098**). The service gates with
+`canSomewhere` and then narrows the *query* by the principal's accessible
+workspaces, so rows outside their reach are never fetched rather than filtered
+afterwards.
+
+The three write routes do declare one, resolved against the comment's own
+workspace and brand by `commentResourceScope`.
+
+**`comment:reply` is withheld from an Approver**, who may read the inbox and not
+answer it. Replying is publishing: it puts words on a client's channel under the
+client's name with no approval gate in front of them, and an Approver approves
+rather than publishes. Triage — assign, mark handled — rides on `comment:reply`
+rather than having a permission of its own.
+
+**A Client has neither.** Routing audience data into the portal is a privacy
+decision rather than an inherited grant.
+
+**The reply reaches the platform before anything is written.** The opposite
+order would record a reply that might not exist, the queue would show the
+comment answered, and the client's customer would still be waiting. If the
+platform succeeds and the write then fails, ingestion sees the reply on its next
+pass and marks it `ours` — so the thread self-heals and the comment stays `NEW`
+until somebody confirms it.
+
+**Scope of what is read**: comments on posts **Orbit published**. A post made
+directly on the platform has no workspace or brand to attribute it to. And no
+commenter identifier is stored — only the public display name beside what they
+wrote; see the privacy policy.
+
 ### 2.14 Webhooks & health
 
 | Method | Path | Notes |

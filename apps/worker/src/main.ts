@@ -11,6 +11,7 @@ import {
 import { startHealthServer } from './health.js';
 import { processAccountHealth } from './processors/account-health.js';
 import { processAnalytics } from './processors/analytics.js';
+import { processEngagement } from './processors/engagement.js';
 import { processReport } from './processors/reports.js';
 import { processMaintenance } from './processors/maintenance.js';
 import { processNotification } from './processors/notifications.js';
@@ -51,6 +52,7 @@ async function main(): Promise<void> {
     startWorker('publish', processPublish),
     startWorker('account-health', processAccountHealth),
     startWorker('analytics', processAnalytics),
+    startWorker('engagement', processEngagement),
     startWorker('reports', processReport),
     startWorker('notifications', processNotification),
     startWorker('maintenance', processMaintenance),
@@ -140,6 +142,22 @@ async function scheduleRepeatableJobs(): Promise<void> {
     'maintenance',
     { correlationId: 'cron:analytics-rollup', task: 'analytics-rollup' },
     { repeat: { pattern: '50 * * * *' }, jobId: 'cron:analytics-rollup' },
+  );
+
+  /**
+   * Every five minutes, which is the only cron here that runs faster than
+   * hourly.
+   *
+   * The sweep is cheap — one indexed query — and the *cadence* lives in
+   * `sweepComments`, where a hot post is bucketed to fifteen minutes and the
+   * tail to two hours. Running the sweep more often than the shortest bucket
+   * keeps the queue smooth rather than bursting, and the job id makes the
+   * extra passes free: they produce a duplicate BullMQ id that is dropped.
+   */
+  await queue.add(
+    'maintenance',
+    { correlationId: 'cron:sweep-comments', task: 'sweep-comments' },
+    { repeat: { pattern: '*/5 * * * *' }, jobId: 'cron:sweep-comments' },
   );
 
   /**

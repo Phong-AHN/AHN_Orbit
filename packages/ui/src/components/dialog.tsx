@@ -114,6 +114,15 @@ export interface ConfirmDialogProps {
   /** Extra context — what else this affects, what cannot be undone. */
   children?: React.ReactNode;
   busy?: boolean;
+  /**
+   * Hold the confirm button closed until something in `children` is satisfied.
+   *
+   * For the small set of actions a person cannot undo themselves, where a
+   * dialog alone is not enough because a dialog can be clicked through by
+   * muscle memory. The caller owns the condition — typically typing a name —
+   * and this is what stops the button agreeing before they have.
+   */
+  confirmDisabled?: boolean;
 }
 
 /**
@@ -135,6 +144,7 @@ export function ConfirmDialog({
   tone = 'danger',
   children,
   busy = false,
+  confirmDisabled = false,
 }: ConfirmDialogProps) {
   return (
     <Dialog
@@ -154,7 +164,7 @@ export function ConfirmDialog({
             variant={tone}
             size="sm"
             loading={busy}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
             onClick={() => void onConfirm()}
           >
             {confirmLabel}

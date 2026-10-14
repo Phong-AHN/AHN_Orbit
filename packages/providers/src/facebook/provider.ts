@@ -4,10 +4,15 @@ import { validateDraft, type ValidationResult, type VariantDraft } from '../vali
 import type { PlatformCapabilities } from '../capabilities.js';
 import type {
   AccountHealth,
+  AudienceComment,
   AuthorizationUrlInput,
   CallbackInput,
+  CommentPage,
   ConnectedAccounts,
   DateRange,
+  FetchCommentsInput,
+  ReplyInput,
+  ReplyResult,
   DecryptedCredential,
   ExternalPostRef,
   ExternalPostStatus,
@@ -905,6 +910,125 @@ export class FacebookProvider implements SocialProvider {
   // ── Webhooks ──────────────────────────────────────────────────────────────
 
   /** X-Hub-Signature-256 over the raw body, keyed by the app secret. */
+  // ── Engagement ──────────────────────────────────────────────────────
+
+  /**
+   * Comments on a published post, newest first.
+   *
+   * ## The author id is read here and nowhere else
+   *
+   * `from` is requested because it is the only way to tell the Page's own
+   * replies from the audience's — and it is consumed in this method. What
+   * leaves is `ours: boolean` plus the public display name. Nothing downstream
+   * is handed an identifier for a member of the public, which is why
+   * `AudienceComment` has no field for one.
+   *
+   * ## `order=reverse_chronological` and `since`
+   *
+   * Ingestion runs repeatedly over the same post. Without a filter each run
+   * pages through the whole history of a popular post to find the handful of
+   * new comments at the end, so `since` is pushed down to the API rather than
+   * applied after fetching.
+   *
+   * `filter=stream` returns replies as well as top-level comments, which is
+   * what makes a thread reconstructable from `parent`.
+   */
+  async fetchComments(input: FetchCommentsInput): Promise<CommentPage> {
+    const { ref, credential, since, cursor, limit, signal } = input;
+
+    // No try/catch: `GraphClient.request` already normalizes a Graph failure
+    // into the error taxonomy, and catching it here only to re-wrap would
+    // flatten the difference between a rate limit, a revoked token and a
+    // refused scope — which are three different things to tell somebody.
+    const response = await this.client.request<{
+      data?: Array<{
+        id?: string;
+        message?: string;
+        created_time?: string;
+        permalink_url?: string;
+        from?: { id?: string; name?: string };
+        parent?: { id?: string };
+      }>;
+      paging?: { cursors?: { after?: string }; next?: string };
+    }>({
+      path: `/${ref.externalPostId}/comments`,
+      params: {
+        fields: 'id,message,created_time,permalink_url,from{id,name},parent{id}',
+        filter: 'stream',
+        order: 'reverse_chronological',
+        limit: limit ?? 50,
+        ...(since ? { since: Math.floor(since.getTime() / 1000) } : {}),
+        ...(cursor ? { after: cursor } : {}),
+      },
+      accessToken: credential.accessToken,
+      ...(signal ? { signal } : {}),
+    });
+
+    const comments: AudienceComment[] = (response.data ?? [])
+      // A comment with no id cannot be deduped or replied to, and one with no
+      // timestamp cannot be ordered. Both are dropped rather than guessed at.
+      .filter((row): row is { id: string; created_time: string } & typeof row =>
+        Boolean(row.id && row.created_time),
+      )
+      .map((row) => ({
+        externalId: row.id,
+        ...(row.parent?.id ? { parentExternalId: row.parent.id } : {}),
+        ...(row.from?.name ? { authorName: row.from.name } : {}),
+        message: row.message ?? '',
+        ...(row.permalink_url ? { permalink: row.permalink_url } : {}),
+        postedAt: new Date(row.created_time),
+        // The comparison that justifies requesting `from` at all. The id goes
+        // no further than this expression.
+        ours: row.from?.id === ref.accountExternalId,
+      }));
+
+    // `next` rather than the cursor alone: Meta returns an `after` cursor on
+    // the last page too, so paging on the cursor's presence never terminates.
+    const nextCursor = response.paging?.next ? response.paging.cursors?.after : undefined;
+
+    return { comments, ...(nextCursor ? { nextCursor } : {}) };
+  }
+
+  /**
+   * Reply to a comment, threaded under it.
+   *
+   * Posted to the comment's own `/comments` edge rather than the post's, which
+   * is what puts it under the comment and notifies the person who wrote it. A
+   * reply on the post would be a new top-level comment that nobody sees.
+   *
+   * Needs `pages_manage_engagement` **and** a Page token from somebody holding
+   * the MODERATE task. The second is the Page owner's configuration, so a
+   * refusal here can be a permission problem no scope list predicts — which is
+   * why the error is translated rather than interpreted.
+   */
+  async replyToComment(input: ReplyInput): Promise<ReplyResult> {
+    const { commentExternalId, message, credential, signal } = input;
+
+    const response = await this.client.request<{ id?: string }>({
+      path: `/${commentExternalId}/comments`,
+      method: 'POST',
+      form: { message },
+      accessToken: credential.accessToken,
+      ...(signal ? { signal } : {}),
+    });
+
+    if (!response.id) {
+      // Accepted without an id, which leaves us unable to recognise our own
+      // reply on the next ingestion pass — and a reply we cannot identify is
+      // one we might send again. Reported as a failure rather than recorded as
+      // sent, with wording that says the ambiguity out loud: the same posture
+      // an ambiguous publish takes (D-027).
+      throw toAppError('FACEBOOK', {
+        kind: 'VALIDATION',
+        message: 'Facebook accepted the reply without returning an id',
+        userMessage:
+          'The reply may have been posted, but Facebook did not confirm it. Check the post before sending it again.',
+      });
+    }
+
+    return { externalId: response.id, postedAt: clock.now() };
+  }
+
   verifyWebhook(request: RawWebhookRequest): boolean {
     const header = request.headers['x-hub-signature-256'];
     if (!header?.startsWith('sha256=')) return false;

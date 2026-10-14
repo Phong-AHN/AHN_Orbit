@@ -4,6 +4,7 @@ import { logger } from '@orbit/observability';
 import type { JobContext } from '@orbit/queue';
 import { sweepAccountHealth } from '../health/sweep.js';
 import { sweepAnalytics } from '../analytics/sweep.js';
+import { sweepComments } from '../engagement/sweep.js';
 import { sweepRetention } from '../maintenance/retention.js';
 import { drainEmailOutbox } from '../notifications/outbox.js';
 import { mailer } from '../notifications/mailer.js';
@@ -56,6 +57,13 @@ export async function processMaintenance({ payload }: JobContext<'maintenance'>)
       // the `analytics` queue, so a slow platform cannot stall housekeeping —
       // the same split as the health sweep, and for the same reason.
       await sweepAnalytics(payload.correlationId);
+      return;
+    case 'sweep-comments':
+      // Same split again: this queues the reads, and the provider calls run on
+      // the `engagement` queue. Its cadence is far faster than the analytics
+      // one — a stale metric is an old number, a stale comment is a customer
+      // who has been waiting.
+      await sweepComments(payload.correlationId);
       return;
     case 'retention':
       // The one task that deletes data nobody asked to delete. It is scoped per

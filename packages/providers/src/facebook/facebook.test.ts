@@ -216,8 +216,28 @@ describe('authorization URL', () => {
       'pages_manage_posts',
       'read_insights',
       'pages_read_user_content',
+      // Community management. Same lesson as `read_insights` above, applied
+      // ahead of time rather than after: the scope is requested when the
+      // feature ships, because it cannot be added to a grant already issued.
+      'pages_manage_engagement',
     ]);
     expect(new URL(url).searchParams.get('scope')).toBe(scopes.join(','));
+  });
+
+  /**
+   * The asymmetry worth stating: reading comments needs
+   * `pages_read_user_content`, which analytics already asked for, while
+   * *answering* one needs `pages_manage_engagement`. An account connected
+   * before community management shipped holds the first and not the second, so
+   * it can show a queue and fail on Reply — which is why the descriptor names
+   * the scope rather than leaving it to be discovered at that moment.
+   */
+  it('names the reply scope on the descriptor, not only in the authorization URL', () => {
+    const engagement = provider(healthyGraph()).capabilities().engagement;
+
+    expect(engagement.readComments).toBe(true);
+    expect(engagement.reply).toBe(true);
+    expect(engagement.replyScopes).toContain('pages_manage_engagement');
   });
 
   it('never puts the app secret in the URL', () => {
@@ -1081,5 +1101,178 @@ describe('post engagement', () => {
 
     expect(set.metrics['post_shares']).toBe(0);
     expect(set.availability['post_shares']).toBe('AVAILABLE');
+  });
+});
+
+// ── Engagement ────────────────────────────────────────────────────────────
+
+describe('reading comments', () => {
+  const credential = { accessToken: 'page-token-1', scopes: [], keyVersion: 1 };
+  const ref = { externalPostId: '100000000000001_999', accountExternalId: '100000000000001' };
+
+  const thread = {
+    data: [
+      {
+        id: 'c-1',
+        message: 'Love this!',
+        created_time: '2026-10-10T09:00:00+0000',
+        permalink_url: 'https://facebook.com/c-1',
+        from: { id: '777', name: 'Mai Tran' },
+      },
+      {
+        id: 'c-2',
+        message: 'Thank you!',
+        created_time: '2026-10-10T10:00:00+0000',
+        // The Page itself — the account we published through.
+        from: { id: '100000000000001', name: 'Northwind Coffee' },
+        parent: { id: 'c-1' },
+      },
+    ],
+  };
+
+  function graphWithThread() {
+    return healthyGraph().on(/\/comments/, { body: thread });
+  }
+
+  it('reads the thread, including replies', async () => {
+    const page = await provider(graphWithThread()).fetchComments!({ ref, credential });
+
+    expect(page.comments.map((c) => c.externalId)).toEqual(['c-1', 'c-2']);
+    expect(page.comments[0]?.message).toBe('Love this!');
+    expect(page.comments[1]?.parentExternalId).toBe('c-1');
+  });
+
+  /**
+   * The distinction the whole queue rests on. Without it the brand's own
+   * replies come back as things needing attention, and every answered comment
+   * reappears as unanswered.
+   */
+  it('marks the Page\u2019s own reply as ours and the public\u2019s as not', async () => {
+    const page = await provider(graphWithThread()).fetchComments!({ ref, credential });
+
+    expect(page.comments[0]?.ours).toBe(false);
+    expect(page.comments[1]?.ours).toBe(true);
+  });
+
+  /**
+   * The reason `AudienceComment` has no field for a commenter id: the adapter
+   * is the only layer that holds one, and it consumes it. Asserted on the
+   * returned object rather than trusted to the type, because a type is erased
+   * and a stray property would still travel.
+   */
+  it('hands back no commenter identifier at all', async () => {
+    const page = await provider(graphWithThread()).fetchComments!({ ref, credential });
+    const audience = page.comments[0]!;
+
+    expect(audience.authorName).toBe('Mai Tran');
+    expect(JSON.stringify(audience)).not.toContain('777');
+    expect(Object.keys(audience)).not.toContain('authorExternalId');
+    expect(Object.keys(audience)).not.toContain('from');
+  });
+
+  /**
+   * Ingestion runs repeatedly over the same post. `since` has to reach the API
+   * or a popular post is paged from the beginning every time.
+   */
+  it('pushes `since` down to the API as a unix timestamp', async () => {
+    const graph = graphWithThread();
+    await provider(graph).fetchComments!({
+      ref,
+      credential,
+      since: new Date('2026-10-10T00:00:00Z'),
+    });
+
+    const call = graph.calls.at(-1)!;
+    expect(call.url).toContain(`since=${Math.floor(Date.parse('2026-10-10T00:00:00Z') / 1000)}`);
+    // `stream` is what returns replies alongside top-level comments.
+    expect(call.url).toContain('filter=stream');
+  });
+
+  /**
+   * Meta returns an `after` cursor on the last page too, so paging on the
+   * cursor alone never terminates — the ingestion loop would run forever over
+   * the same final page.
+   */
+  it('reports no next page when Meta sends no `next` link', async () => {
+    const graph = healthyGraph().on(/\/comments/, {
+      body: { ...thread, paging: { cursors: { after: 'cursor-on-last-page' } } },
+    });
+
+    const page = await provider(graph).fetchComments!({ ref, credential });
+
+    expect(page.nextCursor).toBeUndefined();
+  });
+
+  it('reports a next page when there is one', async () => {
+    const graph = healthyGraph().on(/\/comments/, {
+      body: {
+        ...thread,
+        paging: { cursors: { after: 'cursor-2' }, next: 'https://graph.facebook.com/next' },
+      },
+    });
+
+    const page = await provider(graph).fetchComments!({ ref, credential });
+
+    expect(page.nextCursor).toBe('cursor-2');
+  });
+
+  /** A row with no id cannot be deduped or replied to; one with no time cannot be ordered. */
+  it('drops a row it could neither identify nor order', async () => {
+    const graph = healthyGraph().on(/\/comments/, {
+      body: {
+        data: [
+          { message: 'no id', created_time: '2026-10-10T09:00:00+0000' },
+          { id: 'c-9', message: 'no time' },
+          { id: 'c-10', message: 'fine', created_time: '2026-10-10T09:00:00+0000' },
+        ],
+      },
+    });
+
+    const page = await provider(graph).fetchComments!({ ref, credential });
+
+    expect(page.comments.map((c) => c.externalId)).toEqual(['c-10']);
+  });
+});
+
+describe('replying to a comment', () => {
+  const credential = { accessToken: 'page-token-1', scopes: [], keyVersion: 1 };
+
+  /**
+   * Posted to the comment's edge, not the post's. A reply on the post is a new
+   * top-level comment that the person who asked the question never sees.
+   */
+  it('threads the reply under the comment it answers', async () => {
+    const graph = healthyGraph().on(/c-1\/comments/, { body: { id: 'r-1' } });
+
+    const result = await provider(graph).replyToComment!({
+      commentExternalId: 'c-1',
+      message: 'Thanks for reading!',
+      credential,
+    });
+
+    expect(result.externalId).toBe('r-1');
+
+    const call = graph.calls.at(-1)!;
+    expect(call.url).toContain('/c-1/comments');
+    expect(call.method).toBe('POST');
+    expect(new URLSearchParams(call.body ?? '').get('message')).toBe('Thanks for reading!');
+  });
+
+  /**
+   * Accepted with no id means we cannot recognise our own reply on the next
+   * ingestion pass — and a reply we cannot identify is one we might send
+   * again. Refused rather than recorded as sent, and the wording says the
+   * ambiguity out loud rather than claiming failure.
+   */
+  it('refuses a reply Meta accepted without confirming', async () => {
+    const graph = healthyGraph().on(/c-1\/comments/, { body: {} });
+
+    await expect(
+      provider(graph).replyToComment!({
+        commentExternalId: 'c-1',
+        message: 'Thanks!',
+        credential,
+      }),
+    ).rejects.toThrow(/did not confirm|without returning an id/i);
   });
 });

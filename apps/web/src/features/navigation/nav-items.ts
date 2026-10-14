@@ -50,6 +50,9 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       // Shown to whoever can act on a review — internally or on the client's
       // behalf. An Approver's whole job is this page.
       { label: 'Approvals', path: '/approvals', permission: 'post:approve_internal' },
+      // Under Work rather than Insight: answering the audience is something
+      // somebody does today, not something they look back on.
+      { label: 'Community', path: '/community', permission: 'comment:read_public' },
     ],
   },
   {
@@ -73,6 +76,89 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     items: [{ label: 'Team', path: '/settings/members', permission: 'member:list' }],
   },
 ];
+
+/**
+ * The client portal's navigation (SRS §21, D-012).
+ *
+ * No permissions attached, and that is not an oversight: reaching the portal at
+ * all already means being a Client of this workspace, and all three
+ * destinations are the same three questions every client has — what needs me,
+ * what is coming, what went out. A permission-filtered portal would be a portal
+ * that sometimes has one link in it.
+ *
+ * One unlabelled group, because three items do not need a heading to be
+ * understood and a heading over all of them would say "Navigation".
+ */
+export const PORTAL_NAV: readonly NavGroup[] = [
+  {
+    label: '',
+    items: [
+      // Exact: this is the workspace root, so as a prefix it would match every
+      // other portal page and mark itself active on all of them.
+      { label: 'To review', path: '', exact: true },
+      { label: 'Upcoming', path: '/upcoming' },
+      { label: 'Published', path: '/published' },
+    ],
+  },
+];
+
+/**
+ * The platform operations navigation (SRS §28).
+ *
+ * Ungated here because the gate is the surface: `requirePlatformAdmin` has
+ * already run in the layout and in every page, and there is one kind of
+ * principal on the other side of it. Grouped because operating the product and
+ * looking at who uses it are different jobs.
+ */
+export const ADMIN_NAV: readonly NavGroup[] = [
+  {
+    label: 'Operations',
+    items: [
+      { label: 'Health', path: '', exact: true },
+      { label: 'Dead letters', path: '/jobs' },
+    ],
+  },
+  {
+    label: 'Tenants',
+    items: [
+      { label: 'Organizations', path: '/organizations' },
+      { label: 'Users', path: '/users' },
+      { label: 'Connections', path: '/accounts' },
+    ],
+  },
+];
+
+/**
+ * Turn a surface's declaration into what the shell renders.
+ *
+ * Here rather than in each layout because all three were about to grow their
+ * own copy of "prefix the path, carry `exact` across, drop the empty groups" —
+ * and the third copy is where they start to differ.
+ *
+ * `allowed` decides visibility. The agency passes the permission check; the
+ * portal and operations pass nothing, because their gate is the surface itself.
+ */
+export function shellGroups(
+  base: string,
+  declaration: readonly NavGroup[],
+  allowed: (permission: Permission) => boolean = () => true,
+): Array<{ label: string; items: Array<{ label: string; href: string; exact?: boolean }> }> {
+  return declaration
+    .map((group) => ({
+      label: group.label,
+      items: group.items
+        .filter((item) => !item.permission || allowed(item.permission))
+        .map((item) => ({
+          label: item.label,
+          // A destination at the surface root has an empty path, and `${base}`
+          // is already the href — appending nothing is correct, but it has to
+          // not become a trailing slash, which would never match the pathname.
+          href: `${base}${item.path}`,
+          ...(item.exact ? { exact: true as const } : {}),
+        })),
+    }))
+    .filter((group) => group.items.length > 0);
+}
 
 /**
  * The single most useful thing this role can do next.

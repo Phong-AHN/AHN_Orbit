@@ -19,6 +19,6 @@ export const POST = withAuth<Params>(
   { name: 'POST /api/v1/orgs/{orgSlug}/notifications/{notificationId}/read' },
   async ({ ctx, params }) => {
     await markReadForUser(ctx, params.notificationId);
-    return jsonOk({ unread: await unreadCountForUser(ctx) });
+    return jsonOk({ unread: await unreadCountForUser(ctx, 'AGENCY') });
   },
 );

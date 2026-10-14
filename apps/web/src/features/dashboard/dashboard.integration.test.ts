@@ -525,3 +525,91 @@ describe('aggregation', () => {
     expect(withSix).toBe(withTwo);
   });
 });
+
+// ── Setup guide ─────────────────────────────────────────────────────────────
+
+/**
+ * The counts behind the first screen a new agency sees.
+ *
+ * Asserted against the database rather than only in the unit tests, because
+ * the part that can be wrong here is the *scoping*: each count carries its own
+ * workspace filter, and a count that ignores the filter would tell a Content
+ * Creator the agency is set up when their own corner of it is not.
+ */
+describe('setup progress', () => {
+  it('reports the chain complete for an organization that has everything', async () => {
+    await platformDb.socialAccount.create({
+      data: {
+        organizationId: ORG,
+        workspaceId: WS_ONE,
+        brandId: BRAND_ONE,
+        platform: 'FACEBOOK',
+        externalId: 'setup-fb-1',
+        displayName: 'Setup Page',
+        status: 'ACTIVE',
+      },
+    });
+    await platformDb.post.create({
+      data: {
+        organizationId: ORG,
+        workspaceId: WS_ONE,
+        brandId: BRAND_ONE,
+        createdById: OWNER,
+        body: 'a post exists',
+        status: 'DRAFT',
+      },
+    });
+
+    const summary = await dashboardSummary(ownerCtx);
+
+    expect(summary.setup.finished).toBe(true);
+    expect(summary.setup.completed).toBe(4);
+  });
+
+  /**
+   * `beforeEach` deletes every account and post, so the owner sees a half-built
+   * agency: clients and brands exist, nothing is connected and nothing written.
+   */
+  it('points at connecting an account when clients and brands exist', async () => {
+    const summary = await dashboardSummary(ownerCtx);
+
+    expect(summary.setup.finished).toBe(false);
+    expect(summary.setup.steps.find((step) => step.current)?.id).toBe('account');
+    expect(summary.setup.steps.find((step) => step.id === 'workspace')?.done).toBe(true);
+    expect(summary.setup.steps.find((step) => step.id === 'brand')?.done).toBe(true);
+  });
+
+  /**
+   * **A revoked connection is not a connection.** Counting it would mark the
+   * step done and send somebody to a composer that refuses them.
+   */
+  it('does not count a revoked account as connected', async () => {
+    await platformDb.socialAccount.create({
+      data: {
+        organizationId: ORG,
+        workspaceId: WS_ONE,
+        brandId: BRAND_ONE,
+        platform: 'FACEBOOK',
+        externalId: 'setup-fb-revoked',
+        displayName: 'Revoked Page',
+        status: 'REVOKED',
+      },
+    });
+
+    const summary = await dashboardSummary(ownerCtx);
+
+    expect(summary.setup.steps.find((step) => step.id === 'account')?.done).toBe(false);
+  });
+
+  /**
+   * The scoping assertion. A Content Creator cannot create a client, so the
+   * guide must say the next step belongs to somebody else rather than offering
+   * a button that would be refused on arrival.
+   */
+  it('tells a creator the blocking step is not theirs to do', async () => {
+    const summary = await dashboardSummary(creatorCtx);
+
+    expect(summary.setup.steps.find((step) => step.id === 'workspace')?.permitted).toBe(false);
+    expect(summary.setup.steps.find((step) => step.id === 'post')?.permitted).toBe(true);
+  });
+});

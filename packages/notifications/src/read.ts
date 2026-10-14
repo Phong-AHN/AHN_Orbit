@@ -1,5 +1,6 @@
 import { ForbiddenError, clock, isUserPrincipal, type TenantContext } from '@orbit/core';
 import type { TenantDb } from '@orbit/db';
+import { notificationTypesFor, type NotificationAudience } from './types.js';
 
 /**
  * Reading your own notifications (T1.15, docs/API.md §2.11).
@@ -19,6 +20,18 @@ import type { TenantDb } from '@orbit/db';
  * `markRead` follows the same shape: it is an `updateMany` with the user in the
  * predicate, so someone else's id simply matches nothing. There is no read-then-
  * authorize step to forget, and no 403 that would confirm the row exists.
+ *
+ * ## Audience is a second, separate narrowing
+ *
+ * The agency bell and the client portal read the **same table**, and one person
+ * can be agency staff in one organization and a client in another. Identity
+ * narrowing already stops them reading anyone else's inbox; `audience` stops
+ * *their own* agency-side rows appearing in a portal, where the wording assumes
+ * a reader who works at the agency.
+ *
+ * It is a filter on `type` rather than a stored column, so it needs no
+ * migration and cannot fall out of step with `NOTIFICATION_AUDIENCE` — the one
+ * place that says who a type is for.
  */
 
 /** One page of the bell. Deliberately small — this is a glance, not an archive. */
@@ -42,6 +55,12 @@ export interface ListNotificationsOptions {
   limit?: number;
   /** `createdAt` of the last row seen, for cursor paging. */
   before?: Date;
+  /**
+   * Which surface is asking. Omitted means every type, which is what the
+   * platform-operations view of a user would want — no caller does that today,
+   * and the two real feeds both pass one.
+   */
+  audience?: NotificationAudience;
 }
 
 export interface NotificationView {
@@ -72,6 +91,7 @@ export async function listNotifications(
       channel: 'IN_APP',
       ...(options.unreadOnly ? { readAt: null } : {}),
       ...(options.before ? { createdAt: { lt: options.before } } : {}),
+      ...audienceFilter(options.audience),
     },
     select: {
       id: true,
@@ -94,12 +114,34 @@ export async function listNotifications(
   return { notifications: page, nextCursor };
 }
 
-/** The number on the bell. */
-export async function unreadCount(db: TenantDb, ctx: TenantContext): Promise<number> {
+/**
+ * Narrow to the types a surface is allowed to show.
+ *
+ * Derived from `NOTIFICATION_AUDIENCE` on every call rather than cached: the
+ * cost is building a short array, and the alternative is a second list of types
+ * that can disagree with the first.
+ */
+function audienceFilter(audience: NotificationAudience | undefined) {
+  if (!audience) return {};
+  return { type: { in: [...notificationTypesFor(audience)] } };
+}
+
+/**
+ * The number on the bell.
+ *
+ * Takes the same audience as the list, and must: a count that included the
+ * other surface's rows would put a badge on a bell whose panel then shows
+ * nothing, which reads as the product losing a notification.
+ */
+export async function unreadCount(
+  db: TenantDb,
+  ctx: TenantContext,
+  audience?: NotificationAudience,
+): Promise<number> {
   const userId = requireUserId(ctx);
 
   return db.notification.count({
-    where: { userId, channel: 'IN_APP', readAt: null },
+    where: { userId, channel: 'IN_APP', readAt: null, ...audienceFilter(audience) },
   });
 }
 
@@ -130,11 +172,18 @@ export async function markRead(
 }
 
 /** Mark everything currently unread as read. Returns how many were affected. */
-export async function markAllRead(db: TenantDb, ctx: TenantContext): Promise<number> {
+export async function markAllRead(
+  db: TenantDb,
+  ctx: TenantContext,
+  audience?: NotificationAudience,
+): Promise<number> {
   const userId = requireUserId(ctx);
 
   const { count } = await db.notification.updateMany({
-    where: { userId, readAt: null },
+    // Scoped to the audience that asked. "Mark all read" in a client portal
+    // must not silently clear the agency notifications of somebody who is both
+    // — they were never shown them, so they cannot have read them.
+    where: { userId, readAt: null, ...audienceFilter(audience) },
     data: { readAt: clock.now() },
   });
 

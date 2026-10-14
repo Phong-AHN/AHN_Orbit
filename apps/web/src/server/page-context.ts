@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { isAppError, newCorrelationId, type TenantContext } from '@orbit/core';
+import { isAppError, isUserPrincipal, newCorrelationId, type TenantContext } from '@orbit/core';
 import {
   SESSION_COOKIE_NAME,
   requireSession,
@@ -10,6 +10,8 @@ import {
   type OrganizationSummary,
 } from '@orbit/auth';
 import { can, canSomewhere, type Permission, type ResourceScope } from '@orbit/rbac';
+import { logger } from '@orbit/observability';
+import { homeForUser } from './home';
 
 /**
  * The server-component counterpart to `withAuth`.
@@ -38,6 +40,20 @@ export interface PageContext {
  * picker when the URL names an organization this user is not a member of —
  * which is the same answer they would get for one that does not exist, so page
  * navigation cannot be used to enumerate tenants either.
+ *
+ * **Clients are sent to their portal**, which is the page-level counterpart of
+ * `assertNotClient` in `with-auth.ts`. Until this existed the two layers
+ * disagreed: the agency *API* refused a `CLIENT` principal on every route, and
+ * the agency *pages* did not — so a client who reached `/orgs/{slug}/dashboard`
+ * got a rendered agency shell whose every call then 404'd. `portal-context.ts`
+ * states the rule this restores: a page must not be able to reach data by a
+ * looser path than an endpoint would.
+ *
+ * A redirect rather than the API's `notFound()`, because the two are protecting
+ * different things. The API answers 404 to keep the agency API's *shape*
+ * unknowable to a client. A page has no shape to hide from somebody who is
+ * already a member of this organization and knows it — so the useful answer is
+ * to put them where they belong.
  */
 export async function requirePageContext(organizationRef: string): Promise<PageContext> {
   const cookieStore = await cookies();
@@ -51,9 +67,9 @@ export async function requirePageContext(organizationRef: string): Promise<PageC
     redirect(`/sign-in?next=${encodeURIComponent(`/orgs/${organizationRef}`)}`);
   }
 
+  let resolved: { ctx: TenantContext; organization: OrganizationSummary };
   try {
-    const { ctx, organization } = await resolveTenantContext(user, organizationRef, correlationId);
-    return { ctx, organization, user };
+    resolved = await resolveTenantContext(user, organizationRef, correlationId);
   } catch (error) {
     // `resolveTenantContext` answers 404 for both "no such organization" and
     // "not a member" on purpose; either way there is nothing to show here.
@@ -62,6 +78,29 @@ export async function requirePageContext(organizationRef: string): Promise<PageC
     }
     throw error;
   }
+
+  // Outside the `try` deliberately. `redirect()` signals by throwing, so a
+  // redirect from inside that block would land in a `catch` written for tenant
+  // resolution failures — it happens to survive the `throw error` at the end of
+  // it, which is luck rather than design, and the next person to add a branch
+  // there would silently swallow it.
+  const { ctx, organization } = resolved;
+
+  if (isUserPrincipal(ctx.principal) && ctx.principal.organizationRole === 'CLIENT') {
+    logger.warn('client principal redirected off an agency page', {
+      securityEvent: true,
+      organizationId: ctx.organizationId,
+      userId: ctx.principal.userId,
+    });
+
+    // Resolved rather than assumed: a client may hold several workspaces, and
+    // one with none at all has nowhere to go — `/continue` says so instead of
+    // bouncing between surfaces.
+    const home = await homeForUser(user, 'portal');
+    redirect(home.path ?? '/continue');
+  }
+
+  return { ctx, organization, user };
 }
 
 /** Non-throwing permission check for deciding what a page renders. */

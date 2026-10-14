@@ -45,6 +45,9 @@ export default async function MembersPage({ params }: PageProps) {
   const canInvite = pageCan(ctx, 'member:invite');
   const canChangeRole = pageCan(ctx, 'member:update_role');
   const canRemove = pageCan(ctx, 'member:remove');
+  // Only an Owner holds this; an Admin holds `member:update_role` but not the
+  // right to give the organization away.
+  const canTransferOwnership = pageCan(ctx, 'org:transfer_ownership');
 
   const [members, invitations, workspaces] = await Promise.all([
     listMembers(ctx),
@@ -100,6 +103,7 @@ export default async function MembersPage({ params }: PageProps) {
                       assignableRoles={ASSIGNABLE_ROLES}
                       canChangeRole={canChangeRole}
                       canRemove={canRemove}
+                      canTransferOwnership={canTransferOwnership}
                       isSelf={member.user.id === selfId}
                     />
                   </CardBody>

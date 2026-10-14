@@ -122,12 +122,27 @@ export interface PostDetail {
   media: Array<{
     position: number;
     altText: string | null;
+    /**
+     * The facts measured from the file's own bytes at upload.
+     *
+     * Every field is required and carries `| null` for "not measured", which
+     * the docstring on `serialisePost` explains the hard way: an optional field
+     * can be silently omitted from the mapping and type-check perfectly, and
+     * the value then sits in the database never making the trip back.
+     */
     mediaAsset: {
       id: string;
       kind: string;
       mimeType: string;
+      /** Always known — nothing becomes an asset without being written. */
+      sizeBytes: number;
       width: number | null;
       height: number | null;
+      durationMs: number | null;
+      frameRate: number | null;
+      /** The figure platforms check. Differs from the average on phone video. */
+      peakFrameRate: number | null;
+      originalFilename: string | null;
     };
   }>;
 }

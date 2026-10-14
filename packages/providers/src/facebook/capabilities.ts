@@ -34,12 +34,30 @@ export const FACEBOOK_PUBLISH_SCOPES = [
  */
 export const FACEBOOK_ANALYTICS_SCOPES = ['read_insights', 'pages_read_user_content'] as const;
 
+/**
+ * Scopes required to answer a comment.
+ *
+ * `pages_read_user_content` (above) is what lets us *read* comments;
+ * `pages_manage_engagement` is what lets us post one. Meta documents both for
+ * the comments edge, and the Page token must come from somebody holding the
+ * MODERATE task on the Page — which is the Page owner's decision, not ours, so
+ * a reply can be refused for a reason no scope check here will predict.
+ *
+ * Requested at connect time with everything else: a scope cannot be added to a
+ * grant already issued, so an account connected before community management
+ * existed has to be reconnected before it can reply. The descriptor names this
+ * scope under `engagement.scopes` so the product can say that plainly instead
+ * of failing when somebody presses Reply.
+ */
+export const FACEBOOK_ENGAGEMENT_SCOPES = ['pages_manage_engagement'] as const;
+
 /** @deprecated Superseded by `FACEBOOK_ANALYTICS_SCOPES`, which is requested. */
 export const FACEBOOK_INSIGHTS_SCOPE = 'read_insights';
 
 export const FACEBOOK_DEFAULT_SCOPES = [
   ...FACEBOOK_PUBLISH_SCOPES,
   ...FACEBOOK_ANALYTICS_SCOPES,
+  ...FACEBOOK_ENGAGEMENT_SCOPES,
 ] as const;
 
 /**
@@ -223,6 +241,20 @@ export function facebookPageCapabilities(apiVersion: string): PlatformCapabiliti
       account: true,
       metrics: [...AVAILABLE_METRICS],
       deprecatedMetrics: [...DEPRECATED_METRICS],
+    },
+
+    engagement: {
+      readComments: true,
+      reply: true,
+      // Facebook threads a reply under the comment it answers, which is what
+      // notifies the person who wrote it.
+      threadedReply: true,
+      // Hiding and deleting somebody else's comment is possible on a Page, and
+      // deliberately not claimed yet: the product has no moderation UI, and a
+      // descriptor that says yes invites the engine to call a method nothing
+      // implements.
+      moderate: false,
+      replyScopes: FACEBOOK_ENGAGEMENT_SCOPES,
     },
 
     webhooks: { supported: true },

@@ -2952,6 +2952,677 @@ true, and the next place to look is data rather than configuration.
 
 ---
 
+## D-098 — The setup guide is derived, and `canSomewhere` is why it works
+
+**Context.** A brand-new organization landed on a dashboard of empty sections.
+Every one was accurate and none said what to do, so the product's first screen
+was a page explaining there was nothing to see. Orbit's setup is a real chain —
+client → brand → connected account → post, each link impossible before the one
+above it — and nothing surfaced it.
+
+**Decision: a four-step guide computed from counts, shown only while the chain
+is incomplete.**
+
+**No `onboardingCompleted` column.** A flag and the data drift apart the moment
+somebody deletes their only workspace: the flag still says finished while the
+product is unusable again. The guide is a view of the data, so it leaves when
+the last step is done and comes back if the chain breaks — which is honest,
+because at that moment publishing genuinely is impossible again. There is no
+dismiss control for the same reason.
+
+**It points at the earliest gap, not the furthest progress.** Counts can
+complete out of order — delete a workspace after its brands exist and
+`brands > 0` while `workspaces === 0`. Pointing at the furthest step would tell
+somebody to connect an account to a client that no longer exists.
+
+**Only the current step gets a button.** Four buttons on a new organization
+invites starting at step three and meeting a dead end, which is what the old
+empty dashboard did implicitly by linking everywhere and explaining nothing.
+
+**Numbered, and the numbers are information.** This is a dependency sequence,
+not a list of options — the one case where numbered markers are earned rather
+than decoration.
+
+### The bug the integration test caught
+
+The first implementation asked `can(ctx, 'post:create', {})`. **`post:create`
+and `brand:create` are brand-scoped** (**D-069**), so an empty resource scope
+denies a Content Creator whose grant is narrowed to one client — precisely the
+person the guide exists to help. It would have told them "writing a post is not
+yours to do" while they can write posts all day.
+
+`canSomewhere` is the right question and its own docstring says why: it asks
+whether a destination is part of this person's product at all, and it is safe
+because it guards nothing — the route and the API both re-check with the real
+resource. The unit tests passed either way; the integration test against a
+seeded Content Creator is what failed, which is the argument for asserting
+scoping against a database rather than only in isolation.
+
+**A revoked account does not count as connected.** Counting it would mark the
+step done and send somebody to a composer that refuses them. Only `ACTIVE` and
+`NEEDS_RECONNECT` are connections anyone can publish through.
+
+### Not verified
+
+The guide has **not been seen on screen**. There is no browser tooling here, and
+the local database's one organization already has a finished chain, so the
+incomplete states exist only in tests. Verified by 8 unit tests, 4 new
+integration tests against seeded data, typecheck, lint and a production build —
+and not by looking at it.
+
+---
+
+## D-099 — Ownership transfer is one act, not two role changes
+
+**Context.** `org:transfer_ownership` had sat in the permission matrix since
+T1.4 with **nothing using it**, and the checklist carried the gap as ⚠️:
+"permission exists, no route or UI".
+
+Meanwhile the thing was already possible. An owner could promote somebody to
+`OWNER` with `updateMemberRole`, then demote themselves. Both calls are
+permitted and the end state is right.
+
+**The reason that is not good enough:** if the second call never happens — a
+closed tab, a failed request, a change of mind — the organization keeps **two
+owners, silently and permanently**. Nothing reports it, and the next person to
+read the member list cannot tell a half-finished handover from deliberate
+co-ownership.
+
+**Decision: one service function, one transaction.** `transferOwnership`
+promotes the target and demotes the actor together, so the organization has
+exactly one owner before and exactly one after with no reachable state between.
+
+**Its own route, not `PATCH /members/{userId}` with `role: 'OWNER'`.**
+`org:transfer_ownership` is granted to `OWNER` and **withheld from `ADMIN`**,
+while both hold `member:update_role`. Routing a transfer through the member
+endpoint would let an Admin perform one by another name — the distinction was
+already in the matrix and now the code honours it.
+
+**The outgoing owner becomes an Admin, not nothing.** Removing them would lock
+the person who just did the handover out of the agency they built. `ADMIN`
+differs from `OWNER` by exactly the three things an ex-owner should no longer
+hold: deleting the organization, transferring it again, and billing.
+
+### Three refusals a permission cannot express
+
+- **Not to a client.** `CLIENT` is the role for the people an agency works
+  *for*; the portal is built so they see one workspace and nothing of the agency.
+  Promoting one straight to owner is almost certainly a misclick on a member
+  list, and the cost of being wrong is total. Refused with the way out: change
+  their role first.
+- **Not to an unaccepted invitation.** Somebody who has not joined cannot run
+  the agency, and handing it to them leaves nobody able to act.
+- **Not across tenants, and 404 rather than 403** — the same answer as for a
+  user who does not exist, so this cannot be used to discover who belongs to
+  another organization.
+
+### The confirmation types a name
+
+This is the only action on the members page the person performing it cannot
+undo: the moment it lands they are an Admin, and an Admin may not transfer
+ownership. A dialog alone is not enough because a dialog can be clicked through
+by muscle memory, so the confirm button stays closed until they type the name of
+the person taking over.
+
+That required a new `confirmDisabled` on `ConfirmDialog` — added to the design
+system rather than hand-rolled here, because "hold the confirm until something
+is satisfied" is a general need and the next irreversible action should not
+reinvent it.
+
+### What the tests caught
+
+Nine integration tests, and the audit assertion failed first: audit rows survive
+`resetMemberships`, which only rebuilds memberships, so the earlier transfers in
+the block were still on the log and the count was 2. The test was wrong, not the
+code — but it is worth recording that "one audited act per transfer" is only
+checkable if the log is cleared first.
+
+### Not verified
+
+Not seen on screen. Verified by 9 integration tests against seeded roles,
+typecheck, lint, 1,100 unit tests, 682 integration tests and a production
+build — and not by looking at it.
+
+---
+
+## D-100 — The composer describes media; `/validate` still decides it
+
+**Context.** Validation already worked. A post with a 95-second clip targeted at
+a platform that allows 90 was refused, correctly, by the real engine, and the
+composer printed the engine's sentence: *"The video is longer than this platform
+allows."*
+
+Two things were missing from that screen, and both were already known to the
+system:
+
+- **What the file is.** `width`, `height`, `durationMs`, `frameRate` and
+  `peakFrameRate` are measured from the bytes at upload (**D-013**) and stored.
+  The composer's select did not ask for them, so nothing could say *how* long
+  the video was.
+- **What the platform wants.** The capability descriptor states every limit, and
+  no part of it reached the browser.
+
+So the only way forward was to re-export and guess. That is the whole problem
+this decision addresses — not correctness, which was fine, but a refusal with no
+way to act on it.
+
+### The thing this must not become
+
+A second validation engine. `capability-summary.ts` already warns, in its own
+docstring, that shipping the descriptor to the browser "would invite a second
+implementation growing here, which is exactly the drift the shared engine exists
+to prevent" — and this change ships part of the descriptor to the browser.
+
+**The line drawn: the numbers are for writing sentences, never for comparing.**
+Two categories of text appear on screen and nothing else:
+
+- **Requirements**, from the descriptor, rendered as prose — "MP4, up to 10:00,
+  frame rate 23–60 fps, measured at the peak".
+- **Verdicts**, quoted verbatim from the `/validate` response.
+
+There is deliberately **no function anywhere in the browser that takes a
+constraint and a file and returns a pass or a fail**. If one appears, the drift
+has started. The pure module is named `facts.ts` and every exported function
+returns a string or a string array — none returns a boolean.
+
+### Pinning a verdict to a file costs nothing
+
+`ValidationIssue.field` has always been `'media[2]'`. The engine already names
+the attachment it is talking about, so an error can sit under the third file
+with no logic in the browser deciding which file that is — `mediaIndexFromField`
+reads an integer out of a string and that is the entire mechanism.
+
+Set-level issues carry `field: 'media'` with no index (`MEDIA_REQUIRED`,
+`TOO_MANY_ATTACHMENTS`, `MIXED_MEDIA_UNSUPPORTED`, `MEDIA_NOT_READY`) and are
+shown above the list. Pinning those to attachment 1 would blame a file for the
+absence of a file — and when media is required there is no attachment 1.
+
+### The peak frame rate is the reason any of this exists
+
+A phone records variable frame rate by default. The file is labelled 30fps, the
+average is about 30, and the instantaneous rate spikes past any ceiling — which
+is the figure the platform's own checker reads. TikTok refuses those with
+`frame_rate_check_failed`, and the owner is left certain their 30fps video was
+rejected for being 30fps.
+
+Both rates were already measured, already stored, and already read by the
+validator. **The composer's select was the only place that left them out**, so
+the one number that explains the refusal was the one number not on screen. The
+display states them together — "30 fps average, 62 fps peak" — and only when
+they differ by more than a whole frame, which is the same threshold the upload
+check uses, so the two agree about when it matters.
+
+### A media error deliberately appears twice
+
+The Checks card lists it too. Removing it from there was the first instinct and
+it is wrong: Checks answers "can this post go out", and it prints **"Everything
+checks out"** when its list is empty. Filtering media errors out of it would
+make that sentence appear while a media error sat a few inches above it. **A
+summary that lies is worse than a message said twice.** Checks stays the
+complete, authoritative list; the copy beside the file exists for a different
+job.
+
+### `facts.ts` lives in the media feature, not in posts
+
+The composer is what displays all of it, so `posts/ui` was the obvious home —
+but `posts/ui/composer.tsx` already imports `MediaPanel` from the media feature,
+and the panel needs `describeFacts` to label each attachment. Putting the module
+in posts would make the two features import each other, and **a cycle in a
+client bundle resolves to `undefined` at runtime rather than failing at build
+time**. Media is the lower layer; the facts belong in it.
+
+### The client never sends a fact back
+
+`saveMedia` posts `{ mediaAssetId, altText }` and nothing else, and `/validate`
+takes no request body at all — it reads media, accounts and variants from the
+database under the tenant context. So the browser now *holds* measured facts for
+display and has no way to assert one. A client claiming its 62fps video runs at
+30 changes nothing, because the only numbers the engine ever sees are the ones
+the server measured.
+
+### Two display bugs that only the real descriptors revealed
+
+The unit tests used fixtures and passed. Running the same functions over the
+seven descriptors that actually ship produced this:
+
+```
+Images: Format: JPG, PNG, WEBP · Up to 8.4 MB · Aspect 1:2.00–2.00:1
+```
+
+- **`8.4 MB`.** The descriptors state their ceilings in binary multiples,
+  because that is how the platforms publish them — Facebook documents 8 MB and
+  stores 8 MiB. Dividing by a million displayed every published limit as a
+  figure that appears in no platform's documentation: 8.4, 104.9, 274.88.
+  Nobody can check a file against a limit they have never seen written down.
+  Formatting is now 1024-based, and a file's own size uses the same unit as the
+  ceiling it is compared against.
+- **`1:2.00–2.00:1`**, which says 2:1 the long way round. Trailing zeros are
+  now trimmed.
+
+Neither was a logic error and neither failed a test. A fixture-based test for a
+formatter asserts that it formats the way the fixture was written — which is
+how a formatter can be entirely correct and still unreadable in the product.
+`requirement-text.integration.test.ts` now runs the text over every real
+descriptor, asserting **properties rather than wording**: no degenerate line, a
+whole-mebibyte ceiling renders as a whole number, and a constrained frame rate
+says it is the peak. The first version of that file checked only degenerate
+cases and would have let the decimal bug straight back through — `8.4 MB` has
+no hole and no zero in it. Reverting to decimal divisors now fails it on four
+platforms.
+
+### What else was wrong on the way
+
+- `sizeBytes` is a non-null `Int`, and I had typed it `number | null` on the
+  response. Typing it nullable would have been a lie the composer then had to
+  write a branch for.
+- `MEDIA_SELECT` was missing `frameRate` and `peakFrameRate`, so the same file
+  showed more detail just after upload than it did when re-picked from the
+  library.
+- `LibraryAsset` under-declared its own endpoint: the listing had always
+  returned the measured fields and the type claimed four of them.
+- My new integration test passed while `media[0]` was possibly `undefined`;
+  `tsc` caught it. It now throws rather than asserting, so the body of the test
+  reads a real attachment instead of quietly checking nothing.
+
+Every new field on `PostDetail.media.mediaAsset` is **required**, carrying
+`| null` for "not measured", exactly as `serialisePost`'s docstring demands — an
+optional field can be omitted from the hand-written mapping, type-check
+perfectly, and vanish on the trip to the browser.
+
+### Verified, and how
+
+34 unit tests on the pure module; 3 integration tests that upload a real PNG and
+read it back through the real select, because a unit test here would assert
+against a fixture written to agree with the mapping; and 42 that run the
+requirement text over every shipping descriptor.
+
+Both guards were checked by sabotage rather than assumed. Removing
+`peakFrameRate` from `serialisePost` fails the integration test and `tsc`;
+restoring decimal byte divisors fails the requirement-text guard on Facebook,
+Instagram, TikTok and YouTube.
+
+Typecheck, lint, 1,134 unit tests, 727 integration tests and a production build.
+
+### Not verified
+
+**Not seen on screen.** The browser extension in this environment is not
+connected, and the local dev server has `FIREBASE_*` configured so the
+development sign-in is not available to reach the page by HTTP either. There is
+no jsdom, so no component here is rendered in a test.
+
+What *was* verified is the substance rather than the picture: the exact text
+every platform produces, read out of the real descriptors. The arrangement,
+spacing, colour and wrapping of those lines at narrow widths are unverified —
+which leaves this feature inside the two open P0s, the 320→1440px responsive
+sweep and the accessibility audit.
+
+---
+
+## D-101 — Three surfaces, one identity, and a sidebar for each
+
+**Context.** The request was four things: make the product role-based, move the
+navigation into a left sidebar, let each role sign in independently, and let the
+roles notify each other.
+
+**The first was already true and invisible.** `ROLE_GRANTS` has been the single
+source of navigation since T1.4 — `nav-items.ts` tags each destination with the
+permission that guards it and the layout filters on `canSomewhere`, down to a
+role-specific primary action. What was missing is that it *looked* identical for
+everyone: one top bar, one shell, one landing. So this is a presentation and
+routing decision, not a new permission model.
+
+### The sidebar is what made the existing structure visible
+
+`NAV_GROUPS` has always been grouped — Work, Clients, Insight, Settings — and a
+horizontal bar had nowhere to put the headings, so the structure showed **only
+on phones**. That is backwards: the big screen is where there is room for it.
+
+All three surfaces now share `AppShell`, which also ended a quieter problem.
+The agency bar had been taught the three things a navigation has to get right —
+longest-prefix active marking, `aria-current`, a working phone layout — and the
+portal and admin headers never were. Sharing the shell means they cannot drift
+apart again. `tone` keeps them distinguishable, which matters most for
+operations: somebody in there is running the SaaS rather than using it.
+
+The mobile drawer is a native `<dialog>` opened with `showModal()`, for the
+reason the design system's `Dialog` already gives: the platform hands over focus
+containment, Escape, an inert background and top-layer stacking, and a
+hand-rolled overlay gets each of those subtly wrong.
+
+### "Independent login" is three doors, one account
+
+`/sign-in`, `/sign-in/client` and `/sign-in/ops`, each with its own wording, so a
+link sent to a client reads as the client's. **None of them authenticates
+differently** and none of them is a gate:
+
+- **The entrance is a hint; the role decides.** A client who signs in at the
+  agency door still lands in their portal. Refusing at the door would lock out
+  anyone with an old bookmark, and would turn the three URLs into an oracle
+  reporting what kind of account an address is.
+- **`/sign-in/ops` grants nothing.** A non-admin signs in there successfully and
+  lands on their own home, exactly as if they had used the agency door — so the
+  URL cannot be used to discover who the platform administrators are.
+- It sits at `/sign-in/ops` rather than `/admin/sign-in` for a mechanical
+  reason: the `/admin` layout gates everything beneath it and redirects a
+  signed-out visitor to `/sign-in`, so an entrance inside that path would bounce
+  off the gate it exists to get past.
+
+**No separate credentials per role**, which was the other reading. A person is
+one person; their role comes from `OrganizationMembership`, and duplicating
+accounts per role would put the role on the account — the opposite of what
+tenant isolation is built on.
+
+### The gap this uncovered: pages were looser than endpoints
+
+`with-auth.ts` has always refused a `CLIENT` principal on every agency route
+with `assertNotClient`, and `portal-context.ts` states the rule: *"a page must
+not be able to reach data by a looser path than an endpoint would"*.
+**`requirePageContext` had no such check.**
+
+A client who opened `/orgs/{slug}/dashboard` got a rendered agency shell — the
+organization's name, the navigation, whatever their limited grants returned
+server-side — and every call from it then 404'd. And it was reachable without
+typing a URL: both sign-in forms landed on `/orgs`, which forwards anybody with
+exactly one organization into the agency dashboard. For a client that was the
+only destination they could get.
+
+**Fixed with a redirect, not the API's `notFound()`.** The two protect different
+things. The API answers 404 to keep the agency API's shape unknowable to a
+client. A page has no shape to hide from somebody who is already a member of
+this organization and knows it, so the useful answer is to put them where they
+belong — resolved, not assumed, because a client may hold several workspaces and
+one with none has nowhere to go.
+
+`resolveHome` is pure and tested; `/continue` is the only thing that decides
+which surface is yours, and it is a server page because answering it means
+reading memberships. A browser that guessed would be a second implementation of
+the surface-separation rules in the one place that cannot be trusted with them.
+
+### Notifications: the client was never told anything
+
+`post.approval_requested` served **both** review gates and fans out on
+`post:approve_internal` — which a `CLIENT` does not hold; they hold
+`post:approve_client`. The worker varied only the *wording* by stage. So opening
+the client's gate notified the agency that the post was "with the client" and
+**told the client nothing at all**.
+
+`channels.ts` made the cost explicit without noticing: it justified emailing
+`post.approval_requested` as *"the one that makes the product usable by clients
+who log in weekly"*. That email never reached a single client.
+
+Nothing fired on `APPROVED` either, so the agency learned a post had been cleared
+by going and looking.
+
+**Four changes, and one of them is the real lesson:**
+
+- `post.client_review_requested` — the client's own prompt, and the email that
+  now keeps the promise the old comment made.
+- `post.approved` — a decision landing back with the agency.
+- `post.changes_requested` gained `fromClient` and `by`: the client saying no is
+  not the same event as a colleague marking up a draft.
+- **An audience gate in `resolveRecipients`.** Permission was not enough.
+  `post:approve_client` is held by Owner and Account Manager so they can record
+  a client's decision on the client's behalf (RBAC note 5) — which makes them
+  *permitted* and not *addressed*. Without the gate, opening the client's gate
+  sent the agency two notifications for one transition, one of them worded as
+  though they were the client. A `CLIENT`-audience notification now reaches only
+  `CLIENT` principals, derived from `NOTIFICATION_AUDIENCE` so the one place
+  that says who a type is for also decides who it is sent to.
+
+### The agency speaks to clients as one voice, enforced by the payload
+
+A client-facing notification carries **no staff name, no role, no internal
+review history**. The enforcement is the shape of the event:
+`post.client_review_requested` has exactly one field, a post title, so there is
+nothing for the copy to leak and nothing stored to be surfaced by a later
+refactor. Filtering at render time would have left the name in the row —
+one query away from the client who should never have had it.
+
+Audience is also a filter on the read path, because the agency bell and the
+portal read the **same table** and one person can be staff at one agency and a
+client of another. It filters on `type` rather than a stored column: no
+migration, and it cannot fall out of step with `NOTIFICATION_AUDIENCE`.
+
+`markAllRead` is audience-scoped too — tidying a client portal must not clear an
+agency inbox the person was never shown.
+
+**The portal has a bell now**, reversing D-012's stance deliberately. That stance
+was right while the client had nothing to be told; they do now, and the feed
+behind it is scoped server-side to the single type written for them.
+
+### What the tests caught that review did not
+
+Two of my own design errors, both found by asserting against the real grant
+matrix rather than a fixture:
+
+- **`post.approved` fanned out on `post:update` and resolved to nobody.** That
+  grant carries `requiresEditable`, and an `APPROVED` post is edit-locked by
+  design — so asking who may update a just-approved post correctly returns an
+  empty set. The right question is who can schedule it.
+- **The client's prompt reached Owner and Account Manager**, as described above.
+
+And one in an existing test: step 18 of the E2E flow asserted "the client is not
+told to approve their own post" with a query that had **no type filter**. It was
+correct only while one post could produce one kind of notification; the moment a
+second type existed it read the client's own prompt and inverted its own claim.
+The query was under-specified, not the assertion.
+
+Also worth recording: the E2E suite resolves `@orbit/notifications` through the
+built `dist`, so a sabotage check against `src` passes there until the package is
+rebuilt. The integration test imports source directly, which is why it is the
+one that catches a fan-out regression.
+
+### Verified, and how
+
+21 unit tests on the navigation and home logic, 9 new notification integration
+tests, 6 page-level surface-separation integration tests, and one new E2E step
+proving a client is told their review is waiting and told nothing else.
+
+Both security-relevant guards were checked by sabotage rather than assumed:
+disabling the page-level client confinement fails 3 of the 6 separation tests
+with `expected null` — the page rendering for a client — and disabling the
+audience gate fails the fan-out test.
+
+Typecheck, lint, 1,182 unit tests, 742 integration tests, 20 E2E tests and a
+production build.
+
+### Not verified
+
+**Not seen on screen.** The browser extension is not connected here and the
+local dev server has `FIREBASE_*` configured, so the development sign-in is
+unavailable and the pages cannot be reached by HTTP either. There is no jsdom,
+so `AppShell` is not rendered in any test — its layout, the drawer's behaviour
+at phone widths, and the three tones being distinguishable are all unverified by
+observation. That keeps this work inside the two open P0s: the 320→1440px
+responsive sweep and the accessibility audit.
+
+The role-routed sign-in flow has not been walked through by a human either. The
+decision logic is unit-tested and the page-level confinement is
+integration-tested, but nobody has signed in as a client and watched where they
+land.
+
+---
+
+## D-102 — The three Meta URLs, and community management
+
+Two requests in one pass: the pages Meta's App Dashboard asks for, and the
+first instalment of "become Buffer".
+
+### Part one: the App Dashboard URLs
+
+Privacy policy and data deletion already existed. **Terms of service did not**,
+and it is a required field for an app going live. Written against the product
+rather than from a template, because Meta rejects "generic template language"
+and because the generic version would have been *wrong* here: Orbit publishes
+through somebody else's API, parks an ambiguous outcome rather than retrying
+(**D-027**), refuses to report an unavailable metric as zero, and never lets a
+model write into content without a person accepting it. Each of those is
+enforced in code, so each is stated as a promise rather than disclaimed away.
+
+Verified the way Meta actually verifies it — an anonymous fetch returning 200.
+All three answer 200 with no session, and the app's own pages still answer
+`noindex`.
+
+Two smaller things fixed on the way:
+
+- **`/data-deletion` was inheriting the app-wide `noindex, nofollow`** while the
+  privacy policy deliberately opted out of it. All three are public documents
+  that Meta's crawler must reach; the inconsistency was an oversight, not a
+  decision.
+- All three are now linked from the root page and from each other. App Review
+  checks that they are reachable *from the app*, not only by URL.
+
+**Not fixed, and needs a decision:** the privacy policy's processor table lists
+**Supabase** and **Redis Cloud**, both of which were proven deleted earlier in
+this project, and omits **Railway**, which `DEPLOYMENT.md` says runs the worker.
+That is a factual error in a document Meta reads and a client's lawyer might.
+Correcting it means asserting which processors handle tenant data today, which
+is not a claim to make from a guess — so it is flagged rather than edited.
+
+### Part two: Buffer, and what not to copy
+
+Buffer's own feature pages, compared against this repo: Orbit is **ahead** on
+multi-tenancy, six-role RBAC, two approval gates, the client portal, the audit
+trail and publish idempotency — Buffer has none of that, by design. It leads on
+breadth: a unified engagement inbox, link-in-bio, feeds, bulk CSV import,
+channel groups, post tags, posting goals, integrations, a public API.
+
+**Read literally, "become Buffer" would mean deleting the differentiator** — a
+free self-serve tier and a simplified flow with the approval workflow made
+optional. Buffer competes on simplicity; Orbit competes on governance. The
+direction taken instead is agency-first plus Buffer's capabilities that compound
+with it.
+
+Of those, **Community was the one real hole**: there was no way to see an
+audience comment at all. `Comment` in the schema is internal collaboration
+between agency and client (`visibility: INTERNAL`) and never held a word the
+public said.
+
+### What community management is, and what it deliberately is not
+
+**`SocialComment` has no commenter identifier.** Every platform serves one, and
+the obvious design keeps it — it would let us group a person's comments or
+follow them across posts. Nothing in the product needs that: a reply is
+addressed to a *comment*, and threading uses the platform's own parent id. So
+the adapter reads the author id **only** to decide whether a comment is the
+brand's own reply, and then drops it. The table has no column for it.
+
+That is the enforcement, and it is deliberate that it lives in the schema rather
+than in a renderer. A row written once is read for years; filtering an
+identifier out at render time leaves it in the database, one query from a client
+and one refactor from being displayed. The cheapest way to keep audience data
+out is to have nowhere to put it.
+
+**Scoped to posts Orbit published.** `postVariantId` is NOT NULL. A Page's older
+posts have no workspace or brand to attribute them to, and guessing would file
+one client's comments in another client's queue. The boundary is a column rather
+than a convention — and the cost is stated on the screen: a comment on a post
+made outside Orbit is never collected.
+
+**The privacy policy had to change for this table to exist.** It said Orbit
+collects nothing about the audience, which was true until this shipped. It now
+has a section of its own naming exactly what is kept and what is not. Changing a
+legal document is part of shipping the feature, not an afterthought to it.
+
+### Replying is publishing, and the matrix says so
+
+`comment:reply` is withheld from an **Approver**, who may read the inbox and not
+answer it: a reply puts words on a client's channel under the client's name with
+no gate in front of them, and an Approver approves rather than publishes — the
+same line `post:create` already draws. A **Client** gets neither permission;
+routing audience data into the portal is a privacy decision, not an inherited
+grant.
+
+The platform call happens **before** the write, and the row exists only once the
+platform has returned an id. The opposite order would record a reply that might
+not exist, the queue would show the comment answered, and the customer would
+still be waiting. The residual failure — platform succeeds, write fails —
+self-heals: ingestion sees the reply, marks it `ours`, and the comment stays
+`NEW` until a person confirms it. Visible, rather than a silent gap.
+
+### The sweep is faster than analytics, on purpose
+
+A metric six hours stale is an old number. **A comment six hours stale is a
+customer who has been waiting six hours.** Hot posts (under 48h) are read every
+15 minutes, the tail every two hours, and nothing beyond 14 days is swept at
+all. That last line is a real trade, named rather than hidden: a comment on a
+three-week-old post is missed entirely rather than found late. Webhooks are the
+answer and are the natural next step, at which point the sweep becomes the
+backstop rather than the mechanism.
+
+Ingestion is **incremental against our own rows** — `max(postedAt)` less a
+minute of overlap — rather than a stored cursor, because a cursor is a second
+source of truth that goes stale when a row is deleted or an ingest half-fails.
+
+### Five mistakes the layers caught
+
+Worth recording individually, because each was caught by a different guard:
+
+- **I used `upsert`.** The db layer refuses it outright — it cannot be
+  tenant-scoped, since the `where` is a unique-constraint lookup the scoping
+  extension cannot narrow. Rewritten as `findFirst` + `create`/`update` inside
+  `withTenant`, which also yields an exact created/updated count instead of one
+  inferred from comparing timestamps.
+- **`listComments` asserted `can(ctx, 'comment:read_public', {})`.** Brand-scoped
+  grant, empty resource — so it denied every Content Creator and Approver, the
+  exact audience of the screen. **The same bug as D-098**, in a new feature,
+  found by an integration test with a seeded Approver. Now `canSomewhere` for the
+  gate plus query narrowing by accessible workspace.
+- **`engagement.scopes` conflated reading with replying**, which produced a dead
+  branch in the ingestion path: on Facebook, reading needs
+  `pages_read_user_content` (already requested for analytics) while answering
+  needs `pages_manage_engagement`. Renamed `replyScopes`, and the ingest no
+  longer checks it.
+- **`post.approved`-style error: my sweep test and two fixtures were wrong, not
+  the code.** The `handled_is_complete` check constraint refused a `HANDLED` row
+  with no timestamp — correctly. And my confinement test put the other brand in
+  the *same* workspace, expecting a brand assignment to deny it; the policy is
+  explicit that an assignment can only **narrow** within a workspace and an
+  unassigned brand falls back to workspace membership. The real shape of
+  "another client" is another workspace.
+- **Two docs-parity tests fired**: the queue catalogue must match
+  `ARCHITECTURE.md §5.1`, and the queue-depth test enumerates every queue. Both
+  are exactly the guards that stop a new queue existing undocumented.
+
+Also: test files in `apps/web` *are* typechecked. A malformed `TenantContext`
+fixture reached a test run only because I ran vitest before typecheck — the
+missing `membershipStatus` denied every call, and `tsc` would have said so.
+
+### Verified, and how
+
+10 new Facebook adapter tests, 19 community service integration tests, 11
+ingestion and sweep integration tests, against the real grant matrix and real
+Postgres.
+
+Both load-bearing guards checked by sabotage: letting ingestion write `state`
+back fails the triage-preservation test (and trips the check constraint), and
+removing the workspace narrowing fails the cross-workspace read test.
+
+Typecheck, lint, 1,194 unit tests, 772 integration tests, 20 E2E tests and a
+production build.
+
+### Not verified, and one thing not done
+
+**The migration is applied locally only.** `20261013000000_social_comments` has
+*not* been run against production — that is deliberately not mine to do. Until
+it is, the feature's tables do not exist there.
+
+`pages_manage_engagement` is a **new scope requiring App Review**, and a scope
+cannot be added to a grant already issued: every account connected before this
+has to be reconnected before it can reply. The descriptor names the scope under
+`engagement.replyScopes` so the product says that in advance instead of failing
+when somebody presses Reply.
+
+**Not seen on screen**, for the reasons recorded in D-100 and D-101: no browser
+here, no dev sign-in, no jsdom. The queue, the reply box and the three filters
+are unverified by observation, which keeps this inside the two open P0s.
+
+Facebook only. Instagram, TikTok, YouTube, Threads, LinkedIn and Pinterest
+declare `engagement` false by default, so the queue correctly shows nothing for
+them rather than pretending.
+
+---
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

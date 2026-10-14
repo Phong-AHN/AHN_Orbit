@@ -66,6 +66,22 @@ export const analyticsPayloadSchema = jobEnvelopeSchema.extend({
   postVariantId: z.string().uuid().optional(),
 });
 
+/**
+ * Pulling audience comments back for one published post, or for an account.
+ *
+ * Its own queue rather than a second shape on `analytics`, which it otherwise
+ * resembles. Two reasons: the provider quota it spends is a different one, and
+ * a comment backlog on a viral post must not be able to starve the metrics
+ * ingestion that the whole analytics screen depends on.
+ */
+export const engagementPayloadSchema = jobEnvelopeSchema.extend({
+  socialAccountId: z.string().uuid(),
+  /** Absent means every recently published variant on that account. */
+  postVariantId: z.string().uuid().optional(),
+  /** Provider cursor, when continuing a thread too long for one job. */
+  cursor: z.string().max(500).optional(),
+});
+
 export const accountHealthPayloadSchema = jobEnvelopeSchema.extend({
   socialAccountId: z.string().uuid(),
 });
@@ -101,6 +117,7 @@ export const maintenancePayloadSchema = z.object({
     'cleanup-staged-accounts',
     'reconcile-stuck-jobs',
     'sweep-account-health',
+    'sweep-comments',
   ]),
 });
 
@@ -134,6 +151,7 @@ export const QUEUE_DEFINITIONS = {
   publish: { schema: publishPayloadSchema, concurrency: 8 },
   media: { schema: mediaPayloadSchema, concurrency: 5 },
   analytics: { schema: analyticsPayloadSchema, concurrency: 3 },
+  engagement: { schema: engagementPayloadSchema, concurrency: 3 },
   // Low: a render reads a lot of rows and nobody is blocked on the second one.
   reports: { schema: reportPayloadSchema, concurrency: 2 },
   'account-health': { schema: accountHealthPayloadSchema, concurrency: 2 },

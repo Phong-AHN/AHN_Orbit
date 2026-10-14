@@ -382,6 +382,60 @@ describe('§32 · the whole flow', () => {
     }
   });
 
+  /**
+   * The client is actually told, which before this they never were.
+   *
+   * `post.approval_requested` served both review gates and fans out on
+   * `post:approve_internal` — a permission no client holds. So opening the
+   * client's gate notified the agency that the post was "with the client" and
+   * left the client to find out by logging in and looking. The email that
+   * `channels.ts` describes as "the one that makes the product usable by
+   * clients who log in weekly" never reached a single client.
+   *
+   * Run here rather than in step 18 because the fan-out is status-restricted:
+   * `post:approve_client` is granted only for `CLIENT_REVIEW`, so this is the
+   * one moment in the flow where the gate is genuinely open.
+   */
+  it('8b · tells the client their review is waiting, and tells them nothing else', async () => {
+    await processNotification({
+      payload: {
+        organizationId: flow.organizationId!,
+        correlationId: 'e2e-client-gate',
+        event: 'post.client_review_requested',
+        resourceType: 'Post',
+        resourceId: flow.postId!,
+      },
+      attempt: 1,
+      jobId: 'e2e-client-gate',
+      correlationId: 'e2e-client-gate',
+    });
+
+    const rows = await platformDb.notification.findMany({
+      where: {
+        organizationId: flow.organizationId!,
+        resourceId: flow.postId!,
+        type: 'post.client_review_requested',
+      },
+      select: { userId: true, title: true, body: true },
+    });
+
+    expect(rows.map((r) => r.userId)).toContain(flow.clientUserId);
+
+    // The agency has its own event for this transition. Owner and Account
+    // Manager hold `post:approve_client` so they can record a decision on the
+    // client's behalf, which makes them permitted — not addressed.
+    expect(rows.map((r) => r.userId)).not.toContain(flow.agencyUserId);
+
+    // Checked on the stored row, not the rendered copy: a notification is
+    // written once and read for as long as it exists.
+    for (const row of rows) {
+      const text = `${row.title} ${row.body ?? ''}`.toLowerCase();
+      for (const leak of ['agency', 'internal', 'owner', 'reviewer', 'approver']) {
+        expect(text, `client notification leaked "${leak}"`).not.toContain(leak);
+      }
+    }
+  });
+
   it('9 · the client approves, and the post moves through the real state machine', async () => {
     const { status, body } = await readJson(
       await portalDecide(
@@ -600,7 +654,16 @@ describe('§32 · the whole flow', () => {
     });
 
     const notifications = await platformDb.notification.findMany({
-      where: { organizationId: flow.organizationId!, resourceId: flow.postId! },
+      // Narrowed to the type this step just processed. Without that it also
+      // picked up the client's own prompt from step 8b and the assertion below
+      // read as "the agency event reached the client" — the query was
+      // under-specified, and only looked right while one post could produce
+      // exactly one kind of notification.
+      where: {
+        organizationId: flow.organizationId!,
+        resourceId: flow.postId!,
+        type: 'post.approval_requested',
+      },
       select: { userId: true },
     });
 

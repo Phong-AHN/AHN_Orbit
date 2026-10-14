@@ -84,7 +84,19 @@ export async function requirePortalContext(workspaceId: string): Promise<PortalP
 export async function listPortalMemberships(): Promise<
   Array<{ id: string; name: string; timezone: string }>
 > {
-  const user = await requireClientUser();
+  return portalWorkspacesFor(await requireClientUser());
+}
+
+/**
+ * The same lookup for a user already in hand.
+ *
+ * Split out for `resolveHome`, which has to know whether somebody is a client
+ * *before* deciding which surface to send them to — and so cannot start by
+ * demanding a client session, which is what `requireClientUser` does.
+ */
+export async function portalWorkspacesFor(
+  user: AuthenticatedUser,
+): Promise<Array<{ id: string; name: string; timezone: string }>> {
   const organizations = await listAccessibleOrganizations(user.id);
   const workspaces: Array<{ id: string; name: string; timezone: string }> = [];
 

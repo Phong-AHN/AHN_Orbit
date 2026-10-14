@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Badge, Button, ConfirmDialog, Select, useToast } from '@orbit/ui';
+import { Badge, Button, ConfirmDialog, Field, Input, Select, useToast } from '@orbit/ui';
 import { ApiError, apiRequest } from '@/features/posts/ui/api';
 
 /**
@@ -18,6 +18,12 @@ import { ApiError, apiRequest } from '@/features/posts/ui/api';
  * remove its last owner is an organization that can strand itself, and the API
  * refuses it anyway — showing a control that will fail is worse than not
  * showing one.
+ *
+ * **A third action, heavier than both:** handing the organization over. It is
+ * the only one the person performing it cannot undo — the moment it lands they
+ * are an Admin, and an Admin may not transfer ownership. So it asks them to
+ * type the name of the person taking over, which is the one confirmation that
+ * cannot be clicked through by muscle memory.
  */
 
 export interface MemberRowProps {
@@ -33,6 +39,8 @@ export interface MemberRowProps {
   assignableRoles: ReadonlyArray<{ value: string; label: string }>;
   canChangeRole: boolean;
   canRemove: boolean;
+  /** Only an owner holds `org:transfer_ownership`; an admin does not. */
+  canTransferOwnership: boolean;
   /** True for the signed-in person, who must not remove themselves by accident. */
   isSelf: boolean;
 }
@@ -52,6 +60,7 @@ export function MemberRow({
   assignableRoles,
   canChangeRole,
   canRemove,
+  canTransferOwnership,
   isSelf,
 }: MemberRowProps) {
   const router = useRouter();
@@ -60,6 +69,8 @@ export function MemberRow({
   const [role, setRole] = React.useState(member.role);
   const [busy, setBusy] = React.useState(false);
   const [confirming, setConfirming] = React.useState(false);
+  const [handingOver, setHandingOver] = React.useState(false);
+  const [typedName, setTypedName] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
 
   const base = `/api/v1/orgs/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(member.userId)}`;
@@ -69,6 +80,26 @@ export function MemberRow({
   // a support ticket, not a feature.
   const roleEditable = canChangeRole && member.role !== 'OWNER' && !isSelf;
   const removable = canRemove && member.role !== 'OWNER' && !isSelf;
+
+  /**
+   * Offered only where it could actually succeed.
+   *
+   * A client is excluded here as well as in the service: `CLIENT` is the role
+   * for the people an agency works *for*, and the API refuses it. Leaving the
+   * button visible would make "hand over the agency" look like a thing you can
+   * do to a customer.
+   */
+  const transferable =
+    canTransferOwnership &&
+    !isSelf &&
+    member.role !== 'OWNER' &&
+    member.role !== 'CLIENT' &&
+    member.status === 'ACTIVE';
+
+  const who = member.name ?? member.email;
+  // Compared loosely: somebody typing a colleague's name should not be defeated
+  // by a trailing space or a capital letter.
+  const nameConfirmed = typedName.trim().toLowerCase() === who.trim().toLowerCase();
 
   async function changeRole(next: string) {
     const previous = role;
@@ -102,6 +133,26 @@ export function MemberRow({
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'They could not be removed.');
       setConfirming(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handOver() {
+    setBusy(true);
+    setError(null);
+
+    try {
+      await apiRequest(`/api/v1/orgs/${encodeURIComponent(orgSlug)}/transfer-ownership`, {
+        method: 'POST',
+        body: JSON.stringify({ userId: member.userId }),
+      });
+      toast.show(`${who} now owns this organization. You are an Admin.`);
+      setHandingOver(false);
+      setTypedName('');
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Ownership could not be transferred.');
     } finally {
       setBusy(false);
     }
@@ -155,6 +206,20 @@ export function MemberRow({
             </Badge>
           )}
 
+          {transferable ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={() => {
+                setTypedName('');
+                setHandingOver(true);
+              }}
+            >
+              Make owner
+            </Button>
+          ) : null}
+
           {removable ? (
             <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirming(true)}>
               Remove
@@ -176,6 +241,45 @@ export function MemberRow({
           Their posts, comments and history stay — only their access goes. To bring them back you
           would invite them again and they would have to accept.
         </p>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={handingOver}
+        busy={busy}
+        // Guarded by the typed name as well as the button: this is the one
+        // action on the page that the person doing it cannot reverse.
+        confirmDisabled={!nameConfirmed}
+        onClose={() => {
+          setHandingOver(false);
+          setTypedName('');
+        }}
+        onConfirm={handOver}
+        title={`Hand this organization to ${who}?`}
+        description="They become the Owner and you become an Admin."
+        confirmLabel="Hand over"
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-ink-secondary">
+            As an Admin you keep everything except three things: deleting the organization,
+            transferring it, and billing.{' '}
+            <strong className="font-medium text-ink">You cannot undo this yourself</strong> — only{' '}
+            {who} could hand it back.
+          </p>
+
+          <Field
+            label={`Type “${who}” to confirm`}
+            htmlFor={`handover-${member.userId}`}
+            hint="So this cannot be clicked through by accident."
+          >
+            <Input
+              id={`handover-${member.userId}`}
+              value={typedName}
+              autoComplete="off"
+              disabled={busy}
+              onChange={(event) => setTypedName(event.target.value)}
+            />
+          </Field>
+        </div>
       </ConfirmDialog>
     </>
   );

@@ -163,6 +163,46 @@ export const platformCapabilitiesSchema = z.object({
     deprecatedMetrics: z.array(z.string()).readonly().default([]),
   }),
 
+  /**
+   * Reading audience comments and answering them (SRS §22).
+   *
+   * Defaulted in full, so the descriptors written before community management
+   * existed still parse — and they parse as "cannot do any of this", which is
+   * the honest reading of a platform nobody has implemented it for. A provider
+   * that can read comments has to say so.
+   */
+  engagement: z
+    .object({
+      /** Whether comments on a published post can be read back. */
+      readComments: z.boolean().default(false),
+      /** Whether a reply can be posted through the API. */
+      reply: z.boolean().default(false),
+      /**
+       * Whether a reply can be threaded *under* the comment it answers. Where
+       * false, a reply lands on the post instead, and the composer has to say
+       * so rather than implying the person will be notified.
+       */
+      threadedReply: z.boolean().default(false),
+      /** Whether this app may hide or delete somebody else's comment. */
+      moderate: z.boolean().default(false),
+      /** Reply length cap, where the platform sets one apart from a post's. */
+      maxReplyLength: z.number().int().positive().optional(),
+      /**
+       * Scopes required to **reply**, beyond whatever the platform already
+       * asks for to read content.
+       *
+       * Named for replying specifically because the two halves differ and
+       * conflating them produced a dead branch in the ingestion path: on
+       * Facebook, reading comments needs `pages_read_user_content`, which the
+       * analytics scopes already request, while answering one needs
+       * `pages_manage_engagement`. An account connected before community
+       * management shipped can therefore *show* a queue and fail on Reply,
+       * which is exactly the state this field exists to explain in advance.
+       */
+      replyScopes: z.array(z.string()).readonly().default([]),
+    })
+    .default({}),
+
   webhooks: z.object({ supported: z.boolean() }),
 });
 
@@ -191,6 +231,14 @@ export function defineCapabilities(input: unknown): PlatformCapabilities {
   }
   if (!parsed.text.supported && parsed.media.maxAttachments === 0) {
     throw new Error(`${parsed.platform}: neither text nor media is supported.`);
+  }
+  if (parsed.engagement.reply && !parsed.engagement.readComments) {
+    throw new Error(
+      `${parsed.platform}: engagement.reply is set without readComments — a reply is addressed to a comment, so one cannot be sent to a comment that was never read.`,
+    );
+  }
+  if (parsed.engagement.threadedReply && !parsed.engagement.reply) {
+    throw new Error(`${parsed.platform}: engagement.threadedReply is set without reply.`);
   }
   if (parsed.lifecycle.editOwnPostsOnly && !parsed.lifecycle.edit) {
     throw new Error(`${parsed.platform}: editOwnPostsOnly set while editing is unsupported.`);

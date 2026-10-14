@@ -21,6 +21,19 @@ import { Button, Spinner, cn } from '@orbit/ui';
  *  • **Opening the panel does not mark anything read.** Read means read; a
  *    glance at a list is not the same as having taken it in, and auto-clearing
  *    is how people miss things.
+ *
+ * ## Shared by the agency and the client portal
+ *
+ * Both surfaces need the same bell and must not share a feed, so everything
+ * surface-specific arrives as a prop: the endpoint to poll and where a row
+ * points when clicked. Each surface's endpoint declares its own audience
+ * server-side, so neither can be made to serve the other's rows by passing a
+ * different string here.
+ *
+ * The link targets are **prefixes rather than a callback** because this is a
+ * client component configured by a server one, and a function cannot cross that
+ * boundary — it would serialize to nothing and every notification would be
+ * inert.
  */
 
 const POLL_MS = 30_000;
@@ -42,13 +55,30 @@ interface FeedResponse {
   unread: number;
 }
 
-export function NotificationBell({ orgSlug }: { orgSlug: string }) {
+export interface NotificationBellProps {
+  /** The feed to poll, e.g. `/api/v1/orgs/ahn/notifications`. */
+  endpoint: string;
+  /** Where a `Post` row points; the id is appended. */
+  postHrefBase: string;
+  /**
+   * Where a `SocialAccount` row points. Omitted on the portal, where it would
+   * never be reached — connection health is an agency-audience notification and
+   * a client's feed cannot contain one.
+   */
+  accountHref?: string | undefined;
+}
+
+export function NotificationBell({
+  endpoint,
+  postHrefBase,
+  accountHref,
+}: NotificationBellProps) {
   const [open, setOpen] = React.useState(false);
   const [feed, setFeed] = React.useState<FeedResponse | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const base = `/api/v1/orgs/${encodeURIComponent(orgSlug)}/notifications`;
+  const base = endpoint;
   const panelId = React.useId();
 
   const load = React.useCallback(async () => {
@@ -199,7 +229,7 @@ export function NotificationBell({ orgSlug }: { orgSlug: string }) {
                   <li key={item.id}>
                     <NotificationRow
                       item={item}
-                      orgSlug={orgSlug}
+                      href={linkFor(item, postHrefBase, accountHref)}
                       onRead={() => void markRead(item.id)}
                     />
                   </li>
@@ -215,15 +245,14 @@ export function NotificationBell({ orgSlug }: { orgSlug: string }) {
 
 function NotificationRow({
   item,
-  orgSlug,
+  href,
   onRead,
 }: {
   item: NotificationItem;
-  orgSlug: string;
+  href: string | null;
   onRead: () => void;
 }) {
   const unread = item.readAt === null;
-  const href = linkFor(orgSlug, item);
 
   const content = (
     <>
@@ -263,15 +292,25 @@ function NotificationRow({
   );
 }
 
-/** Where a notification points. Unknown shapes stay inert rather than guessing. */
-function linkFor(orgSlug: string, item: NotificationItem): string | null {
+/**
+ * Where a notification points. Unknown shapes stay inert rather than guessing.
+ *
+ * A row with no destination renders as a button that marks itself read, which
+ * is better than a link to a page that does not exist — and better than
+ * inventing one from a `resourceType` this surface has no route for.
+ */
+function linkFor(
+  item: NotificationItem,
+  postHrefBase: string,
+  accountHref: string | undefined,
+): string | null {
   if (!item.resourceId) return null;
 
   switch (item.resourceType) {
     case 'Post':
-      return `/orgs/${orgSlug}/posts/${item.resourceId}`;
+      return `${postHrefBase}/${item.resourceId}`;
     case 'SocialAccount':
-      return `/orgs/${orgSlug}/settings/accounts`;
+      return accountHref ?? null;
     default:
       return null;
   }

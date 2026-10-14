@@ -3,7 +3,15 @@ import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Data deletion' };
+export const metadata: Metadata = {
+  title: 'Data deletion',
+  description: 'What happens to your data when a social account is removed from AHN Orbit.',
+  // The app-wide default is `noindex, nofollow` while Orbit is pre-launch, and
+  // this page was inheriting it while the privacy policy deliberately opted
+  // out. All three of the URLs Meta asks for are public documents, and the
+  // inconsistency was an oversight rather than a decision.
+  robots: { index: true, follow: true },
+};
 
 /**
  * Where a data deletion request is explained.
@@ -61,6 +69,18 @@ export default async function DataDeletionPage({
         </Link>{' '}
         for how.
       </p>
+
+      <footer className="mt-10 flex flex-wrap gap-x-6 gap-y-2 border-t border-line pt-6 text-sm">
+        <Link href="/privacy-policy" className="text-ink-muted hover:underline">
+          Privacy policy
+        </Link>
+        <Link href="/terms-of-service" className="text-ink-muted hover:underline">
+          Terms of service
+        </Link>
+        <Link href="/" className="text-ink-muted hover:underline">
+          Home
+        </Link>
+      </footer>
     </main>
   );
 }

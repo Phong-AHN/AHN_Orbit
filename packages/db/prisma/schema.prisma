@@ -197,6 +197,18 @@ enum SubscriptionStatus {
   CANCELED
 }
 
+/// Who wrote an audience comment: the public, or us replying as the brand.
+enum SocialCommentOrigin {
+  AUDIENCE
+  ORBIT
+}
+
+/// Whether somebody at the agency has dealt with a comment yet.
+enum SocialCommentState {
+  NEW
+  HANDLED
+}
+
 enum ContentIdeaState {
   SUGGESTED
   ACCEPTED
@@ -240,6 +252,9 @@ model User {
   decidedApprovals        Approval[]               @relation("ApprovalDecider")
   comments                Comment[]                @relation("CommentAuthor")
   resolvedComments        Comment[]                @relation("CommentResolver")
+  assignedSocialComments  SocialComment[]          @relation("SocialCommentAssignee")
+  handledSocialComments   SocialComment[]          @relation("SocialCommentHandler")
+  authoredSocialReplies   SocialComment[]          @relation("SocialCommentAuthor")
   uploadedMedia           MediaAsset[]
   connectedAccounts       SocialAccount[]
   notifications           Notification[]
@@ -280,6 +295,7 @@ model Organization {
   approvals          Approval[]
   productionTasks    ProductionTask[]
   comments           Comment[]
+  socialComments     SocialComment[]
   queueSlots         QueueSlot[]
   publishingJobs     PublishingJob[]
   publishingAttempts PublishingAttempt[]
@@ -345,6 +361,7 @@ model Workspace {
   queueSlots   QueueSlot[]
   contentIdeas ContentIdea[]
   reports      Report[]
+  socialComments SocialComment[]
 
   @@unique([organizationId, slug])
   /// Target for composite foreign keys from tenant-scoped children. Every
@@ -394,6 +411,7 @@ model Brand {
   mediaAssets    MediaAsset[]
   voice          BrandVoice?
   contentIdeas   ContentIdea[]
+  socialComments SocialComment[]
   aiUsage        AIUsage[]
 
   @@unique([workspaceId, slug])
@@ -456,6 +474,7 @@ model SocialAccount {
   connectedBy  User?              @relation(fields: [connectedById], references: [id], onDelete: SetNull)
   credential   SocialCredential?
   variants     PostVariant[]
+  socialComments SocialComment[]
   queueSlots   QueueSlot[]
   snapshots    AnalyticsSnapshot[]
 
@@ -588,6 +607,7 @@ model PostVariant {
   jobs          PublishingJob[]
   analytics     PostAnalytics[]
   comments      Comment[]
+  socialComments SocialComment[]
 
   @@unique([postId, socialAccountId])
   @@unique([organizationId, id])
@@ -985,6 +1005,80 @@ model AIUsage {
 // ═══════════════════════════════════════════════════════════════════════════
 // Platform
 // ═══════════════════════════════════════════════════════════════════════════
+
+/// Audience comments on posts Orbit published, and the replies sent back
+/// (SRS §22 — community management).
+///
+/// ## What is deliberately not stored
+///
+/// **No commenter identifier.** The platform serves one, and the obvious design
+/// keeps it: it would let us group a person's comments or see them across posts.
+/// Nothing in the product needs that — a reply is addressed to a *comment*, and
+/// threading uses the platform's own `parentExternalId` — so the id is read by
+/// the adapter to decide whether a comment is ours, and then dropped. What
+/// remains is the public display name the platform showed beside the comment.
+///
+/// The privacy policy had to change for this table to exist at all. It said
+/// Orbit collects no data about the audience, which was true until community
+/// management arrived.
+///
+/// ## Scoped to posts we published
+///
+/// `postVariantId` is required, so ingestion only covers content Orbit put out.
+/// A Page's older posts have no workspace or brand to attribute them to, and
+/// guessing would put one client's comments in another client's queue.
+model SocialComment {
+  id               String              @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId   String              @db.Uuid
+  workspaceId      String              @db.Uuid
+  /// Denormalized so a brand-scoped grant can be checked without loading the
+  /// post — `comment:*` is BRAND scope for several roles.
+  brandId          String              @db.Uuid
+  socialAccountId  String              @db.Uuid
+  postVariantId    String              @db.Uuid
+
+  /// The platform's own id. Dedupes ingestion, and addresses a reply.
+  externalId       String
+  /// The platform's parent id. Null for a top-level comment; set on a reply,
+  /// including ours — one threading mechanism, and it is the platform's.
+  parentExternalId String?
+  origin           SocialCommentOrigin
+  /// The public display name the platform served. No identifier accompanies it.
+  authorName       String?
+  message          String
+  permalink        String?
+  postedAt         DateTime            @db.Timestamptz(3)
+
+  state            SocialCommentState  @default(NEW)
+  assignedToId     String?             @db.Uuid
+  handledAt        DateTime?           @db.Timestamptz(3)
+  handledById      String?             @db.Uuid
+  /// Who sent this, when `origin` is ORBIT.
+  createdById      String?             @db.Uuid
+
+  createdAt        DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime            @updatedAt @db.Timestamptz(3)
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace     Workspace     @relation(fields: [organizationId, workspaceId], references: [organizationId, id], onDelete: Cascade)
+  brand         Brand         @relation(fields: [organizationId, brandId], references: [organizationId, id], onDelete: Cascade)
+  socialAccount SocialAccount @relation(fields: [organizationId, socialAccountId], references: [organizationId, id], onDelete: Cascade)
+  postVariant   PostVariant   @relation(fields: [organizationId, postVariantId], references: [organizationId, id], onDelete: Cascade)
+  assignedTo    User?         @relation("SocialCommentAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  handledBy     User?         @relation("SocialCommentHandler", fields: [handledById], references: [id], onDelete: SetNull)
+  createdBy     User?         @relation("SocialCommentAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  /// Ingestion is idempotent on the platform's id, per account.
+  @@unique([organizationId, socialAccountId, externalId])
+  /// The composite key every tenant-scoped table exposes.
+  @@unique([organizationId, id])
+  /// The queue: what needs attention, newest first.
+  @@index([organizationId, state, postedAt])
+  /// One client's queue.
+  @@index([organizationId, workspaceId, state])
+  /// The thread under one published post.
+  @@index([organizationId, postVariantId])
+}
 
 model Notification {
   id             String              @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid

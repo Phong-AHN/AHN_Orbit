@@ -33,6 +33,15 @@ export interface MediaAsset {
   width: number | null;
   height: number | null;
   durationMs: number | null;
+  /** Average frames per second, read from the file's own sample table. */
+  frameRate: number | null;
+  /**
+   * Highest instantaneous rate — the figure platforms object to.
+   *
+   * Carried separately from the average because on phone video they disagree,
+   * and the composer cannot explain a frame-rate refusal without both.
+   */
+  peakFrameRate: number | null;
   status: string;
   originalFilename: string | null;
 }

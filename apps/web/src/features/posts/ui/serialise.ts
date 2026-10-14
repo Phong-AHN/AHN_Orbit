@@ -58,8 +58,13 @@ export function serialisePost(post: Awaited<ReturnType<typeof getPost>>): PostDe
         id: item.mediaAsset.id,
         kind: item.mediaAsset.kind,
         mimeType: item.mediaAsset.mimeType,
+        sizeBytes: item.mediaAsset.sizeBytes,
         width: item.mediaAsset.width,
         height: item.mediaAsset.height,
+        durationMs: item.mediaAsset.durationMs,
+        frameRate: item.mediaAsset.frameRate,
+        peakFrameRate: item.mediaAsset.peakFrameRate,
+        originalFilename: item.mediaAsset.originalFilename,
       },
     })),
   };

@@ -153,6 +153,21 @@ export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 export const POST_SOURCES = ['MANUAL', 'AI_IDEA', 'REPURPOSE'] as const;
 export type PostSource = (typeof POST_SOURCES)[number];
 
+/**
+ * Who wrote an audience comment.
+ *
+ * `ORBIT` is a reply the agency sent from inside the product. The distinction
+ * is what keeps our own replies out of the queue of things needing attention —
+ * and it is decided by the adapter, which compares the platform's author id to
+ * the connected account's and then discards it.
+ */
+export const SOCIAL_COMMENT_ORIGINS = ['AUDIENCE', 'ORBIT'] as const;
+export type SocialCommentOrigin = (typeof SOCIAL_COMMENT_ORIGINS)[number];
+
+/** Whether somebody at the agency has dealt with a comment yet. */
+export const SOCIAL_COMMENT_STATES = ['NEW', 'HANDLED'] as const;
+export type SocialCommentState = (typeof SOCIAL_COMMENT_STATES)[number];
+
 export const CONTENT_IDEA_STATES = ['SUGGESTED', 'ACCEPTED', 'DISMISSED', 'CONVERTED'] as const;
 export type ContentIdeaState = (typeof CONTENT_IDEA_STATES)[number];
 

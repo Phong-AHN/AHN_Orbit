@@ -51,7 +51,9 @@ export function notificationContent(event: NotificationEvent): NotificationConte
 
     case 'post.changes_requested':
       return {
-        title: `Changes requested on ${event.postTitle}`,
+        // Who asked matters: the client saying no is not the same event as a
+        // colleague marking up a draft, and the old wording said neither.
+        title: `${decider(event.fromClient, event.by)} asked for changes on ${event.postTitle}`,
         body: event.note
           ? `“${truncate(event.note, 160)}” — open the post to make the changes.`
           : 'Open the post to see what needs changing.',
@@ -73,11 +75,50 @@ export function notificationContent(event: NotificationEvent): NotificationConte
           'it twice. Someone needs to look and record what they find.',
       };
 
+    /**
+     * Written for a client, so it is written in their terms.
+     *
+     * No staff name, no mention of the internal rounds it went through, and
+     * nothing about the agency's own process — the agency speaks to its clients
+     * as one voice. There is no field on this event carrying any of that, so
+     * the copy could not leak it even by mistake.
+     */
+    case 'post.client_review_requested':
+      return {
+        title: `${event.postTitle} is ready for your review`,
+        body: 'Have a look and either approve it or ask for changes.',
+      };
+
+    case 'post.approved':
+      return {
+        title: `${event.postTitle} was approved`,
+        body: event.fromClient
+          ? `${decider(true, event.by)} approved it. It can be scheduled now.`
+          : `${decider(false, event.by)} approved it.`,
+      };
+
     default: {
       const exhaustive: never = event;
       throw new Error(`Unhandled notification event: ${JSON.stringify(exhaustive)}`);
     }
   }
+}
+
+/**
+ * How to refer to whoever made a review decision, for an agency reader.
+ *
+ * The name is tagged `(client)` rather than left bare, because an agency with
+ * several clients reads these out of context and "Linh asked for changes" does
+ * not say whether that is a colleague or the person paying.
+ *
+ * Falls back to the side rather than to a name. A decider can genuinely be
+ * unnameable: `decidedById` is `SetNull` on user deletion, and a client
+ * decision recorded by staff on the client's behalf deliberately passes no name
+ * at all — naming the staff member there would report them *as* the client.
+ */
+function decider(fromClient: boolean, by: string | null | undefined): string {
+  if (fromClient) return by ? `${by} (client)` : 'The client';
+  return by ?? 'A reviewer';
 }
 
 /** Keeps a quoted note to one readable line without cutting mid-word. */

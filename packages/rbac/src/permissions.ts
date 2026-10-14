@@ -75,6 +75,22 @@ export const PERMISSIONS = [
   'comment:read_internal',
   'comment:resolve',
 
+  // Community management. Deliberately separate from the three above, which
+  // are *internal* comments between the agency and its client; these two are
+  // about what the public said, and answering it in public.
+  /** See audience comments on published posts. */
+  'comment:read_public',
+  /**
+   * Answer a comment as the brand, and triage one.
+   *
+   * Replying is publishing: it puts words on a client's channel under the
+   * client's name, with no approval gate in front of it. Marking a comment
+   * handled or assigning it rides on this same permission rather than getting
+   * one of its own — both are *acting on* the comment rather than reading it,
+   * and a third concept here would be a distinction nobody at an agency makes.
+   */
+  'comment:reply',
+
   // ── Media ─────────────────────────────────────────────────────────────────
   'media:upload',
   'media:read',

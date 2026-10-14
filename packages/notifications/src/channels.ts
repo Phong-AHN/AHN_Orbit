@@ -53,18 +53,23 @@ const IN_APP_AND_EMAIL: readonly NotificationChannel[] = ['IN_APP', 'EMAIL'];
  * - `publishing.failed` and `publishing.needs_review` — a client's post did not
  *   go out. At 2am, in-app means nobody knows until morning.
  * - `post.approval_requested` — the whole approval workflow stalls on somebody
- *   who may not open the product that day. This is the one that makes the
- *   product usable by clients who log in weekly.
+ *   who may not open the product that day.
+ * - `post.client_review_requested` — **this** is the one that makes the product
+ *   usable by clients who log in weekly. The line above used to make that claim
+ *   and could not keep it: `post.approval_requested` fans out on
+ *   `post:approve_internal`, which no client holds, so the email that existed
+ *   to reach weekly-logging clients never reached a single one.
  *
- * `post.changes_requested` and `social_account.reconnected` stay in-app.
- * The first reaches somebody already working in the product; the second is good
- * news about a thing they just did, and an email for it is noise.
+ * `post.changes_requested`, `post.approved` and `social_account.reconnected`
+ * stay in-app. The first two reach somebody already working in the product; the
+ * last is good news about a thing they just did, and an email for it is noise.
  */
 const EMAIL_WORTHY: ReadonlySet<NotificationType> = new Set([
   'social_account.needs_reconnect',
   'publishing.failed',
   'publishing.needs_review',
   'post.approval_requested',
+  'post.client_review_requested',
 ]);
 
 export function channelsFor(

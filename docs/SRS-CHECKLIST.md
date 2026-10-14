@@ -13,10 +13,10 @@
 
 | | P0 | P1 | P2 | Tổng |
 |---|:--:|:--:|:--:|:--:|
-| ✅ xong | 47 | 21 | 5 | **73** |
-| ⚠️ một phần | 2 | 1 | 0 | **3** |
+| ✅ xong | 47 | 23 | 5 | **75** |
+| ⚠️ một phần | 2 | 0 | 0 | **2** |
 | ❌ chưa làm | 0 | 7 | 10 | **17** |
-| **Tổng** | **49** | **29** | **15** | **93** |
+| **Tổng** | **49** | **30** | **15** | **94** |
 
 **Toàn bộ P0 đã có mã chạy được.** Hai mục P0 còn ⚠️ là *chất lượng nền tảng*
 (responsive, accessibility): đã làm theo từng trang nhưng **chưa quét có hệ
@@ -34,6 +34,9 @@ thống** — xem cuối tài liệu.
 | CSRF, XSS, cookie an toàn, validate đầu vào | P0 | ✅ | `session.ts` (`sameSite`), Zod ở mọi route |
 | Rate limiting | P0 | ✅ | `packages/queue/src/rate-limit.ts`, dùng ở AI + publishing |
 | OAuth state validation + mã hoá token | P0 | ✅ | `features/social/oauth-state.ts`, `providers/src/credential-cipher.ts` |
+| **Trang Privacy / Terms / Data deletion cho Meta** | P0 | ✅ | **D-102** — cả ba trả 200 khi chưa đăng nhập; đã kiểm tra bằng fetch thật |
+| **Mỗi role một cửa đăng nhập riêng** | P1 | ✅ | **D-101** — `/sign-in`, `/sign-in/client`, `/sign-in/ops`; một danh tính, role quyết định điểm đến |
+| **Client không vào được trang agency** | P0 | ✅ | **D-101** — trước đây page lỏng hơn API; nay redirect về portal |
 | Audit logging | P0 | ✅ | `apps/web/src/server/audit.ts` — mọi mutation |
 | Xác thực chữ ký webhook | P0 | ✅ | `X-Hub-Signature-256` HMAC-SHA256 trong `facebook/provider.ts:644`. **Chưa có endpoint webhook nào gọi tới** — provider webhook là P2, nên hàm này đang chờ sẵn đúng như thiết kế: có trước khi cần |
 | 2FA | P1 | ❌ | Cần nâng lên Identity Platform — **chờ anh quyết chi phí** |
@@ -49,7 +52,7 @@ thống** — xem cuối tài liệu.
 | Tầng dữ liệu scope theo tenant | P0 | ✅ | `withTenant`, `packages/db` từ chối `upsert` |
 | Postgres RLS làm lớp chắn | P0 | ✅ | 34 composite tenant FK + RLS |
 | Thu hẹp phân quyền theo brand | P1 | ✅ | `packages/rbac/src/matrix.ts` — scope `BRAND` |
-| Chuyển quyền sở hữu | P1 | ⚠️ | Permission `org:transfer_ownership` đã có trong ma trận; **chưa có route hay UI** |
+| Chuyển quyền sở hữu | P1 | ✅ | Một thao tác nguyên tử, xác nhận bằng cách gõ tên người nhận (**D-099**) |
 | Vai trò tuỳ biến | P2 | ❌ | |
 
 ## 3. Mạng xã hội (SRS §7, §8)
@@ -76,10 +79,14 @@ thống** — xem cuối tài liệu.
 
 | Tính năng | Pri | | Ghi chú |
 |---|:--:|:--:|---|
+| **Sidebar bên trái cho cả 3 surface** | P1 | ✅ | **D-101** — `AppShell` dùng chung; nhóm menu lần đầu hiện trên desktop |
 | Composer: text, đính kèm media, chọn nhiều account | P0 | ✅ | `features/posts/ui/composer.tsx` |
+| Hướng dẫn thiết lập lần đầu | P1 | ✅ | 4 bước tính từ dữ liệu, tự ẩn khi xong (**D-098**) |
 | Thiết lập riêng theo nền tảng, hiện cùng lúc cho mọi account | P1 | ✅ | Một thẻ liệt kê mọi account còn thiếu (**D-092**) |
 | Variant theo từng account | P0 | ✅ | Kèm first comment nơi platform hỗ trợ |
 | Validate theo capability (client + server) | P0 | ✅ | Một engine duy nhất, chạy server-side |
+| **Yêu cầu media theo từng nền tảng** | P1 | ✅ | **D-100** — mô tả bằng lời từ descriptor; trình duyệt không tự kết luận đúng/sai |
+| **Lỗi validate gắn đúng file gây ra** | P1 | ✅ | `field` của engine đã là `media[2]` — không cần logic mới |
 | **Preview** | P0 | ✅ | **D-084** — Facebook và Instagram vẽ khác nhau |
 | Draft + autosave | P0 | ✅ | Có phát hiện xung đột khi 2 người sửa |
 | Nhân bản / xoá | P0 | ✅ | `duplicatePost` — bản sao luôn là draft mới |
@@ -104,6 +111,10 @@ thống** — xem cuối tài liệu.
 | Duyệt / yêu cầu sửa + bình luận | P0 | ✅ | |
 | Màn hình hàng chờ duyệt | P0 | ✅ | `/orgs/{slug}/approvals` |
 | Client portal: lịch, chờ duyệt, đã đăng | P0 | ✅ | `(portal)/portal/` — 5 trang |
+| **Thông báo hai chiều agency ↔ client** | P1 | ✅ | **D-101** — client được thông báo khi tới lượt duyệt; agency biết khi client quyết định |
+| **Community inbox: đọc & trả lời comment khán giả** | P1 | ✅ | **D-102** — Facebook; chỉ post do Orbit đăng; không lưu danh tính người comment |
+| **Phân công & đánh dấu đã xử lý comment** | P1 | ✅ | **D-102** — Approver đọc được nhưng không trả lời được |
+| **Client portal: có chuông thông báo** | P1 | ✅ | **D-101** — feed lọc theo audience ở server; không lộ tên nhân sự agency |
 | Production task (§11) | P1 | ✅ | `features/tasks/` — **D-052** |
 | Giao việc | P1 | ✅ | `assignee-select.tsx` |
 | Bình luận có mention, đóng thread | P1 | ✅ | `mentionedUserIds`, `resolvedAt` |
@@ -117,6 +128,7 @@ thống** — xem cuối tài liệu.
 |---|:--:|:--:|---|
 | Upload presigned + xác minh **bytes thật** phía server | P0 | ✅ | Không tin MIME của client |
 | Đính kèm media trong composer | P0 | ✅ | |
+| **Hiển thị thông tin media đo được** | P1 | ✅ | Kích thước, thời lượng, dung lượng, và **cả fps trung bình lẫn fps đỉnh** (**D-100**) |
 | URL đọc có chữ ký + cô lập tenant | P0 | ✅ | **D-054** |
 | Thư viện: duyệt, tìm, tag, **folder** | P1 | ✅ | **D-081** — xoá folder không bao giờ xoá ảnh |
 | Gắn theo brand | P1 | ✅ | |

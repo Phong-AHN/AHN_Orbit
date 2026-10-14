@@ -250,6 +250,70 @@ export interface MetricSet {
   apiVersion: string;
 }
 
+// ── Engagement ──────────────────────────────────────────────────────────
+
+/**
+ * One comment, as the adapter hands it over.
+ *
+ * **No commenter identifier.** The platforms all serve one and this type
+ * deliberately has nowhere to put it: a reply is addressed to a comment, and
+ * threading uses `parentExternalId`, so nothing downstream needs to know *who*
+ * beyond the name already displayed in public beside the comment. The adapter
+ * reads the author id to set `ours` and then drops it, which is why that is a
+ * boolean here rather than an id for the caller to compare.
+ */
+export interface AudienceComment {
+  externalId: string;
+  /** The platform's parent id. Absent on a top-level comment. */
+  parentExternalId?: string | undefined;
+  /** The public display name shown beside the comment. */
+  authorName?: string | undefined;
+  message: string;
+  permalink?: string | undefined;
+  postedAt: Date;
+  /**
+   * True when the connected account wrote it — the brand replying to itself.
+   * Decided by the adapter, which is the only layer that may compare author
+   * ids, because it is the only layer that holds them.
+   */
+  ours: boolean;
+}
+
+export interface CommentPage {
+  comments: readonly AudienceComment[];
+  /** Opaque provider cursor. Absent when there is no further page. */
+  nextCursor?: string | undefined;
+}
+
+export interface FetchCommentsInput {
+  ref: ExternalPostRef;
+  credential: DecryptedCredential;
+  /**
+   * Only comments at or after this moment. Ingestion runs repeatedly over the
+   * same post, and without this each run pages through the whole history.
+   */
+  since?: Date | undefined;
+  cursor?: string | undefined;
+  limit?: number | undefined;
+  /** Abort signal, so a hung provider call cannot pin a worker slot. */
+  signal?: AbortSignal | undefined;
+}
+
+export interface ReplyInput {
+  /** The comment being answered, by the platform's own id. */
+  commentExternalId: string;
+  message: string;
+  credential: DecryptedCredential;
+  signal?: AbortSignal | undefined;
+}
+
+export interface ReplyResult {
+  /** The platform's id for the reply, so re-ingestion recognises it as ours. */
+  externalId: string;
+  permalink?: string | undefined;
+  postedAt?: Date | undefined;
+}
+
 // ── Webhooks ────────────────────────────────────────────────────────────────
 
 export interface RawWebhookRequest {
@@ -310,6 +374,10 @@ export interface SocialProvider {
     credential: DecryptedCredential,
     range: DateRange,
   ): Promise<MetricSet>;
+
+  // Engagement — gated by capabilities.engagement
+  fetchComments?(input: FetchCommentsInput): Promise<CommentPage>;
+  replyToComment?(input: ReplyInput): Promise<ReplyResult>;
 
   // Webhooks — gated by capabilities.webhooks.supported
   verifyWebhook?(request: RawWebhookRequest): boolean;

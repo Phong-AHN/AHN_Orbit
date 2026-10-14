@@ -2,7 +2,12 @@ import { NotFoundError, ValidationError, presentFailure, type ErrorCode } from '
 import { NOTIFICATION_WORKER_CAPABILITIES } from '@orbit/auth';
 import { withTenant, type TenantDb } from '@orbit/db';
 import { logger } from '@orbit/observability';
-import { isNotificationType, notify, type NotificationType } from '@orbit/notifications';
+import {
+  isNotificationType,
+  notify,
+  type NotificationEvent,
+  type NotificationType,
+} from '@orbit/notifications';
 import type { JobContext } from '@orbit/queue';
 import { resolveTenantForJob } from '../context.js';
 
@@ -136,7 +141,9 @@ async function describe(
     }
 
     case 'post.approval_requested':
-    case 'post.changes_requested': {
+    case 'post.client_review_requested':
+    case 'post.changes_requested':
+    case 'post.approved': {
       const post = await db.post.findFirst({
         where: { id: resourceId, deletedAt: null },
         select: {
@@ -148,20 +155,48 @@ async function describe(
           brandId: true,
           createdById: true,
           assignedToId: true,
+          /**
+           * The decision that produced this transition, for the two events that
+           * report one.
+           *
+           * Read from the record rather than carried on the job, which is the
+           * same choice `stage` already made below. A payload would have to be
+           * trusted and kept in step with whatever the state machine actually
+           * wrote; the row is what happened.
+           */
+          approvals: {
+            where: { state: { in: ['APPROVED', 'CHANGES_REQUESTED'] } },
+            orderBy: [{ decidedAt: 'desc' }],
+            take: 1,
+            select: {
+              stage: true,
+              comment: true,
+              onBehalfOf: true,
+              decidedBy: { select: { name: true } },
+            },
+          },
         },
       });
 
       if (!post) return null;
 
+      const title = postLabel(post.title, post.body);
+      const decision = post.approvals[0];
+      const fromClient = decision?.stage === 'CLIENT';
+
+      /**
+       * Who to name, for an agency reader.
+       *
+       * Withheld when a client's decision was **recorded by staff on their
+       * behalf** (docs/RBAC.md note 5). The decider on that row is the staff
+       * member, and naming them would report a colleague as the client. The
+       * copy falls back to "The client", which is the accurate statement: it
+       * was the client's decision, and who keyed it in is in the audit log.
+       */
+      const by = decision?.onBehalfOf ? null : (decision?.decidedBy?.name ?? null);
+
       return {
-        event:
-          event === 'post.approval_requested'
-            ? {
-                type: 'post.approval_requested',
-                postTitle: postLabel(post.title, post.body),
-                stage: post.status === 'CLIENT_REVIEW' ? 'CLIENT' : 'INTERNAL',
-              }
-            : { type: 'post.changes_requested', postTitle: postLabel(post.title, post.body) },
+        event: buildReviewEvent(event, title, fromClient, by, decision?.comment ?? null),
         resource: {
           resourceType: 'Post',
           resourceId: post.id,
@@ -188,6 +223,40 @@ async function describe(
       const exhaustive: never = event;
       throw new Error(`Unhandled notification event: ${String(exhaustive)}`);
     }
+  }
+}
+
+/**
+ * Build the event for a review transition.
+ *
+ * Separated from the query so the one rule that matters here is visible in one
+ * place: **the client-facing event is given no agency facts.** It takes the post
+ * title and nothing else — no decider, no note, no stage — because a row
+ * written for a client is read by that client for as long as it exists, and the
+ * safe way to keep a name out of it is for there to be no field to put one in.
+ */
+function buildReviewEvent(
+  event: 'post.approval_requested' | 'post.client_review_requested' | 'post.changes_requested' | 'post.approved',
+  postTitle: string,
+  fromClient: boolean,
+  by: string | null,
+  note: string | null,
+): NotificationEvent {
+  switch (event) {
+    case 'post.approval_requested':
+      // Still both gates, and still only the wording that differs: this is the
+      // agency's copy. The client's own prompt is a separate event, because it
+      // goes to different people — which is what the old single type got wrong.
+      return { type: 'post.approval_requested', postTitle, stage: fromClient ? 'CLIENT' : 'INTERNAL' };
+
+    case 'post.client_review_requested':
+      return { type: 'post.client_review_requested', postTitle };
+
+    case 'post.changes_requested':
+      return { type: 'post.changes_requested', postTitle, fromClient, by, note };
+
+    case 'post.approved':
+      return { type: 'post.approved', postTitle, fromClient, by };
   }
 }
 

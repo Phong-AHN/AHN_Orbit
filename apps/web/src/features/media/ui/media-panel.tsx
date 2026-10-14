@@ -4,6 +4,7 @@ import * as React from 'react';
 import { Button, Card, CardBody, CardHeader, CardTitle, Input } from '@orbit/ui';
 import { ApiError } from '@/features/posts/ui/api';
 import { completeUpload, presignUpload, putToStorage, viewUrl } from './api';
+import { describeFacts, formatType, type MediaFacts } from './facts';
 import { LibraryPicker } from './library-picker';
 
 /**
@@ -26,11 +27,55 @@ export interface AttachedMedia {
   altText?: string;
 }
 
-export interface MediaItem {
+/**
+ * An attachment as the composer holds it.
+ *
+ * `MediaFacts` is spread in rather than nested so the measured numbers travel
+ * with the item everywhere it already goes — the preview, the save payload, the
+ * requirement panel — without every call site learning a new shape. They are
+ * all optional because the server may genuinely not have them: probing a file
+ * can fail, and an unmeasured dimension is absent, never zero.
+ */
+export interface MediaItem extends MediaFacts {
   mediaAssetId: string;
+  altText: string;
+  originalFilename?: string | undefined;
+}
+
+/**
+ * Build an attachment from any asset response that carries the facts.
+ *
+ * Structural rather than `Pick<MediaAsset, …>`, because the upload response and
+ * the library listing describe `kind` differently — one as a union, one as a
+ * string — while both come from the same column. The looser shape is what lets
+ * one function serve both, so a file attached from the library shows exactly
+ * what the same file shows after an upload.
+ */
+export function itemFromAsset(asset: {
+  id: string;
   kind: string;
   mimeType: string;
-  altText: string;
+  sizeBytes: number;
+  width: number | null;
+  height: number | null;
+  durationMs: number | null;
+  frameRate: number | null;
+  peakFrameRate: number | null;
+  originalFilename: string | null;
+}): MediaItem {
+  return {
+    mediaAssetId: asset.id,
+    kind: asset.kind,
+    mimeType: asset.mimeType,
+    altText: '',
+    sizeBytes: asset.sizeBytes,
+    width: asset.width ?? undefined,
+    height: asset.height ?? undefined,
+    durationMs: asset.durationMs ?? undefined,
+    frameRate: asset.frameRate ?? undefined,
+    peakFrameRate: asset.peakFrameRate ?? undefined,
+    originalFilename: asset.originalFilename ?? undefined,
+  };
 }
 
 export interface MediaPanelProps {
@@ -84,10 +129,7 @@ export function MediaPanel({
           continue;
         }
 
-        onChange([
-          ...items,
-          { mediaAssetId: asset.id, kind: asset.kind, mimeType: asset.mimeType, altText: '' },
-        ]);
+        onChange([...items, itemFromAsset(asset)]);
       } catch (e) {
         setError(describeFailure(e, file.name));
       } finally {
@@ -129,6 +171,8 @@ export function MediaPanel({
                   <Thumbnail orgSlug={orgSlug} item={item} />
 
                   <div className="min-w-0 flex-1 space-y-2">
+                    <FileFacts item={item} />
+
                     <AltTextInput
                       value={item.altText}
                       disabled={disabled || busy}
@@ -139,8 +183,7 @@ export function MediaPanel({
 
                     {item.kind === 'VIDEO' ? (
                       <p className="text-xs text-ink-muted">
-                        Publishes as a Reel on Facebook and Instagram, and as a post on TikTok. Each
-                        has its own limits — the checks on the post say which, per account.
+                        Publishes as a Reel on Facebook and Instagram, and as a post on TikTok.
                       </p>
                     ) : null}
                   </div>
@@ -198,12 +241,7 @@ export function MediaPanel({
                 ...items,
                 ...picked
                   .filter((asset) => !items.some((item) => item.mediaAssetId === asset.id))
-                  .map((asset) => ({
-                    mediaAssetId: asset.id,
-                    kind: asset.kind,
-                    mimeType: asset.mimeType,
-                    altText: '',
-                  })),
+                  .map(itemFromAsset),
               ])
             }
           />
@@ -226,6 +264,46 @@ const STAGE_LABEL: Record<Stage, string> = {
   uploading: 'Uploading…',
   checking: 'Checking the file…',
 };
+
+/**
+ * What this file actually is, measured from its own bytes at upload.
+ *
+ * Shown on every attachment, not only when something is wrong. A limit is only
+ * useful next to the figure it applies to, and the figures were already in the
+ * database — the composer simply never asked for them, so "your video is too
+ * long" arrived with no way to tell *how* long it was.
+ *
+ * It states facts and no verdict. Whether the file is acceptable depends on
+ * which accounts the post targets, which only `/validate` knows.
+ */
+function FileFacts({ item }: { item: MediaItem }) {
+  const parts = describeFacts(item);
+  const name = item.originalFilename;
+
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-muted">
+      {name ? (
+        // Truncated rather than wrapped: the useful end of a phone filename is
+        // the start, and a 60-character name should not push the facts off.
+        <span className="max-w-[16rem] truncate font-medium text-ink-secondary" title={name}>
+          {name}
+        </span>
+      ) : null}
+
+      <span className="rounded-sm bg-surface-sunken px-1 py-px font-medium">
+        {formatType(item.mimeType)}
+      </span>
+
+      {parts.length > 0 ? (
+        <span>{parts.join(' · ')}</span>
+      ) : (
+        /* An absent measurement is reported as absent. Showing nothing would
+           read as a file with no properties; zeros would be a fabrication. */
+        <span className="italic">dimensions not measured</span>
+      )}
+    </p>
+  );
+}
 
 /**
  * The thumbnail is fetched through a signed URL rather than rendered from the

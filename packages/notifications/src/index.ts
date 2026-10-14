@@ -12,8 +12,11 @@
  */
 
 export {
+  NOTIFICATION_AUDIENCE,
   NOTIFICATION_TYPES,
   isNotificationType,
+  notificationTypesFor,
+  type NotificationAudience,
   type NotificationType,
   type NotificationEvent,
   type NotificationResource,

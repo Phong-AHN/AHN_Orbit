@@ -16,7 +16,7 @@ import { s3 } from '@orbit/storage';
 import { CreateBucketCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { ensureProvidersRegistered } from '@/server/providers';
 import { schedulePost } from '../scheduling/service';
-import { completeMediaUpload, presignMediaUpload } from '../media/service';
+import { completeMediaUpload, getMediaAsset, presignMediaUpload } from '../media/service';
 import {
   assertNotSystemStatus,
   assignPost,
@@ -31,6 +31,8 @@ import {
   updateVariant,
 } from './service';
 import { validatePost } from './validation';
+import { serialisePost } from './ui/serialise';
+import { describeFacts } from '@/features/media/ui/facts';
 
 /**
  * The post layer against the real database, real storage and the real provider
@@ -1132,3 +1134,138 @@ describe('duplicate and delete', () => {
     await expect(deletePost(ownerA, postId, fingerprint)).rejects.toBeInstanceOf(ConflictError);
   });
 });
+
+describe('the measured facts reach the composer', () => {
+  /**
+   * The bug this guards against has already happened once on this exact path.
+   *
+   * `serialisePost` writes the mapping out by hand, and its own docstring
+   * records what that cost: a field that exists in the database, is selected,
+   * and is simply left out of the mapping type-checks perfectly and vanishes
+   * on the trip to the browser. The composer cannot measure a file itself, so a
+   * dropped field means it silently has nothing to display — no error, no
+   * crash, just an attachment with no properties.
+   *
+   * A unit test cannot catch it: it would assert against a fixture written to
+   * agree with the mapping. This asserts against a real upload, read back
+   * through the real select.
+   */
+  it('carries the dimensions and size of a genuinely uploaded file', async () => {
+    const mediaAssetId = await uploadReadyImage(ownerA, WS_A, { width: 1080, height: 1350 });
+    const post = await createPost(
+      ownerA,
+      {
+        workspaceId: WS_A,
+        brandId: BRAND_A,
+        title: 'Facts',
+        body: 'Something to attach a file to.',
+        hashtags: [],
+        mentions: [],
+        media: [{ mediaAssetId }],
+        socialAccountIds: [],
+      },
+      fingerprint,
+    );
+
+    const serialised = serialisePost(await getPost(ownerA, post.id));
+    const asset = serialised.media[0]?.mediaAsset;
+    // Thrown rather than asserted, so the rest of the test is reading a real
+    // attachment instead of quietly checking nothing against undefined.
+    if (!asset) throw new Error('the post came back with no attachment');
+
+    // Read from the bytes, not from anything the client said.
+    expect(asset.width).toBe(1080);
+    expect(asset.height).toBe(1350);
+    expect(asset.sizeBytes).toBeGreaterThan(0);
+
+    // And the display layer can actually form a sentence from what arrived,
+    // which is the thing a field-by-field assertion would still let slip.
+    expect(describeFacts(toFacts(asset))).toContain('1080 × 1350 (4:5)');
+  });
+
+  /**
+   * The peak frame rate is the reason this feature exists.
+   *
+   * A phone shoots variable frame rate: the file averages 30 and spikes past
+   * the ceiling, and the platform checks the spike. The column was already
+   * written at upload and already read by the validator — it was the *select*
+   * for the composer that left it out, so the one number that explains a
+   * frame-rate refusal was the one number not on screen.
+   *
+   * Set directly here because no PNG has a frame rate, and uploading a real
+   * variable-rate video would be testing the prober rather than this path.
+   */
+  it('carries both frame rates, so a refusal can be explained', async () => {
+    const mediaAssetId = await uploadReadyImage(ownerA, WS_A);
+
+    await platformDb.mediaAsset.update({
+      where: { id: mediaAssetId },
+      data: { kind: 'VIDEO', durationMs: 95_000, frameRate: 29.97, peakFrameRate: 62 },
+    });
+
+    const post = await createPost(
+      ownerA,
+      {
+        workspaceId: WS_A,
+        brandId: BRAND_A,
+        title: 'Rates',
+        body: 'A clip.',
+        hashtags: [],
+        mentions: [],
+        media: [{ mediaAssetId }],
+        socialAccountIds: [],
+      },
+      fingerprint,
+    );
+
+    const asset = serialisePost(await getPost(ownerA, post.id)).media[0]?.mediaAsset;
+    if (!asset) throw new Error('the post came back with no attachment');
+
+    expect(asset.frameRate).toBeCloseTo(29.97, 2);
+    expect(asset.peakFrameRate).toBe(62);
+    expect(asset.durationMs).toBe(95_000);
+
+    // Both rates, stated as such — the average alone is what left somebody
+    // certain their 30fps video had been refused for being 30fps.
+    expect(describeFacts(toFacts(asset))).toContain('30 fps average, 62 fps peak');
+  });
+
+  /** The library listing and the upload response feed the same display. */
+  it('returns both frame rates from the media service as well', async () => {
+    const mediaAssetId = await uploadReadyImage(ownerA, WS_A);
+    await platformDb.mediaAsset.update({
+      where: { id: mediaAssetId },
+      data: { kind: 'VIDEO', frameRate: 30, peakFrameRate: 61 },
+    });
+
+    const asset = await getMediaAsset(ownerA, mediaAssetId);
+
+    // `MEDIA_SELECT` had everything except these two, so an asset attached from
+    // the library showed less than the same asset just after upload.
+    expect(asset.frameRate).toBe(30);
+    expect(asset.peakFrameRate).toBe(61);
+  });
+});
+
+/** Drop the nulls the database uses for "not measured". */
+function toFacts(asset: {
+  kind: string;
+  mimeType: string;
+  sizeBytes: number;
+  width: number | null;
+  height: number | null;
+  durationMs: number | null;
+  frameRate: number | null;
+  peakFrameRate: number | null;
+}) {
+  return {
+    kind: asset.kind,
+    mimeType: asset.mimeType,
+    sizeBytes: asset.sizeBytes,
+    width: asset.width ?? undefined,
+    height: asset.height ?? undefined,
+    durationMs: asset.durationMs ?? undefined,
+    frameRate: asset.frameRate ?? undefined,
+    peakFrameRate: asset.peakFrameRate ?? undefined,
+  };
+}

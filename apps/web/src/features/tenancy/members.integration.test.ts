@@ -8,6 +8,7 @@ import {
   listWorkspaceMembers,
   removeMember,
   removeWorkspaceMember,
+  transferOwnership,
   updateMemberRole,
 } from './members';
 
@@ -350,5 +351,119 @@ describe('audit trail', () => {
     expect(entries).toHaveLength(2);
     expect(entries.every((e) => e.actorUserId === U.owner.id)).toBe(true);
     expect(JSON.stringify(entries)).toContain('CONTENT_CREATOR');
+  });
+});
+
+// ── Ownership transfer ──────────────────────────────────────────────────────
+
+/**
+ * Handing the organization to somebody else.
+ *
+ * Every case here is a refusal except the first, which is the point: the act is
+ * irreversible by the person performing it — once they are an Admin they cannot
+ * transfer it back to themselves.
+ */
+describe('ownership transfer', () => {
+  async function roleOf(email: string): Promise<string | undefined> {
+    const members = await listMembers(ctxOwner);
+    return members.find((m) => m.user.email === email)?.role;
+  }
+
+  /**
+   * **Both sides move in one call.**
+   *
+   * This was already possible as two role changes, and that is exactly the
+   * problem: if the second never happened the organization kept two owners,
+   * silently and forever. Asserting both ends after a single call is what
+   * distinguishes a transfer from a promotion.
+   */
+  it('promotes the target and demotes the outgoing owner together', async () => {
+    const result = await transferOwnership(ctxOwner, U.admin.id, fingerprint);
+
+    expect(result.ownerUserId).toBe(U.admin.id);
+    expect(await roleOf(U.admin.email)).toBe('OWNER');
+    expect(await roleOf(U.owner.email)).toBe('ADMIN');
+  });
+
+  /**
+   * `org:transfer_ownership` is granted to OWNER and withheld from ADMIN, while
+   * both hold `member:update_role`. The service checks it as well as the route,
+   * because the service is the thing that has to be safe.
+   */
+  it('refuses an admin, who holds member:update_role but not this', async () => {
+    await expect(transferOwnership(ctxAdmin, U.manager.id, fingerprint)).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    expect(await roleOf(U.manager.email)).toBe('ACCOUNT_MANAGER');
+  });
+
+  it('refuses an account manager outright', async () => {
+    await expect(transferOwnership(ctxManager, U.creator.id, fingerprint)).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+  });
+
+  it('refuses a transfer to yourself', async () => {
+    await expect(transferOwnership(ctxOwner, U.owner.id, fingerprint)).rejects.toBeInstanceOf(
+      ConflictError,
+    );
+    expect(await roleOf(U.owner.email)).toBe('OWNER');
+  });
+
+  /**
+   * A client is the person the agency works *for*. Handing them the agency is
+   * almost certainly a misclick on a member list, and the cost of being wrong
+   * is total — so it is refused with the way out rather than allowed.
+   */
+  it('refuses a transfer to a client', async () => {
+    await expect(transferOwnership(ctxOwner, U.client.id, fingerprint)).rejects.toBeInstanceOf(
+      ConflictError,
+    );
+    expect(await roleOf(U.client.email)).toBe('CLIENT');
+    // And the outgoing owner is untouched: a refused transfer changes nothing.
+    expect(await roleOf(U.owner.email)).toBe('OWNER');
+  });
+
+  /** An unaccepted invitation is not yet a person who can run the agency. */
+  it('refuses a member who has not accepted their invitation', async () => {
+    await platformDb.organizationMembership.updateMany({
+      where: { organizationId: ORG_A, userId: U.creator.id },
+      data: { status: 'INVITED' },
+    });
+
+    await expect(transferOwnership(ctxOwner, U.creator.id, fingerprint)).rejects.toBeInstanceOf(
+      ConflictError,
+    );
+    expect(await roleOf(U.owner.email)).toBe('OWNER');
+  });
+
+  /**
+   * Cross-tenant, and **404 rather than 403** — the same answer as for a user
+   * who does not exist, so this cannot be used to discover who belongs to
+   * another organization.
+   */
+  it('cannot reach a member of another organization', async () => {
+    await expect(transferOwnership(ctxOwner, U.outsider.id, fingerprint)).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
+  });
+
+  /** One audit entry describing a transfer, not two adjacent role changes. */
+  it('records the transfer as a single audited act', async () => {
+    // Audit rows survive `resetMemberships`, which only rebuilds memberships —
+    // so the earlier transfers in this block are still on the log. Cleared
+    // here so the count is about this one call rather than the file's history.
+    await platformDb.auditLog.deleteMany({
+      where: { organizationId: ORG_A, action: 'org.ownership_transferred' },
+    });
+
+    await transferOwnership(ctxOwner, U.admin.id, fingerprint);
+
+    const entries = await platformDb.auditLog.findMany({
+      where: { organizationId: ORG_A, action: 'org.ownership_transferred' },
+    });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.resourceType).toBe('Organization');
   });
 });

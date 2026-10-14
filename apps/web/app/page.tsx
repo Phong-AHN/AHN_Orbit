@@ -26,6 +26,14 @@ export default function HomePage() {
         >
           Sign in
         </Link>
+
+        {/* The client's own door, named for them. A client arriving at the
+            agency entrance still reaches their portal — the entrance is a hint,
+            never a gate — but a link they can recognise is worth having. */}
+        <Link href="/sign-in/client" className="text-sm font-medium text-accent hover:underline">
+          Client portal
+        </Link>
+
         <Badge tone="neutral">Phase 1 · complete</Badge>
       </div>
 
@@ -40,11 +48,18 @@ export default function HomePage() {
         </CardBody>
       </Card>
 
-      {/* App Review checks that the policy is reachable from the app, not only
-          by its URL. */}
-      <footer className="mt-12 border-t border-line pt-6">
-        <Link href="/privacy-policy" className="text-sm text-ink-muted hover:underline">
+      {/* App Review checks that these are reachable from the app, not only by
+          their URLs — all three are fields in the App Dashboard, so all three
+          are linked here rather than just the one. */}
+      <footer className="mt-12 flex flex-wrap gap-x-6 gap-y-2 border-t border-line pt-6 text-sm">
+        <Link href="/privacy-policy" className="text-ink-muted hover:underline">
           Privacy policy
+        </Link>
+        <Link href="/terms-of-service" className="text-ink-muted hover:underline">
+          Terms of service
+        </Link>
+        <Link href="/data-deletion" className="text-ink-muted hover:underline">
+          Data deletion
         </Link>
       </footer>
     </main>

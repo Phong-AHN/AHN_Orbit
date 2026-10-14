@@ -17,7 +17,7 @@ type Params = { orgSlug: string };
 export const POST = withAuth<Params>(
   { name: 'POST /api/v1/orgs/{orgSlug}/notifications/read-all' },
   async ({ ctx }) => {
-    const marked = await markAllReadForUser(ctx);
+    const marked = await markAllReadForUser(ctx, 'AGENCY');
     return jsonOk({ marked, unread: 0 });
   },
 );

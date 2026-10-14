@@ -23,6 +23,7 @@ import { pageCan, pageCanSomewhere, requirePageContext } from '@/server/page-con
 import { dashboardSummary } from '@/features/dashboard/service';
 import { myWork } from '@/features/dashboard/my-work';
 import { AlertList } from '@/features/dashboard/ui/alert-list';
+import { SetupGuide } from '@/features/dashboard/ui/setup-guide';
 
 export const dynamic = 'force-dynamic';
 
@@ -318,7 +319,14 @@ export default async function DashboardPage({ params }: PageProps) {
       />
 
       <div className="mt-6 space-y-8">
-        {ownWorkFirst ? (
+        {/* While setup is unfinished the guide is the *only* thing on the page.
+            Every section below is accurate and empty in that state, and a
+            screen of empty sections is exactly what this replaces — showing
+            both would put the next thing to do underneath four reasons there
+            is nothing to see. */}
+        {!summary.setup.finished ? (
+          <SetupGuide progress={summary.setup} base={base} />
+        ) : ownWorkFirst ? (
           <>
             {ownWork}
             {orgPicture}

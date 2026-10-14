@@ -4,7 +4,12 @@ import { toAppError } from '../errors.js';
 import { validateDraft, type ValidationResult, type VariantDraft } from '../validation.js';
 import type {
   AccountHealth,
+  AudienceComment,
   AuthorizationUrlInput,
+  CommentPage,
+  FetchCommentsInput,
+  ReplyInput,
+  ReplyResult,
   CallbackInput,
   ConnectedAccounts,
   DecryptedCredential,
@@ -113,6 +118,14 @@ const MOCK_CAPABILITIES = defineCapabilities({
     metrics: ['views', 'likes', 'comments', 'shares'],
     deprecatedMetrics: ['impressions'],
   },
+  engagement: {
+    readComments: true,
+    reply: true,
+    threadedReply: true,
+    moderate: false,
+    maxReplyLength: 8000,
+    replyScopes: ['mock_manage_engagement'],
+  },
   webhooks: { supported: true },
 });
 
@@ -122,14 +135,29 @@ export class MockProvider implements SocialProvider {
   /** Published posts, keyed by external id. Inspectable from tests. */
   readonly posts = new Map<string, MockPost>();
 
+  /**
+   * Audience comments per external post id, as if the public had left them.
+   * Tests push into this to simulate a thread arriving.
+   */
+  readonly comments = new Map<string, AudienceComment[]>();
+
   /** Next fault to inject. Reset to NONE after it fires once. */
   fault: MockFault = 'NONE';
 
   /** Counts calls, so tests can assert "exactly one provider call happened". */
-  readonly callCounts = { publish: 0, reconcile: 0, refresh: 0, health: 0, delete: 0 };
+  readonly callCounts = {
+    publish: 0,
+    reconcile: 0,
+    refresh: 0,
+    health: 0,
+    delete: 0,
+    fetchComments: 0,
+    reply: 0,
+  };
 
   reset(): void {
     this.posts.clear();
+    this.comments.clear();
     this.fault = 'NONE';
     for (const key of Object.keys(this.callCounts) as (keyof typeof this.callCounts)[]) {
       this.callCounts[key] = 0;
@@ -374,6 +402,67 @@ export class MockProvider implements SocialProvider {
       capturedAt: clock.now(),
       apiVersion: MOCK_CAPABILITIES.apiVersion,
     };
+  }
+
+  /**
+   * Comments a test pushed into `comments`, filtered the way a real adapter
+   * filters them.
+   *
+   * `since` is honoured rather than ignored, because the ingestion processor's
+   * whole incremental story rests on it: a mock that returned everything every
+   * time would let a processor that never advances its watermark pass.
+   */
+  async fetchComments(input: FetchCommentsInput): Promise<CommentPage> {
+    this.callCounts.fetchComments += 1;
+
+    if (this.fault === 'UNAVAILABLE') {
+      this.fault = 'NONE';
+      throw toAppError(this.platform, { kind: 'UNAVAILABLE', message: 'Mock platform is down' });
+    }
+
+    const all = this.comments.get(input.ref.externalPostId) ?? [];
+    const since = input.since;
+
+    return {
+      comments: since ? all.filter((c) => c.postedAt.getTime() >= since.getTime()) : all,
+    };
+  }
+
+  /**
+   * Records a reply as a comment of our own, threaded under its parent.
+   *
+   * Pushed into the same map so the next `fetchComments` returns it with
+   * `ours: true` — which is what lets a test prove the ingestion path does not
+   * put the agency's own replies back in the queue of things needing attention.
+   */
+  async replyToComment(input: ReplyInput): Promise<ReplyResult> {
+    this.callCounts.reply += 1;
+
+    if (this.fault === 'VALIDATION') {
+      this.fault = 'NONE';
+      throw toAppError(this.platform, { kind: 'VALIDATION', message: 'Mock rejected the reply' });
+    }
+
+    const postId = [...this.comments.entries()].find(([, list]) =>
+      list.some((c) => c.externalId === input.commentExternalId),
+    )?.[0];
+
+    if (!postId) {
+      throw toAppError(this.platform, { kind: 'VALIDATION', message: 'No such mock comment' });
+    }
+
+    const reply: AudienceComment = {
+      externalId: `mock-reply-${this.callCounts.reply}`,
+      parentExternalId: input.commentExternalId,
+      authorName: 'Mock Page',
+      message: input.message,
+      postedAt: clock.now(),
+      ours: true,
+    };
+
+    this.comments.get(postId)!.push(reply);
+
+    return { externalId: reply.externalId, postedAt: reply.postedAt };
   }
 
   verifyWebhook(request: RawWebhookRequest): boolean {

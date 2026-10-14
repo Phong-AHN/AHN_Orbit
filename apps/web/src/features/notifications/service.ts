@@ -6,6 +6,7 @@ import {
   markRead,
   unreadCount,
   type ListNotificationsOptions,
+  type NotificationAudience,
 } from '@orbit/notifications';
 
 /**
@@ -16,14 +17,28 @@ import {
  * never on a parameter. This file exists so route handlers keep the shape every
  * other feature has (`service.ts` taking `ctx` first and using `withTenant`),
  * not because it adds logic.
+ *
+ * ## `audience` is required, not optional
+ *
+ * Two surfaces read this — the agency bell and the client portal — and they
+ * must not see each other's rows. An optional parameter would make the leaky
+ * call the shorter one to write, and the mistake invisible at the call site. A
+ * required one makes every caller say which surface it is.
  */
 
-export async function listForUser(ctx: TenantContext, options: ListNotificationsOptions = {}) {
-  return withTenant(ctx, (db) => listNotifications(db, ctx, options));
+export async function listForUser(
+  ctx: TenantContext,
+  audience: NotificationAudience,
+  options: Omit<ListNotificationsOptions, 'audience'> = {},
+) {
+  return withTenant(ctx, (db) => listNotifications(db, ctx, { ...options, audience }));
 }
 
-export async function unreadCountForUser(ctx: TenantContext): Promise<number> {
-  return withTenant(ctx, (db) => unreadCount(db, ctx));
+export async function unreadCountForUser(
+  ctx: TenantContext,
+  audience: NotificationAudience,
+): Promise<number> {
+  return withTenant(ctx, (db) => unreadCount(db, ctx, audience));
 }
 
 /**
@@ -62,6 +77,9 @@ async function unreadOrOwn(
   return found !== null;
 }
 
-export async function markAllReadForUser(ctx: TenantContext): Promise<number> {
-  return withTenant(ctx, (db) => markAllRead(db, ctx));
+export async function markAllReadForUser(
+  ctx: TenantContext,
+  audience: NotificationAudience,
+): Promise<number> {
+  return withTenant(ctx, (db) => markAllRead(db, ctx, audience));
 }

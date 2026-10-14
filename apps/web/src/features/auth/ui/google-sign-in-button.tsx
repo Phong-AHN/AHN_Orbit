@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@orbit/ui';
 import { ApiError } from '@/features/posts/ui/api';
+import { continuePath, type Entrance } from '@/features/navigation/home';
 
 /**
  * Google sign-in, and the browser half of **D-004**.
@@ -36,18 +37,21 @@ export interface FirebaseWebConfig {
 
 export interface GoogleSignInButtonProps {
   config: FirebaseWebConfig;
+  /** Which entrance this button is on. See `SignInFormProps.entrance`. */
+  entrance: Entrance;
 }
 
-export function GoogleSignInButton({ config }: GoogleSignInButtonProps) {
+export function GoogleSignInButton({ config, entrance }: GoogleSignInButtonProps) {
   const router = useRouter();
   const search = useSearchParams();
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  // Only relative paths, so `next` cannot become an open redirect — the same
-  // rule the OAuth `returnTo` follows.
-  const rawNext = search.get('next');
-  const next = rawNext?.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/orgs';
+  // Where to go once the cookie exists. `/continue` resolves the home
+  // surface server-side — the browser must not work out where somebody
+  // belongs, because that means reading memberships. `continuePath` also
+  // carries the open-redirect guard that used to be copied into both forms.
+  const next = continuePath(entrance, search.get('next'));
 
   async function signIn() {
     setBusy(true);

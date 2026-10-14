@@ -7,7 +7,7 @@ import type {
 } from '@orbit/core';
 import type { TenantDb } from '@orbit/db';
 import { can, type Permission } from '@orbit/rbac';
-import type { NotificationType } from './types.js';
+import { NOTIFICATION_AUDIENCE, type NotificationType } from './types.js';
 
 /**
  * Who gets told — and, more importantly, who does not (SRS §22; T1.15 DoD:
@@ -32,6 +32,24 @@ import type { NotificationType } from './types.js';
  * Step 2 applies to named individuals too. A post's author who has since been
  * removed from the workspace is not told about it: being the creator is a reason
  * to be interested, never a reason to be allowed.
+ *
+ * ## 3. Audience — is this notification addressed to them?
+ *
+ * A third gate, because the first two are not enough once clients are told
+ * things. `post.client_review_requested` asks "who can approve on the client's
+ * side?", and the honest answer from the matrix includes an **Owner and an
+ * Account Manager**: they hold `post:approve_client` so they can record a
+ * client's decision on the client's behalf (docs/RBAC.md note 5).
+ *
+ * That makes them permitted, not addressed. Without this gate, opening the
+ * client's gate sent the agency two notifications for one transition — their
+ * own status update, plus the client's prompt worded as though they were the
+ * client. So a `CLIENT`-audience notification reaches only `CLIENT` principals,
+ * and an `AGENCY`-audience one reaches only staff.
+ *
+ * Derived from `NOTIFICATION_AUDIENCE` rather than declared per rule, so the
+ * one place that says who a type is written for is also what decides who it is
+ * sent to.
  */
 
 /** Bound on one fan-out. Far above any real agency's staff count. */
@@ -80,6 +98,39 @@ export const RECIPIENT_RULES: Record<NotificationType, RecipientRule> = {
   },
   'publishing.needs_review': {
     interestedIn: 'post:retry_failed',
+    visibilityRequires: 'post:read',
+  },
+
+  /**
+   * The client's own gate, and the fan-out bug this fixes.
+   *
+   * `post.approval_requested` serves **both** review gates and fans out on
+   * `post:approve_internal`, which a `CLIENT` does not hold — they hold
+   * `post:approve_client`. The worker varies only the wording by stage, so when
+   * a post entered `CLIENT_REVIEW` the notification went to the agency reading
+   * "is with the client" and **the client was never told anything**. Their half
+   * of the review conversation had no notification at all.
+   *
+   * Status-restricted on both sides, which is what makes this precise:
+   * `post:approve_client` is granted only for `CLIENT_REVIEW`, so nobody is
+   * told about a gate that is not open.
+   */
+  'post.client_review_requested': {
+    interestedIn: 'post:approve_client',
+    visibilityRequires: 'post:read',
+  },
+
+  /**
+   * Approved: whoever will schedule it next hears about it.
+   *
+   * **Not `post:update`**, which was the first answer and resolved to nobody:
+   * that grant carries `requiresEditable`, and an `APPROVED` post is edit-locked
+   * by design — so asking "who may update this?" about a post that has just
+   * been approved correctly returns an empty set. The useful question is who
+   * can act on it next, and that is scheduling.
+   */
+  'post.approved': {
+    interestedIn: 'post:schedule',
     visibilityRequires: 'post:read',
   },
 };
@@ -155,8 +206,19 @@ export async function resolveRecipients(
 
   const recipients: string[] = [];
 
+  // Who this type is written for. A `CLIENT`-audience notification goes only to
+  // clients, and an `AGENCY`-audience one only to staff — see the third gate in
+  // this file's docstring for why holding the permission is not enough.
+  const audience = NOTIFICATION_AUDIENCE[type];
+
   for (const member of members) {
     if (excluded.has(member.userId)) continue;
+
+    // Applied before the permission checks because it is cheaper and because it
+    // cannot be overridden: `includeUsers` grants interest, and naming somebody
+    // explicitly must not put an agency-worded row in a client's inbox.
+    const isClient = member.role === 'CLIENT';
+    if (audience === 'CLIENT' ? !isClient : isClient) continue;
 
     const ctx = principalContext(organizationId, member, workspacesByUser, brandsByUser);
 

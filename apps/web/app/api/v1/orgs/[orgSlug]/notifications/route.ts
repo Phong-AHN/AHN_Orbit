@@ -28,12 +28,15 @@ export const GET = withAuth<Params>(
     const parsedBefore = before ? new Date(before) : undefined;
 
     const [page, unread] = await Promise.all([
-      listForUser(ctx, {
+      // `AGENCY` because this is the agency surface. A client's own
+      // notifications are written for a reader who does not work here, and the
+      // portal has its own feed for them.
+      listForUser(ctx, 'AGENCY', {
         unreadOnly,
         ...(Number.isFinite(limit) && limit > 0 ? { limit } : {}),
         ...(parsedBefore && !Number.isNaN(parsedBefore.getTime()) ? { before: parsedBefore } : {}),
       }),
-      unreadCountForUser(ctx),
+      unreadCountForUser(ctx, 'AGENCY'),
     ]);
 
     return jsonOk({ ...page, unread });

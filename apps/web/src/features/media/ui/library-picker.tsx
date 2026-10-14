@@ -22,6 +22,18 @@ export interface LibraryAsset {
   id: string;
   kind: string;
   mimeType: string;
+  /**
+   * The measured facts, which the listing endpoint has always returned — this
+   * type simply did not declare them. Attaching from the library has to produce
+   * the same `MediaItem` as uploading, or a picked file would show its
+   * dimensions and a re-picked one would not.
+   */
+  sizeBytes: number;
+  width: number | null;
+  height: number | null;
+  durationMs: number | null;
+  frameRate: number | null;
+  peakFrameRate: number | null;
   originalFilename: string | null;
   previewUrl: string;
 }

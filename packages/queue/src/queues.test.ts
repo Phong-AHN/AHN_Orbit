@@ -17,6 +17,10 @@ describe('the queue catalogue', () => {
       [
         'account-health',
         'analytics',
+        // Its own queue rather than a second shape on `analytics`: it spends a
+        // different provider quota, and a comment backlog on a viral post must
+        // not starve the metrics the analytics screen depends on.
+        'engagement',
         'maintenance',
         'media',
         'notifications',

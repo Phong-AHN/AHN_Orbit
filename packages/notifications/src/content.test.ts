@@ -30,6 +30,8 @@ const SAMPLES: Record<(typeof NOTIFICATION_TYPES)[number], NotificationEvent> = 
     type: 'post.changes_requested',
     postTitle: 'Spring launch',
     note: 'Please soften the opening line.',
+    fromClient: false,
+    by: 'Linh',
   },
   'publishing.failed': {
     type: 'publishing.failed',
@@ -41,6 +43,16 @@ const SAMPLES: Record<(typeof NOTIFICATION_TYPES)[number], NotificationEvent> = 
     type: 'publishing.needs_review',
     postTitle: 'Spring launch',
     accountName: 'Acme Bakery',
+  },
+  'post.client_review_requested': {
+    type: 'post.client_review_requested',
+    postTitle: 'Spring launch',
+  },
+  'post.approved': {
+    type: 'post.approved',
+    postTitle: 'Spring launch',
+    fromClient: true,
+    by: 'Pat',
   },
 };
 
@@ -147,5 +159,101 @@ describe('publishing', () => {
     expect(content.title).toContain('Check whether');
     expect(content.body).toContain('could not confirm');
     expect(content.body.toLowerCase()).not.toContain('failed');
+  });
+});
+
+/**
+ * What a client is allowed to be told.
+ *
+ * The agency speaks to its clients as one voice, and the enforcement is the
+ * *shape of the event*: `post.client_review_requested` has one field, a post
+ * title, so there is nothing for the copy to leak. These tests pin that down
+ * from the outside, because the protection would be lost the moment somebody
+ * added a convenient `requestedBy` to the type.
+ */
+describe('the client-facing notification', () => {
+  const content = notificationContent({
+    type: 'post.client_review_requested',
+    postTitle: 'Spring launch',
+  });
+
+  it('asks the client for the thing they can actually do', () => {
+    expect(content.title).toContain('Spring launch');
+    expect(content.title).toMatch(/review/i);
+    expect(content.body).toMatch(/approve|changes/i);
+  });
+
+  it('names no person and no role', () => {
+    const text = `${content.title} ${content.body}`;
+
+    for (const leak of ['Linh', 'Pat', 'Account Manager', 'Content Creator', 'Owner', 'Admin']) {
+      expect(text).not.toContain(leak);
+    }
+  });
+
+  /**
+   * A client has no business knowing that a post was rejected internally twice
+   * before it reached them, and the portal shows none of that anywhere else.
+   */
+  it('says nothing about the internal process', () => {
+    const text = `${content.title} ${content.body}`.toLowerCase();
+
+    for (const leak of ['internal', 'agency', 'round', 'reviewer', 'approver']) {
+      expect(text).not.toContain(leak);
+    }
+  });
+});
+
+describe('a review decision reported to the agency', () => {
+  it('distinguishes the client from a colleague', () => {
+    const byClient = notificationContent({
+      type: 'post.approved',
+      postTitle: 'Spring launch',
+      fromClient: true,
+      by: 'Pat',
+    });
+    const internally = notificationContent({
+      type: 'post.approved',
+      postTitle: 'Spring launch',
+      fromClient: false,
+      by: 'Linh',
+    });
+
+    expect(byClient.body).toContain('Pat (client)');
+    // The client's gate is the last one, so this is the fact that matters.
+    expect(byClient.body).toMatch(/schedule/i);
+
+    expect(internally.body).toContain('Linh');
+    expect(internally.body).not.toContain('client');
+  });
+
+  /**
+   * `decidedById` is `SetNull` when a user is deleted, and a decision recorded
+   * on the client's behalf deliberately passes no name — naming the staff
+   * member there would report a colleague *as* the client.
+   */
+  it('falls back to the side rather than printing nothing', () => {
+    expect(
+      notificationContent({ type: 'post.approved', postTitle: 'Spring launch', fromClient: true })
+        .body,
+    ).toContain('The client');
+
+    expect(
+      notificationContent({ type: 'post.approved', postTitle: 'Spring launch', fromClient: false })
+        .body,
+    ).toContain('A reviewer');
+  });
+
+  it('says who asked for changes, and quotes what they said', () => {
+    const content = notificationContent({
+      type: 'post.changes_requested',
+      postTitle: 'Spring launch',
+      fromClient: true,
+      by: 'Pat',
+      note: 'The opening line is too formal.',
+    });
+
+    expect(content.title).toContain('Pat (client)');
+    expect(content.body).toContain('too formal');
   });
 });

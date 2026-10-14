@@ -23,6 +23,7 @@ import type { CapabilitySummary } from './capability-summary';
 import { STATUS_LABEL, STATUS_TONE } from './status';
 import { ScheduleForm } from './schedule-form';
 import { MediaPanel, type MediaItem } from '@/features/media/ui/media-panel';
+import { MediaRequirements } from './media-requirements';
 import { AssigneeSelect } from './assignee-select';
 import { AIAssist } from '@/features/ai/ui/ai-assist';
 import { PublishNowButton } from './publish-now-button';
@@ -246,6 +247,28 @@ export function Composer(props: ComposerProps) {
     selectedIds.length !== post.variants.length ||
     selectedIds.some((id) => !post.variants.some((v) => v.socialAccountId === id));
 
+  /**
+   * One media requirement per distinct platform the post targets.
+   *
+   * Per platform rather than per account: two Facebook Pages impose the same
+   * media rules, and listing them twice would say nothing and read as though
+   * they might differ. Resolved here because this component is what knows how
+   * the capability record is keyed.
+   *
+   * A platform with no registered provider is skipped — the page already
+   * swallows that case when building the record, and `/validate` stays the
+   * authority either way.
+   */
+  const mediaRequirements = [...new Set(post.variants.map((v) => v.platform))].flatMap(
+    (platform) => {
+      const cap =
+        props.capabilities[capabilityKey(platform, null)] ??
+        Object.values(props.capabilities).find((c) => c.platform === platform);
+
+      return cap ? [{ platform, media: cap.media }] : [];
+    },
+  );
+
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
       <div className="space-y-6">
@@ -353,6 +376,15 @@ export function Composer(props: ComposerProps) {
           onChange={(next) => {
             void saveMedia(next);
           }}
+        />
+
+        {/* Directly under the files, because a requirement is only useful next
+            to the thing it applies to. The server's media verdicts land here
+            too — pinned to the attachment the engine named. */}
+        <MediaRequirements
+          media={media}
+          requirements={mediaRequirements}
+          validation={validation}
         />
 
         <AccountPicker

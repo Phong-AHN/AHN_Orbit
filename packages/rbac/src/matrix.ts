@@ -108,6 +108,8 @@ const OWNER: RoleGrants = {
   'comment:create': ORG,
   'comment:read_internal': ORG,
   'comment:resolve': ORG,
+  'comment:read_public': ORG,
+  'comment:reply': ORG,
 
   'media:upload': ORG,
   'media:read': ORG,
@@ -181,6 +183,9 @@ const ACCOUNT_MANAGER: RoleGrants = {
   'comment:create': WS,
   'comment:read_internal': WS,
   'comment:resolve': WS,
+  // Community management is the account manager's job as much as the creator's.
+  'comment:read_public': WS,
+  'comment:reply': WS,
 
   'media:upload': WS,
   'media:read': WS,
@@ -217,6 +222,9 @@ const CONTENT_CREATOR: RoleGrants = {
   'comment:create': BRAND,
   'comment:read_internal': BRAND,
   'comment:resolve': OWN,
+  // Whoever wrote the post answers the comments on it.
+  'comment:read_public': BRAND,
+  'comment:reply': BRAND,
 
   'media:upload': BRAND,
   'media:read': BRAND,
@@ -248,6 +256,14 @@ const APPROVER: RoleGrants = {
   'comment:create': BRAND,
   'comment:read_internal': BRAND,
   'comment:resolve': BRAND,
+  /**
+   * Reads the public inbox and cannot answer it.
+   *
+   * An Approver approves; they do not publish, and replying is publishing — it
+   * puts words on the client's channel under the client's name. The same line
+   * `post:create` and `post:schedule` already draw, drawn once more.
+   */
+  'comment:read_public': BRAND,
 
   'media:read': BRAND,
   'analytics:read': WS,
@@ -267,6 +283,19 @@ const CLIENT: RoleGrants = {
   'post:request_changes': { scope: 'WORKSPACE', statuses: ['CLIENT_REVIEW'] },
 
   'comment:create': { scope: 'WORKSPACE', statuses: CLIENT_VISIBLE_STATUSES },
+
+  /**
+   * No `comment:read_public`, and the absence is a decision.
+   *
+   * A client would often *like* to see what the audience said about their
+   * content, and that is a real feature — but it routes audience data into the
+   * portal, which is the one surface built on the principle that a client sees
+   * their own content and nothing else. Letting it in needs a deliberate call
+   * about what the audience's words are doing in a document the client's legal
+   * team may read, not an inherited grant.
+   *
+   * Community management stays agency-side until somebody decides otherwise.
+   */
 
   'media:read': BRAND,
   'analytics:read': { scope: 'BRAND', statuses: ['PUBLISHED', 'PARTIALLY_PUBLISHED'] },

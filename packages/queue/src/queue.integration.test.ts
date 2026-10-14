@@ -141,6 +141,7 @@ describe('queue depth and age', () => {
       [
         'account-health',
         'analytics',
+        'engagement',
         'maintenance',
         'media',
         'notifications',

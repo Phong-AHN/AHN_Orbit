@@ -230,10 +230,11 @@ Full schema in `DATABASE.md`. Architectural stance:
 | `publish` | scheduler, publish-now | per-account limiter | Publish one `PostVariant` |
 | `media` | upload completion | 5 | Probe/validate media, extract dimensions & duration |
 | `analytics` | repeatable | 3 | Pull post/account metrics |
+| `engagement` | repeatable (every 5 min sweep) | 3 | Read audience comments back on published posts |
 | `account-health` | repeatable (hourly) | 2 | Token validity & permission probe |
 | `notifications` | domain events | 10 | In-app + email fan-out |
 | `reports` | a person asking for one | 2 | Render a client report and store it |
-| `maintenance` | repeatable | 1 | Retention (nightly), analytics rollup (hourly), cleanup |
+| `maintenance` | repeatable | 1 | Retention (nightly), analytics rollup (hourly), comment sweep (5-minutely), cleanup |
 
 A **repeatable scheduler job** runs every 30s, selects `PostVariant`s whose `scheduledFor <= now()`
 and status is `SCHEDULED`, and enqueues them (**C10**, ±60s tolerance). Scheduling is *not* done with

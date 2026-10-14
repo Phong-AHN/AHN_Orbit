@@ -20,7 +20,7 @@ import Link from 'next/link';
 const OPERATOR = 'AHN Group';
 const CONTACT_EMAIL = 'phong@ahnmedia.com';
 
-const LAST_UPDATED = '13 August 2026';
+const LAST_UPDATED = '13 October 2026';
 
 export const metadata: Metadata = {
   title: 'Privacy policy',
@@ -57,7 +57,14 @@ export default function PrivacyPolicyPage() {
             </li>
           </List>
           <P>
-            We do not collect data about the audience who eventually sees a published post. AHN
+            A third group is not an account holder and never signs in:{' '}
+            <Strong>people who comment on a published post</Strong>. Orbit reads those comments back
+            so an agency can answer them, which means it holds something they wrote in public. What
+            is kept, and what is deliberately not, is set out under{' '}
+            <Strong>Comments from the public</Strong> below.
+          </P>
+          <P>
+            Beyond those comments we collect nothing about the audience who sees a published post.
             Orbit sends a post to a social platform; what happens after that is governed by that
             platform&rsquo;s own privacy policy.
           </P>
@@ -85,6 +92,12 @@ export default function PrivacyPolicyPage() {
               <Strong>An audit trail</Strong> — who did what and when, for actions that change
               content, permissions or connected accounts. This exists so that a client can be shown
               exactly what was approved and by whom.
+            </li>
+            <li>
+              <Strong>Comments from the public</Strong> — the text of a comment left on a post
+              Orbit published, the public display name shown beside it, the platform&rsquo;s own id
+              for the comment and when it was posted. No identifier for the person is stored; see
+              the section below.
             </li>
             <li>
               <Strong>Operational logs</Strong> — request timing, error codes and a correlation id.
@@ -148,6 +161,43 @@ export default function PrivacyPolicyPage() {
             You can disconnect a Page at any time from Settings → Connected accounts, which deletes
             the stored token. You can also revoke access from Facebook directly, under Settings →
             Business integrations.
+          </P>
+        </Section>
+
+        <Section title="Comments from the public">
+          <P>
+            An agency that publishes for a client is usually expected to answer the comments that
+            arrive. So Orbit reads comments back from the platforms on posts it published, shows
+            them to the agency in one place, and lets the agency reply — the reply is posted to the
+            platform under the client&rsquo;s own account, exactly as if it had been written there.
+          </P>
+          <P>
+            The person who wrote a comment has no relationship with us and did not agree to
+            anything, so the collection is kept to the minimum that makes answering possible:
+          </P>
+          <List>
+            <li>
+              <Strong>What is stored</Strong> — the comment text, the public display name the
+              platform shows beside it, the platform&rsquo;s id for the comment, when it was posted,
+              and its public link.
+            </li>
+            <li>
+              <Strong>What is not stored</Strong> — any identifier for the person. Not their
+              platform user id, not a profile link, not a picture, not an email. Orbit cannot group
+              one person&rsquo;s comments together, recognise them on another post, or build any
+              profile of them, because it has nothing to key one on. The database has no column for
+              it.
+            </li>
+          </List>
+          <P>
+            This applies only to posts published through Orbit. A post made directly on the
+            platform is not read, and comments on it are never collected.
+          </P>
+          <P>
+            A comment is public at the moment it is written, and deleting it on the platform does
+            not reach into our copy automatically. To have a comment removed from Orbit, or to ask
+            what is held, write to <Mail /> — the agency that published the post can also delete
+            it, and anyone may ask us directly.
           </P>
         </Section>
 
@@ -281,8 +331,14 @@ export default function PrivacyPolicyPage() {
         </Section>
       </div>
 
-      <footer className="mt-14 border-t border-line pt-6">
-        <Link href="/" className="text-sm text-ink-muted hover:underline">
+      <footer className="mt-14 flex flex-wrap gap-x-6 gap-y-2 border-t border-line pt-6 text-sm">
+        <Link href="/terms-of-service" className="text-ink-muted hover:underline">
+          Terms of service
+        </Link>
+        <Link href="/data-deletion" className="text-ink-muted hover:underline">
+          Data deletion
+        </Link>
+        <Link href="/" className="text-ink-muted hover:underline">
           Back to AHN Orbit
         </Link>
       </footer>
