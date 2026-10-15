@@ -27,7 +27,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps) 
 
   if (!pageCan(ctx, 'audit:read', workspaceId ? { workspaceId } : {})) {
     return (
-      <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
+      <main id="main" className="px-4 py-10 sm:px-6">
         <PermissionDenied action="see the activity log" />
       </main>
     );
@@ -39,7 +39,7 @@ export default async function ActivityPage({ params, searchParams }: PageProps) 
   });
 
   return (
-    <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
+    <main id="main" className="px-4 py-10 sm:px-6">
       <PageHeader
         eyebrow={organization.name}
         title="Activity"

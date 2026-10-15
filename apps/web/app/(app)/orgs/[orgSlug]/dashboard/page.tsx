@@ -51,7 +51,7 @@ export default async function DashboardPage({ params }: PageProps) {
 
   if (!pageCan(ctx, 'org:read')) {
     return (
-      <main id="main" className="mx-auto max-w-content-wide px-4 sm:px-6 py-10">
+      <main id="main" className="px-4 py-10 sm:px-6">
         <PermissionDenied action="see this dashboard" />
       </main>
     );
@@ -311,7 +311,7 @@ export default async function DashboardPage({ params }: PageProps) {
   );
 
   return (
-    <main id="main" className="mx-auto max-w-content-wide px-4 sm:px-6 py-10">
+    <main id="main" className="px-4 py-10 sm:px-6">
       <PageHeader
         eyebrow={organization.name}
         title="Today"

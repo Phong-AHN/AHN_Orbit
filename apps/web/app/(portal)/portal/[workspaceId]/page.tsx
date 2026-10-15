@@ -27,7 +27,7 @@ export default async function PortalReviewPage({ params }: PageProps) {
   const approvals = await listPortalApprovals(ctx, workspaceId);
 
   return (
-    <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
+    <main id="main" className="px-4 py-10 sm:px-6">
       <PageHeader
         eyebrow={workspace.name}
         title="To review"

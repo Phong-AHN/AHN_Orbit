@@ -22,7 +22,7 @@ export default async function AdminJobsPage() {
   const jobs = await listJobs();
 
   return (
-    <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
+    <main id="main" className="px-4 py-10 sm:px-6">
       <PageHeader
         title="Dead letters"
         description="Jobs that will not be retried automatically. Newest first."

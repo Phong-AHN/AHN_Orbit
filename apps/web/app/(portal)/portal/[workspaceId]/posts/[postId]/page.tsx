@@ -31,7 +31,7 @@ export default async function PortalPostPage({ params }: PageProps) {
   const awaitingDecision = post.status === 'CLIENT_REVIEW' && approval?.state === 'PENDING';
 
   return (
-    <main id="main" className="mx-auto max-w-content-narrow space-y-6 px-4 py-10 sm:px-6">
+    <main id="main" className="space-y-6 px-4 py-10 sm:px-6">
       <PageHeader
         eyebrow={workspace.name}
         title={post.title ?? 'Your post'}

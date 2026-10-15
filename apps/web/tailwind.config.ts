@@ -76,37 +76,17 @@ const config: Config = {
       },
 
       maxWidth: {
-        /** Running text under 80 characters (SRS §29, Bringhurst). */
-        measure: 'var(--measure)',
-
         /**
-         * Content widths for a page inside the sidebar shell.
+         * Running text under 80 characters (SRS §29, Bringhurst).
          *
-         * Three named tiers rather than a per-page `max-w-4xl` guess, because
-         * the per-page guesses were all made when the layout was a full-width
-         * top bar: a page capped at 896px looked centred under a 1152px header,
-         * and once the 15rem rail arrived it was centred in what was left
-         * instead — so a 1920px screen showed ~390px of empty gutter on each
-         * side of the community queue.
-         *
-         * They are deliberately large enough to **fill a laptop and only cap a
-         * very wide monitor**. On a 1440px screen the content column is
-         * ~1200px, so `content` and `content-wide` both stop mattering and the
-         * page is bounded by its `px` gutter alone. The cap exists for the
-         * 2560px case, where a table stretched edge to edge is unreadable.
-         *
-         * Pages *outside* the shell — the legal documents, sign-in, the
-         * organization picker — keep their own narrow measures. They are
-         * centred in a full viewport, which is a different problem with a
-         * different right answer.
+         * **The only width cap left, and the one that has to stay.** A page
+         * inside the sidebar shell no longer caps itself at all — it fills the
+         * content column — so the thing that stops a paragraph becoming a
+         * 1600px line is this, applied to the paragraph rather than to the
+         * page. `PageHeader` and `MessageState` already carry it, which is why
+         * removing the page caps did not produce unreadable prose.
          */
-
-        /** Focused forms: one column of fields, where width is not useful. */
-        'content-narrow': '48rem',
-        /** The default: lists, tables, settings, a post. */
-        content: '84rem',
-        /** Grids and calendars, which genuinely use the space. */
-        'content-wide': '100rem',
+        measure: 'var(--measure)',
       },
     },
   },

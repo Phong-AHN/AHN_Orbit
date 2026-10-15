@@ -46,7 +46,7 @@ export default async function MediaPage({ params, searchParams }: PageProps) {
 
   if (!pageCanSomewhere(ctx, 'media:read')) {
     return (
-      <main id="main" className="mx-auto max-w-content-wide px-4 sm:px-6 py-10">
+      <main id="main" className="px-4 py-10 sm:px-6">
         <PermissionDenied action="see the media library" />
       </main>
     );
@@ -76,7 +76,7 @@ export default async function MediaPage({ params, searchParams }: PageProps) {
   );
 
   return (
-    <main id="main" className="mx-auto max-w-content-wide px-4 sm:px-6 py-10">
+    <main id="main" className="px-4 py-10 sm:px-6">
       <PageHeader
         eyebrow={organization.name}
         title="Media"

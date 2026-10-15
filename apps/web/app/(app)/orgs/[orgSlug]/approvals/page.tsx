@@ -35,7 +35,7 @@ export default async function ApprovalsPage({ params, searchParams }: PageProps)
 
   if (!pageCan(ctx, 'post:read')) {
     return (
-      <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
+      <main id="main" className="px-4 py-10 sm:px-6">
         <PermissionDenied action="see the approval queue" />
       </main>
     );
@@ -45,7 +45,7 @@ export default async function ApprovalsPage({ params, searchParams }: PageProps)
   const approvals = await listApprovalQueue(ctx, { ...(stage ? { stage } : {}) });
 
   return (
-    <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
+    <main id="main" className="px-4 py-10 sm:px-6">
       <PageHeader
         eyebrow={organization.name}
         title="Approvals"

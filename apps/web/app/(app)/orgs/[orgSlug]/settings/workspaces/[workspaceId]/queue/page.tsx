@@ -32,7 +32,7 @@ export default async function QueueSlotsPage({ params }: PageProps) {
 
   if (!pageCan(ctx, 'post:read', { workspaceId })) {
     return (
-      <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
+      <main id="main" className="px-4 py-10 sm:px-6">
         <PermissionDenied action="see this client's posting times" />
       </main>
     );
@@ -47,7 +47,7 @@ export default async function QueueSlotsPage({ params }: PageProps) {
   ]);
 
   return (
-    <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
+    <main id="main" className="px-4 py-10 sm:px-6">
       <Breadcrumbs
         className="mb-3"
         items={[

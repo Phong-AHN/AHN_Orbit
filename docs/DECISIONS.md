@@ -3289,6 +3289,41 @@ reason the design system's `Dialog` already gives: the platform hands over focus
 containment, Escape, an inert background and top-layer stacking, and a
 hand-rolled overlay gets each of those subtly wrong.
 
+### The page fills the column rather than centring inside it
+
+Added after the fact, because the sidebar broke something nobody had looked at:
+**every page's width cap had been chosen against the old full-width top bar.**
+A page capped at 896px looked centred beneath a 1152px header. Once the 15rem
+rail arrived, the same cap was centred in *what was left* — so a 1920px screen
+showed roughly 390px of dead gutter on each side of the community queue, and the
+product looked like it had been pushed into a corner.
+
+The first attempt replaced 52 per-page guesses with three named tiers
+(`content-narrow` / `content` / `content-wide`, 48/84/100rem). That was the
+wrong answer and was reverted within the hour: it reduced the gutter without
+removing it, so a 1440px laptop still had a cap that did nothing and a 1920px
+monitor still had one that did. A fixed number cannot be right for both.
+
+**So a page inside the shell now carries a gutter and no maximum width at all.**
+`px-4 sm:px-6` and nothing else; `mx-auto` went too, since centring something
+with no maximum is a no-op that reads as though a width were still intended.
+
+What keeps that from producing unreadable prose is that **the measure belongs to
+the paragraph, not to the page.** `PageHeader` and `MessageState` already carry
+`max-w-measure`, which is why removing the caps did not stretch a single line of
+running text — a scan of all 34 flexed pages found exactly one unbounded
+paragraph, a three-sentence note on the connect screen, now capped itself.
+
+Two things deliberately keep a narrow centred box: the `error.tsx` and
+`not-found.tsx` cards, where a one-line failure message stretched across a
+monitor is worse than one centred; and every page *outside* the shell — the
+legal documents, sign-in, the organization and workspace pickers — which are
+centred in a full viewport, a different problem with a different right answer.
+
+The gutter also dropped from a flat `px-6` to `px-4 sm:px-6`. 24px on a 320px
+phone is 15% of the viewport, and the shell's own bar and rail were already on
+16px there, so the pages had been stepping out of line with their own chrome.
+
 ### "Independent login" is three doors, one account
 
 `/sign-in`, `/sign-in/client` and `/sign-in/ops`, each with its own wording, so a

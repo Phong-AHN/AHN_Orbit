@@ -35,6 +35,19 @@ import { bestMatch } from '../active-path';
  * treatment the old admin header already used, and the client portal stays the
  * plainest of the three.
  *
+ * ## The page fills the column; it does not centre inside it
+ *
+ * A page under this shell carries a gutter and **no maximum width**. The caps
+ * it used to carry were all chosen against the old full-width top bar — a page
+ * at 896px looked centred under a 1152px header — and once the 15rem rail
+ * arrived they were being centred in what was left instead, which put ~390px
+ * of dead space on each side of a list on a 1920px screen.
+ *
+ * What stops that becoming unreadable prose is `max-w-measure` on the
+ * paragraph rather than a cap on the page: `PageHeader` and `MessageState`
+ * already carry it, so running text keeps its measure while tables, grids and
+ * calendars get the whole column.
+ *
  * ## Navigation is still not a security control
  *
  * The server hands this component an already-filtered list; the permission
@@ -154,7 +167,12 @@ export function AppShell({
       <div className="flex min-w-0 flex-col">
         <div
           className={cn(
-            'sticky top-0 z-30 flex items-center gap-3 border-b px-4 py-2 backdrop-blur',
+            'sticky top-0 z-30 flex items-center gap-3 border-b py-2 backdrop-blur',
+            // The same gutter the pages use. It matters now that a page fills
+            // the column instead of centring inside it: with the bar on `px-4`
+            // and the page on `sm:px-6`, the bell sat eight pixels outside the
+            // content's right edge on every screen above `sm`.
+            'px-4 sm:px-6',
             'bg-canvas/85',
             skin.edge,
           )}

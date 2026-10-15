@@ -23,7 +23,7 @@ export default async function AdminHealthPage() {
   const health = await platformHealth();
 
   return (
-    <main id="main" className="mx-auto max-w-content px-4 sm:px-6 py-10">
+    <main id="main" className="px-4 py-10 sm:px-6">
       <PageHeader title="Platform health" description="Queues, dead letters and scale." />
 
       <dl className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">

@@ -120,7 +120,7 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
 
   if (!pageCan(ctx, 'social_account:connect', { workspaceId })) {
     return (
-      <main id="main" className="mx-auto max-w-content-narrow px-4 sm:px-6 py-10">
+      <main id="main" className="px-4 py-10 sm:px-6">
         <PermissionDenied action="connect social accounts" />
       </main>
     );
@@ -209,7 +209,7 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
     );
 
   return (
-    <main id="main" className="mx-auto max-w-content-narrow px-4 sm:px-6 py-10">
+    <main id="main" className="px-4 py-10 sm:px-6">
       <PageHeader
         eyebrow={organization.name}
         title={`Connect ${PLATFORM_ARTICLE[platform]} to ${brand.name}`}
@@ -264,7 +264,10 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
       ) : (
         <Card>
           <CardBody className="space-y-4">
-            <p className="text-sm text-ink-secondary">
+            {/* `max-w-measure` on the paragraph, because the page no longer
+                caps itself: this is three sentences, and on a wide monitor an
+                uncapped line of it runs past the point anyone can track. */}
+            <p className="max-w-measure text-sm text-ink-secondary">
               {usernameLogin
                 ? 'You will sign in at Instagram with the account’s own username. No Facebook Page is needed. Access tokens are exchanged and stored server-side; they never reach your browser.'
                 : PLATFORM_NOTE[platform]}
