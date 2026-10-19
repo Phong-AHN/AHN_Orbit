@@ -17,6 +17,7 @@ import { capabilitiesFor, getProvider } from '@orbit/providers';
 import { audit, type AuditInput } from '@/server/audit';
 import { loadCredential } from '@/features/social/service';
 import type { AssignInput, CommentQuery, ReplyInput } from './contracts';
+import { comparePosts, summariesFromGroups, type PostSummary } from './thread';
 
 /**
  * The community inbox (SRS §22).
@@ -134,6 +135,158 @@ export async function listComments(ctx: TenantContext, query: CommentQuery = {})
     }),
   );
 }
+
+/**
+ * The inbox as a list of **posts**, each with how much its audience said.
+ *
+ * Comments belong to a post, and both platforms present them that way: you
+ * open a post and read what people said under it. A flat queue of comments
+ * from every post at once loses the one thing that makes a comment readable —
+ * what it was a reply *to*.
+ *
+ * ## Counted with a grouped query
+ *
+ * A post's numbers come from `groupBy(['postVariantId', 'origin', 'state'])`,
+ * so the cost is at most four rows per post however many comments it has.
+ * `summariesFromGroups` turns those into the same `PostSummary` the thread view
+ * computes from rows, and a test holds the two to the same answer.
+ *
+ * ## Authorization is the queue’s, unchanged
+ *
+ * Narrowed to the principal’s reachable workspaces before anything is
+ * counted, exactly as `listComments` is — so a brand-scoped role never sees
+ * a count for a post it could not open.
+ */
+export async function listCommentedPosts(
+  ctx: TenantContext,
+  query: { waitingOnly?: boolean } = {},
+) {
+  assertReadable(ctx);
+  const accessible = accessibleWorkspaceIds(ctx);
+  const scope = accessible === 'ALL' ? {} : { workspaceId: { in: [...accessible] } };
+
+  const groups = await withTenant(ctx, (db) =>
+    db.socialComment.groupBy({
+      by: ['postVariantId', 'origin', 'state'],
+      where: scope,
+      _count: { _all: true },
+      _max: { postedAt: true },
+    }),
+  );
+
+  const summaries = summariesFromGroups(
+    groups.map((group) => ({
+      postVariantId: group.postVariantId,
+      origin: group.origin,
+      state: group.state,
+      count: group._count._all,
+      latestAt: group._max.postedAt,
+    })),
+  );
+
+  const ids = [...summaries.keys()];
+  if (ids.length === 0) return [];
+
+  const variants = await withTenant(ctx, (db) =>
+    db.postVariant.findMany({
+      // Deleted posts drop out here rather than in the grouped query, because
+      // a relation filter there is not something the tenant scope is known to
+      // narrow correctly.
+      where: { id: { in: ids }, deletedAt: null },
+      select: POST_CARD_SELECT,
+    }),
+  );
+
+  const cards = variants
+    .map((variant) => ({ ...variant, summary: summaries.get(variant.id) as PostSummary }))
+    .filter((card) => card.summary.audience > 0)
+    .filter((card) => !query.waitingOnly || card.summary.needsReply > 0);
+
+  return cards.sort((a, b) => comparePosts(a.summary, b.summary));
+}
+
+export type CommentedPost = Awaited<ReturnType<typeof listCommentedPosts>>[number];
+
+/**
+ * One post and every comment on it — the audience’s and the agency’s.
+ *
+ * Both are returned, because a thread without our own replies is not the thread
+ * the public is looking at.
+ *
+ * Authorized against the post’s own workspace and brand, with the same
+ * `assertCan` `requireComment` uses for a single comment: opening a post is
+ * reading every comment on it, so it must be refused wherever reading one of
+ * them would be.
+ */
+export async function getPostThread(ctx: TenantContext, postVariantId: string) {
+  assertReadable(ctx);
+
+  const variant = await withTenant(ctx, (db) =>
+    db.postVariant.findFirst({
+      where: { id: postVariantId, deletedAt: null },
+      select: {
+        ...POST_CARD_SELECT,
+        post: {
+          select: {
+            id: true,
+            title: true,
+            workspaceId: true,
+            brandId: true,
+            media: {
+              // Media attached to this variant, or to the whole post.
+              where: { OR: [{ postVariantId }, { postVariantId: null }] },
+              orderBy: { position: 'asc' },
+              select: {
+                altText: true,
+                mediaAsset: {
+                  select: {
+                    id: true,
+                    kind: true,
+                    mimeType: true,
+                    width: true,
+                    height: true,
+                    durationMs: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    }),
+  );
+
+  if (!variant) throw new NotFoundError('Post');
+
+  assertCan(ctx, 'comment:read_public', {
+    workspaceId: variant.post.workspaceId,
+    brandId: variant.post.brandId,
+  });
+
+  const comments = await withTenant(ctx, (db) =>
+    db.socialComment.findMany({
+      where: { postVariantId },
+      select: COMMENT_SELECT,
+      orderBy: { postedAt: 'asc' },
+    }),
+  );
+
+  return { variant, comments };
+}
+
+/** What a post card and the thread header both need. */
+const POST_CARD_SELECT = {
+  id: true,
+  platform: true,
+  body: true,
+  hashtags: true,
+  publishedAt: true,
+  externalPermalink: true,
+  socialAccount: {
+    select: { id: true, displayName: true, handle: true, avatarUrl: true, platform: true },
+  },
+  post: { select: { id: true, title: true } },
+} as const;
 
 /** How many still need somebody — the number the sidebar shows. */
 export async function unhandledCount(ctx: TenantContext): Promise<number> {

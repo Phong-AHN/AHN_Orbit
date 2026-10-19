@@ -165,8 +165,12 @@ function Notes({ notes }: { notes: string[] }) {
  * A signed, expiring URL — the same route the media panel uses, for the same
  * reason: it proves the bytes are readable back out of storage, which is what
  * will be true at publish time.
+ *
+ * Exported for the community thread, which draws a *published* post with the
+ * same framing the composer previewed it in. One renderer for "how a post looks
+ * on this platform" is what stops the preview and the thread disagreeing.
  */
-function PreviewMedia({
+export function PreviewMedia({
   orgSlug,
   item,
   shape,

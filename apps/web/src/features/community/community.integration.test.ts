@@ -11,7 +11,15 @@ import { platformDb } from '@orbit/db';
 import { closeQueues, closeSharedConnection, redis } from '@orbit/queue';
 import { CredentialCipher, registerProvider, resetRegistry } from '@orbit/providers';
 import { MOCK_SECOND_ACCOUNT_TYPE, MockProvider } from '@orbit/providers/mock';
-import { assignComment, listComments, replyToComment, setHandled, syncNow } from './service';
+import {
+  assignComment,
+  getPostThread,
+  listCommentedPosts,
+  listComments,
+  replyToComment,
+  setHandled,
+  syncNow,
+} from './service';
 
 /**
  * Community management against real Postgres, the real grant matrix and the
@@ -759,5 +767,93 @@ describe('syncing the inbox on demand', () => {
   /** A client has no audience data anywhere in the product. */
   it('refuses a client outright', async () => {
     await expect(syncNow(client, correlation)).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});
+
+/**
+ * The inbox as a list of posts, and one post as a thread.
+ *
+ * These matter for the reason the flat queue did: the scoping. A count on a
+ * card is a claim about comments, and a brand-scoped role must not see a count
+ * — or open a thread — for a post it could not read one comment of.
+ */
+describe('community by post', () => {
+  it('groups comments under their post and counts the audience', async () => {
+    await seedComment('018ffc00-0000-7000-8000-0000fc000301');
+    await seedComment('018ffc00-0000-7000-8000-0000fc000302', { state: 'HANDLED' });
+    // Our own reply: not counted as something the audience said.
+    await seedComment('018ffc00-0000-7000-8000-0000fc000303', {
+      origin: 'ORBIT',
+      state: 'HANDLED',
+      externalId: 'ext-ours-303',
+    });
+
+    const posts = await listCommentedPosts(owner);
+    const card = posts.find((post) => post.id === VARIANT_A);
+
+    expect(card?.summary).toMatchObject({ audience: 2, needsReply: 1 });
+  });
+
+  it('hides a fully handled post from the waiting view', async () => {
+    await seedComment('018ffc00-0000-7000-8000-0000fc000311', { state: 'HANDLED' });
+
+    const waiting = await listCommentedPosts(owner, { waitingOnly: true });
+    const all = await listCommentedPosts(owner);
+
+    expect(waiting.map((post) => post.id)).not.toContain(VARIANT_A);
+    expect(all.map((post) => post.id)).toContain(VARIANT_A);
+  });
+
+  /** A count for a post the role could not open is a leak of that post. */
+  it('narrows a brand-scoped role to the posts it can read', async () => {
+    await seedComment('018ffc00-0000-7000-8000-0000fc000321');
+    await seedComment('018ffc00-0000-7000-8000-0000fc000322', {
+      workspaceId: WS_OTHER,
+      brandId: BRAND_OTHER,
+      socialAccountId: ACCOUNT_OTHER,
+      postVariantId: VARIANT_OTHER,
+    });
+
+    const ids = (await listCommentedPosts(creator)).map((post) => post.id);
+
+    expect(ids).toContain(VARIANT_A);
+    expect(ids).not.toContain(VARIANT_OTHER);
+  });
+
+  it('returns the post with every comment on it, ours included', async () => {
+    await seedComment('018ffc00-0000-7000-8000-0000fc000331');
+    await seedComment('018ffc00-0000-7000-8000-0000fc000332', {
+      origin: 'ORBIT',
+      state: 'HANDLED',
+      externalId: 'ext-ours-332',
+    });
+
+    const { variant, comments } = await getPostThread(owner, VARIANT_A);
+
+    expect(variant.id).toBe(VARIANT_A);
+    expect(comments.map((c) => c.origin).sort()).toEqual(['AUDIENCE', 'ORBIT']);
+  });
+
+  /** The page turns both into "not found", so existence is not leaked. */
+  it('refuses a post in a brand the role cannot read', async () => {
+    await seedComment('018ffc00-0000-7000-8000-0000fc000341', {
+      workspaceId: WS_OTHER,
+      brandId: BRAND_OTHER,
+      socialAccountId: ACCOUNT_OTHER,
+      postVariantId: VARIANT_OTHER,
+    });
+
+    await expect(getPostThread(creator, VARIANT_OTHER)).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it('reports a post that does not exist as not found', async () => {
+    await expect(
+      getPostThread(owner, '018ffc00-0000-7000-8000-0000fcffffff'),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  /** A client has no audience data anywhere in the product. */
+  it('refuses a client the post list outright', async () => {
+    await expect(listCommentedPosts(client)).rejects.toBeInstanceOf(ForbiddenError);
   });
 });

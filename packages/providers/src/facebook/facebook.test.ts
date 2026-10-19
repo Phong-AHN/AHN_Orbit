@@ -1276,3 +1276,97 @@ describe('replying to a comment', () => {
     ).rejects.toThrow(/did not confirm|without returning an id/i);
   });
 });
+
+/**
+ * A Page credential records what the person granted.
+ *
+ * It recorded the constant `FACEBOOK_PUBLISH_SCOPES` instead, so every check
+ * against it read anything beyond the three publish scopes as missing. The
+ * reply pre-flight needs `pages_manage_engagement`; every Facebook reply was
+ * refused as "needs to be reconnected", and reconnecting stored the same three
+ * again — a loop the error message told people to walk into.
+ *
+ * The existing exchange test passed throughout, because it checked that a Page
+ * was found and never what its credential claimed it could do.
+ */
+describe('discovered Pages carry the scopes actually granted', () => {
+  const FULL_GRANT = {
+    data: {
+      is_valid: true,
+      expires_at: 0,
+      scopes: [
+        'pages_show_list',
+        'pages_read_engagement',
+        'pages_manage_posts',
+        'read_insights',
+        'pages_read_user_content',
+        'pages_manage_engagement',
+      ],
+    },
+  };
+
+  function grantingGraph(debug: unknown): FakeGraph {
+    return healthyGraph().on(/debug_token/, { body: debug });
+  }
+
+  it('records the granted scopes on the Page credential', async () => {
+    const result = await provider(grantingGraph(FULL_GRANT)).exchangeCode({
+      code: 'c',
+      redirectUri: 'https://app.test/cb',
+    });
+
+    expect(result.accounts[0]!.credential.scopes).toEqual(FULL_GRANT.data.scopes);
+  });
+
+  /**
+   * The invariant that would have caught it: a Page connected with every scope
+   * the dialog asks for must pass the reply pre-flight. Tied to the descriptor's
+   * own `replyScopes` rather than a literal, so a future reply scope is covered.
+   */
+  it('lets a fully granted Page pass the reply pre-flight', async () => {
+    const p = provider(grantingGraph(FULL_GRANT));
+    const result = await p.exchangeCode({ code: 'c', redirectUri: 'https://app.test/cb' });
+
+    const stored = result.accounts[0]!.credential.scopes;
+    for (const scope of p.capabilities().engagement.replyScopes) {
+      expect(stored).toContain(scope);
+    }
+  });
+
+  /**
+   * A person who declined the reply scope at the consent screen is genuinely
+   * missing it, so the refusal — and its advice to reconnect — is now true.
+   */
+  it('reports a declined scope as missing', async () => {
+    const declined = {
+      data: {
+        ...FULL_GRANT.data,
+        scopes: FULL_GRANT.data.scopes.filter((s) => s !== 'pages_manage_engagement'),
+      },
+    };
+
+    const result = await provider(grantingGraph(declined)).exchangeCode({
+      code: 'c',
+      redirectUri: 'https://app.test/cb',
+    });
+
+    expect(result.accounts[0]!.credential.scopes).not.toContain('pages_manage_engagement');
+  });
+
+  /**
+   * `debug_token` answering with nothing is a failed read, not a person who
+   * approved nothing — the dialog would not have completed. Publishing keeps
+   * working through it, which is how this behaved before the fix.
+   */
+  it('falls back to the publish scopes when debug_token reports none', async () => {
+    const result = await provider(
+      grantingGraph({ data: { is_valid: true, expires_at: 0 } }),
+    ).exchangeCode({ code: 'c', redirectUri: 'https://app.test/cb' });
+
+    expect(result.accounts[0]!.credential.scopes).toEqual([
+      'pages_show_list',
+      'pages_read_engagement',
+      'pages_manage_posts',
+    ]);
+  });
+});

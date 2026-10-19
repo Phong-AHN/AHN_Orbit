@@ -58,6 +58,30 @@ import { reauthorizationReason } from './errors.js';
  * than expiry-driven (docs/SOCIAL_PROVIDERS.md §4).
  */
 
+/**
+ * The scopes a discovered Page's credential records.
+ *
+ * **What was granted, not what we hoped for.** A Page token derived from the
+ * person's user token carries the app permissions that person approved, so the
+ * user token's `debug_token` scopes are the Page's scopes too.
+ *
+ * This used to be the constant `FACEBOOK_PUBLISH_SCOPES`, which made every
+ * scope check after it wrong in the same direction: anything outside the three
+ * publish scopes read as missing. Replying needs `pages_manage_engagement`, so
+ * every Facebook reply was refused as "needs to be reconnected" — and
+ * reconnecting re-ran this and stored the same three again, so the advice in
+ * the error could never work.
+ *
+ * Falls back to the publish set only when `debug_token` reported nothing. That
+ * is a failed read rather than a person who approved nothing — the dialog
+ * would not have completed — and the fallback keeps publishing working through
+ * a transient failure, which is how this behaved before. A reply on such a
+ * credential is still refused in advance, and that refusal is now honest.
+ */
+function pageScopes(grantedScopes: readonly string[]): readonly string[] {
+  return grantedScopes.length > 0 ? grantedScopes : FACEBOOK_PUBLISH_SCOPES;
+}
+
 export interface FacebookProviderOptions extends GraphClientOptions {
   /** Verify token for the webhook subscription handshake. */
   webhookVerifyToken?: string | undefined;
@@ -183,7 +207,9 @@ export class FacebookProvider implements SocialProvider {
     });
 
     const longLived = await this.exchangeForLongLived(shortLived.access_token);
-    const accounts = await this.discoverPages(longLived.accessToken);
+    // The granted scopes travel down: each Page credential records what the
+    // person actually approved, not a list we decided in advance.
+    const accounts = await this.discoverPages(longLived.accessToken, longLived.scopes);
 
     return { userCredential: longLived, accounts };
   }
@@ -219,7 +245,7 @@ export class FacebookProvider implements SocialProvider {
    * returned but flagged, so the UI can explain why one cannot be selected
    * rather than silently omitting it.
    */
-  private async discoverPages(userAccessToken: string) {
+  private async discoverPages(userAccessToken: string, grantedScopes: readonly string[]) {
     const response = await this.client.request<AccountsResponse>({
       path: '/me/accounts',
       params: { fields: 'id,name,username,access_token,tasks,picture{url}', limit: 100 },
@@ -242,7 +268,7 @@ export class FacebookProvider implements SocialProvider {
             accessToken: page.access_token as string,
             // Page tokens do not carry an expiry; health probing covers them.
             scopes: tasks.includes(REQUIRED_PAGE_TASK)
-              ? FACEBOOK_PUBLISH_SCOPES
+              ? pageScopes(grantedScopes)
               : (tasks as readonly string[]),
           } satisfies IssuedCredential,
         };
