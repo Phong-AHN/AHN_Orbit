@@ -6,6 +6,7 @@ import { pageCanSomewhere, requirePageContext } from '@/server/page-context';
 import { listComments, unhandledCount } from '@/features/community/service';
 import { listMembers } from '@/features/tenancy/members';
 import { CommentRow } from '@/features/community/ui/comment-row';
+import { SyncButton } from '@/features/community/ui/sync-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -91,24 +92,32 @@ export default async function CommunityPage({ params, searchParams }: PageProps)
         }
       />
 
-      <nav className="mt-6 flex gap-1.5" aria-label="Filter by state">
-        {(['NEW', 'HANDLED'] as const).map((value) => (
-          <Link
-            key={value}
-            href={`/orgs/${orgSlug}/community?state=${value}`}
-            aria-current={state === value ? 'page' : undefined}
-            className={cn(
-              'rounded px-2.5 py-1.5 text-sm transition-colors',
-              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
-              state === value
-                ? 'bg-accent-soft font-semibold text-accent'
-                : 'text-ink-secondary hover:bg-surface-sunken hover:text-ink',
-            )}
-          >
-            {value === 'NEW' ? 'Needs a reply' : 'Handled'}
-          </Link>
-        ))}
-      </nav>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        <nav className="flex gap-1.5" aria-label="Filter by state">
+          {(['NEW', 'HANDLED'] as const).map((value) => (
+            <Link
+              key={value}
+              href={`/orgs/${orgSlug}/community?state=${value}`}
+              aria-current={state === value ? 'page' : undefined}
+              className={cn(
+                'rounded px-2.5 py-1.5 text-sm transition-colors',
+                'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
+                state === value
+                  ? 'bg-accent-soft font-semibold text-accent'
+                  : 'text-ink-secondary hover:bg-surface-sunken hover:text-ink',
+              )}
+            >
+              {value === 'NEW' ? 'Needs a reply' : 'Handled'}
+            </Link>
+          ))}
+        </nav>
+
+        {/* Beside the filters rather than in the header: it acts on the queue
+            below, not on the page. Offered only to people who may reply — it
+            spends the tenant's provider quota, so it is not a control to hand
+            to somebody who is only reading. */}
+        {canReply ? <SyncButton orgSlug={orgSlug} /> : null}
+      </div>
 
       {comments.length === 0 ? (
         <Card className="mt-6">
@@ -150,10 +159,9 @@ export default async function CommunityPage({ params, searchParams }: PageProps)
       {/* Said once, at the bottom, rather than on every row: the boundary is a
           property of the feature, not of any one comment. */}
       <p className="mt-8 max-w-prose text-xs text-ink-muted">
-        Orbit reads comments on posts it published. A post made directly on the
-        platform has no client or brand to file its comments under, so it is not
-        collected — and no commenter&rsquo;s identity is stored, only the public
-        name shown beside what they wrote.
+        Orbit reads comments on posts it published. A post made directly on the platform has no
+        client or brand to file its comments under, so it is not collected — and no
+        commenter&rsquo;s identity is stored, only the public name shown beside what they wrote.
       </p>
     </main>
   );

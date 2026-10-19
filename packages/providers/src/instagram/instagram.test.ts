@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { InstagramProvider } from './provider.js';
-import { INSTAGRAM_LOGIN_SCOPES, INSTAGRAM_PUBLISH_SCOPES } from './capabilities.js';
+import {
+  INSTAGRAM_COMMENT_SCOPES,
+  INSTAGRAM_DEFAULT_SCOPES,
+  INSTAGRAM_INSIGHTS_SCOPES,
+  INSTAGRAM_LOGIN_COMMENT_SCOPES,
+  INSTAGRAM_LOGIN_INSIGHTS_SCOPES,
+  INSTAGRAM_LOGIN_SCOPES,
+  INSTAGRAM_PUBLISH_SCOPES,
+} from './capabilities.js';
 import type { FetchLike } from '../facebook/client.js';
 
 /**
@@ -185,6 +193,11 @@ describe('authorization', () => {
       'instagram_content_publish',
       'pages_read_engagement',
       'pages_show_list',
+      // Neither of these is in the use-case default set. Asked for here
+      // because a scope cannot be added to a grant already issued, so an
+      // account connected without them needs a second reconnection.
+      'instagram_manage_comments',
+      'instagram_manage_insights',
     ]);
     expect(new URL(url).searchParams.get('scope')).toBe(scopes.join(','));
   });
@@ -956,5 +969,518 @@ describe('account-level insights', () => {
     expect(url).not.toMatch(/follows_and_unfollows/);
     expect(url).not.toMatch(/follower_demographics/);
     expect(url).not.toMatch(/engaged_audience_demographics/);
+  });
+});
+
+describe('the capability descriptor varies by connection flow', () => {
+  /**
+   * The reason this exists at all. The two flows use different *names* for one
+   * permission, so a single descriptor listing both would make `replyScopes`
+   * name a scope no credential can hold — and the reply path refuses on a
+   * missing scope, so every reply would be rejected as "needs reconnecting" on
+   * an account that was correctly connected.
+   */
+  it('names the Facebook-Login comment scope for a Page-linked account', () => {
+    const engagement = provider(graph).capabilities('INSTAGRAM_BUSINESS').engagement;
+
+    expect(engagement.replyScopes).toEqual(['instagram_manage_comments']);
+  });
+
+  it('names the Business-Login comment scope for a username account', () => {
+    const engagement = provider(graph).capabilities('INSTAGRAM_LOGIN').engagement;
+
+    expect(engagement.replyScopes).toEqual(['instagram_business_manage_comments']);
+  });
+
+  /**
+   * The two scope lists must stay disjoint. If a refactor ever made them equal,
+   * every test above would still pass while the distinction they exist to
+   * protect had quietly disappeared.
+   */
+  it('keeps the two scope names distinct', () => {
+    expect(INSTAGRAM_COMMENT_SCOPES).not.toEqual(INSTAGRAM_LOGIN_COMMENT_SCOPES);
+  });
+
+  /** A caller that does not know gets the flow almost every account uses. */
+  it('falls back to the Facebook-Login descriptor when the type is unknown', () => {
+    const unknown = provider(graph).capabilities(null).engagement;
+
+    expect(unknown.replyScopes).toEqual(['instagram_manage_comments']);
+    expect(provider(graph).capabilities().engagement.replyScopes).toEqual([
+      'instagram_manage_comments',
+    ]);
+  });
+
+  /**
+   * A scope cannot be added to a grant already issued. If the connect flow does
+   * not ask for the comment scope, every account connected from now on needs a
+   * second reconnection later — the mistake `read_insights` already cost once.
+   */
+  it('asks for the comment scope at connect time on both flows', () => {
+    expect(INSTAGRAM_DEFAULT_SCOPES).toContain('instagram_manage_comments');
+    expect(INSTAGRAM_LOGIN_SCOPES).toContain('instagram_business_manage_comments');
+  });
+
+  /** Claimed only for what is implemented: no hide, no delete, no moderation UI. */
+  it('claims reading and threaded replying, and not moderation', () => {
+    const engagement = provider(graph).capabilities('INSTAGRAM_BUSINESS').engagement;
+
+    expect(engagement.readComments).toBe(true);
+    expect(engagement.reply).toBe(true);
+    expect(engagement.threadedReply).toBe(true);
+    expect(engagement.moderate).toBe(false);
+    expect(engagement.maxReplyLength).toBe(2_200);
+  });
+});
+
+describe('reading comments', () => {
+  const ref = { externalPostId: 'ig-media-1', accountExternalId: 'ig-user-1' };
+
+  /**
+   * Instagram's vocabulary, not Facebook's: `text` not `message`, `timestamp`
+   * not `created_time`, `username` not `from.name`, and the reply nested under
+   * its parent rather than flattened by `filter=stream`.
+   */
+  const thread = {
+    data: [
+      {
+        id: 'c-1',
+        text: 'Is this in stock?',
+        timestamp: '2026-10-12T09:00:00+0000',
+        username: 'mai.tran',
+        from: { id: '777', username: 'mai.tran' },
+        replies: {
+          data: [
+            {
+              id: 'c-2',
+              text: 'Yes — in store from Friday!',
+              timestamp: '2026-10-12T10:00:00+0000',
+              username: 'northwind.coffee',
+              // The connected account itself.
+              from: { id: 'ig-user-1', username: 'northwind.coffee' },
+            },
+          ],
+        },
+      },
+    ],
+  };
+
+  function graphWithThread() {
+    return new FakeGraph().on(/\/comments/, { body: thread });
+  }
+
+  /**
+   * The edge returns only top-level comments. Without the `replies` field
+   * expansion the brand's own answer is never read back, so a comment the
+   * client answered from the Instagram app sits in the queue unhandled forever.
+   */
+  it('flattens the nested replies into the page', async () => {
+    const page = await provider(graphWithThread()).fetchComments!({ ref, credential });
+
+    expect(page.comments.map((c) => c.externalId)).toEqual(['c-1', 'c-2']);
+    expect(page.comments[0]?.message).toBe('Is this in stock?');
+    expect(page.comments[0]?.parentExternalId).toBeUndefined();
+    expect(page.comments[1]?.parentExternalId).toBe('c-1');
+  });
+
+  it('asks for the replies expansion, because the edge omits them', async () => {
+    const graphWith = graphWithThread();
+    await provider(graphWith).fetchComments!({ ref, credential });
+
+    const url = decodeURIComponent(graphWith.calls.at(-1)?.url ?? '');
+    expect(url).toContain('replies.limit(50){');
+    expect(url).toContain('text');
+    expect(url).toContain('timestamp');
+    // Facebook's field names would silently return nothing useful here.
+    expect(url).not.toMatch(/fields=[^&]*created_time/);
+    expect(url).not.toContain('filter=stream');
+  });
+
+  /**
+   * The distinction the whole queue rests on. Without it the brand's own
+   * replies come back as things needing attention, and every answered comment
+   * reappears as unanswered.
+   */
+  it('marks the account’s own reply as ours and the public’s as not', async () => {
+    const page = await provider(graphWithThread()).fetchComments!({ ref, credential });
+
+    expect(page.comments[0]?.ours).toBe(false);
+    expect(page.comments[1]?.ours).toBe(true);
+  });
+
+  /**
+   * The reason `AudienceComment` has no field for a commenter id: the adapter
+   * is the only layer that holds one, and it consumes it. Asserted on the
+   * returned object rather than trusted to the type, because a type is erased
+   * and a stray property would still travel.
+   */
+  it('hands back no commenter identifier at all', async () => {
+    const page = await provider(graphWithThread()).fetchComments!({ ref, credential });
+    const audience = page.comments[0]!;
+
+    expect(audience.authorName).toBe('mai.tran');
+    expect(JSON.stringify(audience)).not.toContain('777');
+    expect(Object.keys(audience)).not.toContain('from');
+    expect(Object.keys(audience)).not.toContain('authorExternalId');
+  });
+
+  /**
+   * This edge cannot be filtered by timestamp, so `since` is applied here. It
+   * saves a database round trip per historical comment on every pass; it does
+   * not save an API call, and the request must not pretend otherwise.
+   */
+  it('applies `since` to the rows, since the edge has no such parameter', async () => {
+    const graphWith = graphWithThread();
+    const page = await provider(graphWith).fetchComments!({
+      ref,
+      credential,
+      since: new Date('2026-10-12T09:30:00Z'),
+    });
+
+    expect(page.comments.map((c) => c.externalId)).toEqual(['c-2']);
+
+    const url = decodeURIComponent(graphWith.calls.at(-1)?.url ?? '');
+    expect(url).not.toContain('since=');
+    expect(url).not.toContain('until=');
+  });
+
+  /**
+   * The optimisation that must not be made. Top-level comments come back
+   * newest-first, so an old comment sits on a late page — and a reply posted
+   * to it today arrives nested under it there. Stopping at the first fully
+   * stale page would skip it, and since the watermark only moves forward it
+   * would be skipped on every pass after that too.
+   */
+  it('keeps paging when `since` filters a page down to nothing', async () => {
+    const graphWith = new FakeGraph().on(/\/comments/, {
+      body: {
+        data: [
+          {
+            id: 'old-1',
+            text: 'Last month',
+            timestamp: '2026-09-01T09:00:00+0000',
+            username: 'someone',
+            from: { id: '888', username: 'someone' },
+          },
+        ],
+        paging: { cursors: { after: 'page-2' }, next: 'https://graph.test/next' },
+      },
+    });
+
+    const page = await provider(graphWith).fetchComments!({
+      ref,
+      credential,
+      since: new Date('2026-10-12T00:00:00Z'),
+    });
+
+    expect(page.comments).toEqual([]);
+    expect(page.nextCursor).toBe('page-2');
+  });
+
+  /** The edge caps a page at 50 whether or not we ask, so the clamp is explicit. */
+  it('never asks for more than the edge returns', async () => {
+    const graphWith = graphWithThread();
+    await provider(graphWith).fetchComments!({ ref, credential, limit: 100 });
+
+    expect(graphWith.calls.at(-1)?.url).toContain('limit=50');
+  });
+
+  /**
+   * Meta returns an `after` cursor on the last page too, so paging on the
+   * cursor alone never terminates — the ingestion loop would run forever over
+   * the same final page.
+   */
+  it('reports no next page when Meta sends no `next` link', async () => {
+    const graphWith = new FakeGraph().on(/\/comments/, {
+      body: { ...thread, paging: { cursors: { after: 'cursor-on-last-page' } } },
+    });
+
+    const page = await provider(graphWith).fetchComments!({ ref, credential });
+
+    expect(page.nextCursor).toBeUndefined();
+  });
+
+  /** A row we cannot dedupe, reply to, or order is dropped rather than guessed at. */
+  it('drops a comment with no id or no usable timestamp', async () => {
+    const graphWith = new FakeGraph().on(/\/comments/, {
+      body: {
+        data: [
+          { text: 'no id', timestamp: '2026-10-12T09:00:00+0000' },
+          { id: 'no-time', text: 'no timestamp' },
+          { id: 'bad-time', text: 'unparseable', timestamp: 'not a date' },
+          { id: 'good', text: 'fine', timestamp: '2026-10-12T09:00:00+0000' },
+        ],
+      },
+    });
+
+    const page = await provider(graphWith).fetchComments!({ ref, credential });
+
+    expect(page.comments.map((c) => c.externalId)).toEqual(['good']);
+  });
+
+  /** A username-login account must not be read from graph.facebook.com. */
+  it('reads a username-login account from graph.instagram.com', async () => {
+    const seen: string[] = [];
+    const globalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      seen.push(typeof input === 'string' ? input : input.toString());
+      return new Response(JSON.stringify(thread), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      const page = await provider(graph).fetchComments!({
+        ref,
+        credential: { accessToken: 'ig-token', scopes: INSTAGRAM_LOGIN_SCOPES },
+      });
+
+      expect(page.comments).toHaveLength(2);
+      expect(seen.every((url) => url.startsWith('https://graph.instagram.com/'))).toBe(true);
+    } finally {
+      globalThis.fetch = globalFetch;
+    }
+
+    expect(graph.calls).toHaveLength(0);
+  });
+});
+
+describe('replying to a comment', () => {
+  /**
+   * The media's `comments` edge would post a new top-level comment that nobody
+   * is notified about. `/replies` on the comment itself is what threads it and
+   * reaches the person who asked.
+   */
+  it('posts to the comment’s replies edge, not the media’s comments edge', async () => {
+    const graphWith = new FakeGraph().on(/\/replies/, { body: { id: 'reply-1' } });
+
+    const result = await provider(graphWith).replyToComment!({
+      commentExternalId: 'c-1',
+      message: 'Yes, from Friday!',
+      credential,
+    });
+
+    expect(result.externalId).toBe('reply-1');
+
+    const call = graphWith.calls.at(-1)!;
+    expect(call.method).toBe('POST');
+    expect(call.url).toContain('/c-1/replies');
+    expect(new URLSearchParams(call.body ?? '').get('message')).toBe('Yes, from Friday!');
+  });
+
+  /**
+   * A reply we cannot identify is one we might send again: the next ingestion
+   * pass would not recognise it as ours, so the comment stays in the queue and
+   * somebody answers it twice. Reported as a failure rather than recorded as
+   * sent — the same posture an ambiguous publish takes (D-027).
+   */
+  it('refuses an acknowledgement that carries no id', async () => {
+    const graphWith = new FakeGraph().on(/\/replies/, { body: {} });
+
+    await expect(
+      provider(graphWith).replyToComment!({
+        commentExternalId: 'c-1',
+        message: 'Hello',
+        credential,
+      }),
+    ).rejects.toThrow(/did not confirm|without returning an id/i);
+  });
+
+  it('sends a username-login reply to graph.instagram.com', async () => {
+    const seen: string[] = [];
+    const globalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      seen.push(typeof input === 'string' ? input : input.toString());
+      return new Response(JSON.stringify({ id: 'reply-1' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      const result = await provider(graph).replyToComment!({
+        commentExternalId: 'c-1',
+        message: 'Hello',
+        credential: { accessToken: 'ig-token', scopes: INSTAGRAM_LOGIN_SCOPES },
+      });
+
+      expect(result.externalId).toBe('reply-1');
+      expect(seen.every((url) => url.startsWith('https://graph.instagram.com/'))).toBe(true);
+    } finally {
+      globalThis.fetch = globalFetch;
+    }
+
+    expect(graph.calls).toHaveLength(0);
+  });
+});
+
+/**
+ * Every capability the descriptor claims must have a scope behind it.
+ *
+ * This is here because the literal list above is the wrong kind of test on its
+ * own: it pins what the code *says* without checking it against what the code
+ * *promises*. `instagram_manage_insights` was missing for months while that
+ * assertion passed, on the strength of a comment asserting Instagram needed no
+ * insights scope. Meta's insights reference says otherwise, and the failure
+ * mode was invisible — a token without it still reads media fields and fails
+ * only the metrics call, so publishing worked and analytics returned a
+ * permission error.
+ *
+ * Tying the two together is what makes the next missing scope a test failure
+ * instead of a support ticket.
+ */
+describe('claimed capabilities all have a scope', () => {
+  const insightsScope = (scopes: readonly string[]) =>
+    scopes.some((scope) => scope.includes('insights'));
+  const publishScope = (scopes: readonly string[]) =>
+    scopes.some((scope) => scope.includes('content_publish'));
+
+  it('backs the analytics claim with an insights scope on both flows', () => {
+    const business = provider(graph).capabilities('INSTAGRAM_BUSINESS');
+    const login = provider(graph).capabilities('INSTAGRAM_LOGIN');
+
+    // Guard the premise: if analytics were ever dropped the assertions below
+    // would pass vacuously.
+    expect(business.analytics.post || business.analytics.account).toBe(true);
+    expect(login.analytics.post || login.analytics.account).toBe(true);
+
+    expect(insightsScope(INSTAGRAM_DEFAULT_SCOPES)).toBe(true);
+    expect(insightsScope(INSTAGRAM_LOGIN_SCOPES)).toBe(true);
+  });
+
+  it('backs the publishing claim with a publish scope on both flows', () => {
+    expect(publishScope(INSTAGRAM_DEFAULT_SCOPES)).toBe(true);
+    expect(publishScope(INSTAGRAM_LOGIN_SCOPES)).toBe(true);
+  });
+
+  it('backs the reply claim with the scope the descriptor itself names', () => {
+    for (const type of ['INSTAGRAM_BUSINESS', 'INSTAGRAM_LOGIN'] as const) {
+      const capabilities = provider(graph).capabilities(type);
+      const requested =
+        type === 'INSTAGRAM_LOGIN' ? INSTAGRAM_LOGIN_SCOPES : INSTAGRAM_DEFAULT_SCOPES;
+
+      expect(capabilities.engagement.reply).toBe(true);
+      expect(capabilities.engagement.replyScopes.length).toBeGreaterThan(0);
+      // The scope the reply path checks a credential against must be one the
+      // connect flow actually asked for, or every reply is refused.
+      for (const scope of capabilities.engagement.replyScopes) {
+        expect(requested as readonly string[]).toContain(scope);
+      }
+    }
+  });
+
+  /** The two namespaces must not leak into each other's flow. */
+  it('keeps the two flows\u2019 scope namespaces separate', () => {
+    expect(INSTAGRAM_DEFAULT_SCOPES.some((s) => s.startsWith('instagram_business_'))).toBe(false);
+    expect(INSTAGRAM_LOGIN_SCOPES).not.toContain(...INSTAGRAM_INSIGHTS_SCOPES);
+    expect(INSTAGRAM_LOGIN_SCOPES).toContain(...INSTAGRAM_LOGIN_INSIGHTS_SCOPES);
+  });
+});
+
+/**
+ * Business Login tokens expire on a clock. Page tokens do not.
+ *
+ * This is the pair of behaviours that used to be one: `refreshCredential` read
+ * `/me`, proved the token worked *today*, and returned STILL_VALID — while the
+ * 60-day expiry it was issued with came closer. Every Instagram connection in
+ * the product would have died on the same afternoon, recoverable only by
+ * emailing every client.
+ */
+describe('renewing a Business Login token', () => {
+  const DAY = 24 * 60 * 60 * 1_000;
+
+  /** A credential on the username surface, expiring in `days`. */
+  function loginCredential(days: number) {
+    return {
+      accessToken: 'ig-token',
+      scopes: INSTAGRAM_LOGIN_SCOPES,
+      expiresAt: new Date(Date.now() + days * DAY),
+    };
+  }
+
+  async function withStubbedFetch<T>(
+    responder: (url: string) => unknown,
+    run: () => Promise<T>,
+  ): Promise<{ result: T; urls: string[] }> {
+    const urls: string[] = [];
+    const globalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      urls.push(url);
+      return new Response(JSON.stringify(responder(url)), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      return { result: await run(), urls };
+    } finally {
+      globalThis.fetch = globalFetch;
+    }
+  }
+
+  it('refreshes a token that is old enough, and returns the new one', async () => {
+    const { result, urls } = await withStubbedFetch(
+      () => ({ access_token: 'renewed-token', expires_in: 5_183_944 }),
+      // Issued 40 days ago, so 20 days remain: well past Meta's 24-hour floor.
+      () => provider(graph).refreshCredential(loginCredential(20) as never),
+    );
+
+    expect(result.status).toBe('REFRESHED');
+    if (result.status !== 'REFRESHED') throw new Error('expected a refresh');
+
+    expect(result.credential.accessToken).toBe('renewed-token');
+    // Renewed for another 60 days from today, not from the original issue date.
+    expect(result.credential.expiresAt!.getTime()).toBeGreaterThan(Date.now() + 59 * DAY);
+    // A refresh renews a token; it does not re-grant consent.
+    expect(result.credential.scopes).toEqual(INSTAGRAM_LOGIN_SCOPES);
+
+    expect(urls.at(-1)).toContain('/refresh_access_token');
+    expect(urls.at(-1)).toContain('grant_type=ig_refresh_token');
+  });
+
+  /**
+   * Meta will not renew a token under 24 hours old. Asking anyway would turn a
+   * brand-new connection into a refusal, so a young token reports healthy and
+   * is left for the next sweep.
+   */
+  it('leaves a token younger than a day alone', async () => {
+    const { result, urls } = await withStubbedFetch(
+      () => ({ access_token: 'should-not-be-called' }),
+      // Issued hours ago: nearly the full 60 days still to run.
+      () => provider(graph).refreshCredential(loginCredential(59.9) as never),
+    );
+
+    expect(result.status).toBe('STILL_VALID');
+    expect(urls).toHaveLength(0);
+  });
+
+  /**
+   * Recording the old token as renewed is how a connection dies silently on a
+   * date nobody is watching, so an answer with no token is a failed refresh.
+   */
+  it('asks for a reconnection when no token comes back', async () => {
+    const { result } = await withStubbedFetch(
+      () => ({}),
+      () => provider(graph).refreshCredential(loginCredential(20) as never),
+    );
+
+    expect(result.status).toBe('REQUIRES_RECONNECT');
+  });
+
+  /** A Page token has no clock to beat, so there is nothing to call. */
+  it('never calls the refresh endpoint for a Page-linked account', async () => {
+    const graphWith = new FakeGraph().on(/debug_token/, {
+      body: { data: { is_valid: true, scopes: [...INSTAGRAM_PUBLISH_SCOPES] } },
+    });
+
+    await provider(graphWith).refreshCredential(credential as never);
+
+    expect(graphWith.calls.every((call) => !call.url.includes('refresh_access_token'))).toBe(true);
   });
 });

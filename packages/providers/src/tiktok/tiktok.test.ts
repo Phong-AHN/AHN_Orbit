@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { TikTokProvider, planChunks } from './provider.js';
-import { TIKTOK_CHUNK, tiktokUserFieldsFor } from './capabilities.js';
+import {
+  TIKTOK_CHUNK,
+  TIKTOK_PUBLISH_SCOPES,
+  TIKTOK_UPLOAD_SCOPES,
+  TIKTOK_USER_FIELDS,
+  tiktokUserFieldsFor,
+} from './capabilities.js';
 import type { FetchLike } from './client.js';
 
 /**
@@ -1125,5 +1131,98 @@ describe('analytics for a private post', () => {
 
     expect(local.calls.find((c) => /video\/query/.test(c.url))).toBeDefined();
     expect(set.metrics['view_count']).toBe(12);
+  });
+});
+
+/**
+ * A field map entry is a promise to request its scope.
+ *
+ * `TIKTOK_USER_FIELDS` said `username` sits behind `user.info.profile`,
+ * `tiktokUserFieldsFor` filtered on it, and `exchangeCode` assigned `handle`
+ * from it — while the authorization URL never asked for the scope. So the
+ * grant never contained it, the field was never requested, and **no TikTok
+ * account ever had a handle.**
+ *
+ * Nothing failed: every assertion about scopes used `toContain`, which cannot
+ * see a scope that is absent. These tie the two halves together instead.
+ */
+describe('every mapped field has a scope we actually request', () => {
+  const requestedFor = (accountType?: string) =>
+    provider(api).getAuthorizationUrl({
+      redirectUri: 'https://app.test/cb',
+      state: 's',
+      ...(accountType ? { accountType } : {}),
+    }).scopes;
+
+  it('requests a scope for every field in the user-field map', () => {
+    const requested = new Set(requestedFor());
+
+    for (const entry of TIKTOK_USER_FIELDS) {
+      // A mapped field whose scope is never requested is a dead entry: the
+      // field can never be fetched, and the feature behind it silently does
+      // not exist.
+      expect(requested.has(entry.scope)).toBe(true);
+    }
+  });
+
+  it('asks for the @handle scope, so accounts arrive identifiable', () => {
+    expect(requestedFor()).toContain('user.info.profile');
+    expect(requestedFor('UPLOAD_ONLY')).toContain('user.info.profile');
+  });
+
+  /**
+   * Pinned exactly, not with `toContain`. A scope list is the one thing here
+   * that no type checks and only TikTok's dialog judges, so a change to it
+   * should be a decision somebody made rather than a diff nobody noticed.
+   */
+  it('asks for exactly these scopes on each surface', () => {
+    expect([...TIKTOK_PUBLISH_SCOPES]).toEqual([
+      'user.info.basic',
+      'user.info.profile',
+      'video.publish',
+    ]);
+    expect([...TIKTOK_UPLOAD_SCOPES]).toEqual([
+      'user.info.basic',
+      'user.info.profile',
+      'video.upload',
+    ]);
+
+    // `video.list` is merged in for both, for reading a post back.
+    expect(requestedFor()).toContain('video.list');
+    expect(requestedFor('UPLOAD_ONLY')).toContain('video.list');
+  });
+
+  /**
+   * Account-level statistics are deliberately not requested. TikTok serves no
+   * real account metrics, and `analytics.account` is `false` for that reason —
+   * so asking for follower counts would be a scope on the consent screen that
+   * nothing in the product reads.
+   */
+  it('never asks for account statistics', () => {
+    expect(requestedFor()).not.toContain('user.info.stats');
+    expect(provider(api).capabilities().analytics.account).toBe(false);
+  });
+
+  it('gives the account its @handle when the scope is granted', async () => {
+    const local = new FakeTikTok()
+      .oauth(/oauth\/token/, {
+        access_token: 'act.new',
+        expires_in: 86_400,
+        open_id: 'o-1',
+        scope: 'user.info.basic,user.info.profile,video.publish',
+      })
+      .ok(/user\/info/, {
+        user: { open_id: 'o-1', display_name: 'AHN Media', username: 'ahn.media' },
+      });
+
+    const result = await provider(local).exchangeCode({
+      code: 'c',
+      redirectUri: 'https://app.test/cb',
+    });
+
+    expect(result.accounts[0]?.handle).toBe('ahn.media');
+
+    const call = local.calls.find((candidate) => /user\/info/.test(candidate.url));
+    expect(new URL(call!.url).searchParams.get('fields')).toContain('username');
   });
 });

@@ -129,6 +129,33 @@ const MOCK_CAPABILITIES = defineCapabilities({
   webhooks: { supported: true },
 });
 
+/**
+ * The same descriptor for one made-up account type, differing only in the name
+ * of the reply scope.
+ *
+ * It exists because Instagram's does. There, one permission has two names
+ * depending on which connection flow the account used, so a caller that
+ * resolves the descriptor without the account's type gets a `replyScopes`
+ * naming a scope the credential cannot hold — and the reply path refuses on a
+ * missing scope, so every reply is rejected as "needs reconnecting" on an
+ * account that is connected correctly.
+ *
+ * That bug lived in the community service and no test could see it: the mock
+ * ignored the argument, so passing `null` was indistinguishable from passing
+ * the truth. This is what makes the difference observable without an
+ * Instagram credential.
+ */
+export const MOCK_SECOND_ACCOUNT_TYPE = 'MOCK_SECOND_FLOW';
+
+const MOCK_SECOND_FLOW_CAPABILITIES = defineCapabilities({
+  ...MOCK_CAPABILITIES,
+  accountType: MOCK_SECOND_ACCOUNT_TYPE,
+  engagement: {
+    ...MOCK_CAPABILITIES.engagement,
+    replyScopes: ['mock_second_flow_manage_engagement'],
+  },
+});
+
 export class MockProvider implements SocialProvider {
   readonly platform = 'FACEBOOK' as const;
 
@@ -164,12 +191,14 @@ export class MockProvider implements SocialProvider {
     }
   }
 
-  capabilities(): PlatformCapabilities {
-    return MOCK_CAPABILITIES;
+  capabilities(accountType?: string | null): PlatformCapabilities {
+    return accountType === MOCK_SECOND_ACCOUNT_TYPE
+      ? MOCK_SECOND_FLOW_CAPABILITIES
+      : MOCK_CAPABILITIES;
   }
 
-  validate(draft: VariantDraft): ValidationResult {
-    return validateDraft(MOCK_CAPABILITIES, draft);
+  validate(draft: VariantDraft, accountType?: string | null): ValidationResult {
+    return validateDraft(this.capabilities(accountType), draft);
   }
 
   getAuthorizationUrl(input: AuthorizationUrlInput): { url: string; scopes: readonly string[] } {

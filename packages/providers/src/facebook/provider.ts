@@ -907,10 +907,7 @@ export class FacebookProvider implements SocialProvider {
     };
   }
 
-  // ── Webhooks ──────────────────────────────────────────────────────────────
-
-  /** X-Hub-Signature-256 over the raw body, keyed by the app secret. */
-  // ── Engagement ──────────────────────────────────────────────────────
+  // ── Engagement ────────────────────────────────────────────────────────────
 
   /**
    * Comments on a published post, newest first.
@@ -1029,6 +1026,9 @@ export class FacebookProvider implements SocialProvider {
     return { externalId: response.id, postedAt: clock.now() };
   }
 
+  // ── Webhooks ──────────────────────────────────────────────────────────────
+
+  /** X-Hub-Signature-256 over the raw body, keyed by the app secret. */
   verifyWebhook(request: RawWebhookRequest): boolean {
     const header = request.headers['x-hub-signature-256'];
     if (!header?.startsWith('sha256=')) return false;

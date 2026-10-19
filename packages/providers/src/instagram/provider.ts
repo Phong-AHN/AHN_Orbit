@@ -4,12 +4,15 @@ import { validateDraft, type ValidationResult, type VariantDraft } from '../vali
 import type { PlatformCapabilities } from '../capabilities.js';
 import type {
   AccountHealth,
+  AudienceComment,
   AuthorizationUrlInput,
   CallbackInput,
+  CommentPage,
   ConnectedAccounts,
   DateRange,
   DecryptedCredential,
   ExternalPostRef,
+  FetchCommentsInput,
   ExternalPostStatus,
   IssuedCredential,
   MetricSet,
@@ -20,6 +23,8 @@ import type {
   ReconcileContext,
   ReconcileResult,
   RefreshOutcome,
+  ReplyInput,
+  ReplyResult,
   SocialProvider,
 } from '../types.js';
 import { GraphClient, type GraphClientOptions } from '../facebook/client.js';
@@ -30,6 +35,7 @@ import {
   INSTAGRAM_LOGIN_SCOPES,
   INSTAGRAM_PUBLISH_SCOPES,
   instagramCapabilities,
+  type InstagramAccountType,
 } from './capabilities.js';
 
 /**
@@ -93,6 +99,47 @@ const INSTAGRAM_LOGIN_DIALOG = 'https://www.instagram.com/oauth/authorize';
 const INSTAGRAM_LOGIN_TOKEN = 'https://api.instagram.com/oauth/access_token';
 const INSTAGRAM_LOGIN_GRAPH = 'https://graph.instagram.com';
 
+/**
+ * Fields read for a comment — the same set at the top level and nested.
+ *
+ * `text` and `timestamp`, not Facebook's `message` and `created_time`: the two
+ * platforms share a Graph API and not this edge's vocabulary.
+ *
+ * `username` has needed the comment scope since 27 August 2024. It is the
+ * display name here; an Instagram comment author has no `name`.
+ */
+const INSTAGRAM_COMMENT_FIELDS = 'id,text,timestamp,username,from{id,username},parent_id';
+
+/** The edge's own ceiling, which it applies whether or not we ask for it. */
+const INSTAGRAM_COMMENT_PAGE_SIZE = 50;
+
+/** How long a Business Login token lasts, issued or refreshed: 60 days. */
+const INSTAGRAM_LOGIN_TOKEN_TTL_MS = 60 * 24 * 60 * 60 * 1_000;
+
+/** Meta refuses to refresh a token younger than this. */
+const INSTAGRAM_REFRESH_MIN_AGE_MS = 24 * 60 * 60 * 1_000;
+
+/**
+ * Replies fetched per parent comment, through field expansion.
+ *
+ * A nested edge has no cursor we can follow from here, so this is a hard bound:
+ * a comment with more replies than this has its oldest ones unread. Chosen
+ * knowing what it costs, because the replies that matter are the brand's own
+ * and there are rarely many of those. The real fix is the webhook subscription.
+ */
+const INSTAGRAM_REPLY_PAGE_SIZE = 50;
+
+/** One comment as the edge returns it, top-level or nested. */
+interface InstagramCommentRow {
+  id?: string;
+  text?: string;
+  timestamp?: string;
+  username?: string;
+  from?: { id?: string; username?: string };
+  parent_id?: string;
+  replies?: { data?: InstagramCommentRow[] };
+}
+
 interface PagesWithInstagram {
   data?: Array<{
     id: string;
@@ -121,18 +168,46 @@ export class InstagramProvider implements SocialProvider {
 
   private readonly client: GraphClient;
   private readonly capabilityCache: PlatformCapabilities;
+  private readonly loginCapabilityCache: PlatformCapabilities;
 
   constructor(private readonly options: InstagramProviderOptions) {
     this.client = new GraphClient(options);
-    this.capabilityCache = instagramCapabilities(options.apiVersion);
+    this.capabilityCache = instagramCapabilities(options.apiVersion, 'INSTAGRAM_BUSINESS');
+    this.loginCapabilityCache = instagramCapabilities(options.apiVersion, 'INSTAGRAM_LOGIN');
   }
 
-  capabilities(): PlatformCapabilities {
-    return this.capabilityCache;
+  /**
+   * The descriptor for one of the two connection flows.
+   *
+   * This ignored its argument until comments arrived, and got away with it:
+   * everything the descriptor described was identical on both surfaces and
+   * differed only in host. The comment scope is the first value that genuinely
+   * varies — `instagram_manage_comments` on the Facebook-Login surface,
+   * `instagram_business_manage_comments` on the username one — so both are
+   * built once in the constructor and chosen here.
+   *
+   * Listing both in one descriptor instead would have been quietly wrong: a
+   * connection only ever holds one of them, so `replyScopes` would always name
+   * a scope the credential lacks, and every reply would be refused as "needs
+   * reconnecting" on a correctly connected account.
+   *
+   * Anything other than `INSTAGRAM_LOGIN` — including `null` from a caller
+   * that does not know — resolves to the Facebook-Login descriptor. That is
+   * the *fallback*, not the common case: the connect screen offers Business
+   * Login whenever the second Meta app is configured and only drops back to the
+   * Page-linked flow when it is not. So a caller that loses the account type
+   * degrades towards the older flow, which is the safer direction — it names
+   * scopes a Page-linked credential holds — but it is still a caller that
+   * should have passed the type.
+   */
+  capabilities(accountType?: string | null): PlatformCapabilities {
+    const type: InstagramAccountType =
+      accountType === 'INSTAGRAM_LOGIN' ? 'INSTAGRAM_LOGIN' : 'INSTAGRAM_BUSINESS';
+    return type === 'INSTAGRAM_LOGIN' ? this.loginCapabilityCache : this.capabilityCache;
   }
 
-  validate(draft: VariantDraft): ValidationResult {
-    return validateDraft(this.capabilityCache, draft);
+  validate(draft: VariantDraft, accountType?: string | null): ValidationResult {
+    return validateDraft(this.capabilities(accountType), draft);
   }
 
   // ── OAuth ─────────────────────────────────────────────────────────────────
@@ -391,18 +466,90 @@ export class InstagramProvider implements SocialProvider {
     return credential.scopes.includes('instagram_business_basic');
   }
 
-  /** Page tokens do not refresh; only a person reauthorizing can fix a dead one. */
+  /**
+   * Whether Meta would refuse to refresh this yet.
+   *
+   * It will not renew a token under 24 hours old. Age is inferred from
+   * `expiresAt` rather than stored directly — a 60-day token still more than 59
+   * days from expiry was issued within the last day.
+   *
+   * A credential with no `expiresAt` is treated as old enough. That is the
+   * permissive direction on purpose: the cost of asking too early is one
+   * refused call the caller already handles, while the cost of never asking is
+   * the connection expiring.
+   */
+  private isTooYoungToRefresh(credential: DecryptedCredential): boolean {
+    if (!credential.expiresAt) return false;
+
+    const remainingMs = credential.expiresAt.getTime() - clock.nowMs();
+    return remainingMs > INSTAGRAM_LOGIN_TOKEN_TTL_MS - INSTAGRAM_REFRESH_MIN_AGE_MS;
+  }
+
+  /**
+   * Page tokens do not refresh. Business Login tokens **must**.
+   *
+   * The two surfaces have opposite token models and this method used to treat
+   * them the same, which was a bug with a 60-day fuse on it.
+   *
+   * A Page token (Facebook Login) does not expire on a clock, so there is
+   * nothing to refresh and only a person reauthorizing can fix a dead one.
+   *
+   * A Business Login token expires **60 days from the day it was issued**.
+   * Reading `/me` proves it works today and does nothing about that date — so
+   * the previous version of this returned `STILL_VALID` for 60 days and then
+   * every Instagram connection in the product died on the same afternoon, with
+   * the only recovery being to email every client and walk them through
+   * reconnecting.
+   *
+   * `refresh_access_token` extends it another 60 days from the day it is
+   * called, so a connection that is used stays alive indefinitely and only a
+   * genuinely abandoned one lapses. Meta's two constraints are that the token
+   * must be **at least 24 hours old** and must not have expired; the first is
+   * why a brand-new connection reports `STILL_VALID` instead of being refused,
+   * and the second is why a failure here is `REQUIRES_RECONNECT` rather than a
+   * retry.
+   */
   async refreshCredential(credential: DecryptedCredential): Promise<RefreshOutcome> {
     if (this.isLoginSurface(credential)) {
-      // No debug endpoint here. Reading the account is the check.
+      // Younger than Meta's minimum. Nothing is wrong and nothing is due; the
+      // health sweep will come back to it tomorrow.
+      if (this.isTooYoungToRefresh(credential)) return { status: 'STILL_VALID' };
+
       try {
-        await this.instagramLoginFetch(
-          `${INSTAGRAM_LOGIN_GRAPH}/me?${new URLSearchParams({
-            fields: 'id',
+        const refreshed = await this.instagramLoginFetch<{
+          access_token: string;
+          expires_in?: number;
+        }>(
+          `${INSTAGRAM_LOGIN_GRAPH}/refresh_access_token?${new URLSearchParams({
+            grant_type: 'ig_refresh_token',
             access_token: credential.accessToken,
           }).toString()}`,
         );
-        return { status: 'STILL_VALID' };
+
+        // Accepted without a token leaves us unable to say what is stored.
+        // Treated as a failed refresh rather than a success, because recording
+        // the old token as renewed is how a connection dies silently on a date
+        // nobody is watching.
+        if (!refreshed.access_token) {
+          return {
+            status: 'REQUIRES_RECONNECT',
+            reason: 'Instagram did not return a renewed token for this account.',
+          };
+        }
+
+        return {
+          status: 'REFRESHED',
+          credential: {
+            accessToken: refreshed.access_token,
+            ...(refreshed.expires_in
+              ? { expiresAt: new Date(clock.nowMs() + refreshed.expires_in * 1000) }
+              : {}),
+            // Carried over rather than re-read: a refresh renews the token, it
+            // does not re-grant consent, so the scopes are the ones the person
+            // already agreed to.
+            scopes: credential.scopes,
+          },
+        };
       } catch {
         return {
           status: 'REQUIRES_RECONNECT',
@@ -1180,6 +1327,168 @@ export class InstagramProvider implements SocialProvider {
       capturedAt: clock.now(),
       apiVersion: this.client.apiVersion,
     };
+  }
+
+  // ── Engagement ────────────────────────────────────────────────────────────
+
+  /**
+   * Comments on a published media object, with their replies.
+   *
+   * Reads the same as the Facebook path from the caller's side and is built
+   * almost entirely differently, because this edge is missing three things the
+   * Pages one has. All three are verified against Meta's IG Media `comments`
+   * and IG Comment references, not assumed from the Facebook shape:
+   *
+   * **1. No `since`.** Comments here cannot be filtered by timestamp at all.
+   * On Facebook `since` is pushed down and Meta returns the tail; here the
+   * whole history comes back and `since` is applied to the rows after the
+   * fetch. It still earns its place — it is the difference between a database
+   * round trip per historical comment on every pass and none — but it saves no
+   * API calls, and this method deliberately **does not stop paging early** on
+   * it. Stopping would be the obvious optimisation and it loses comments:
+   * top-level comments come back newest-first, so a month-old comment sits on
+   * a late page, and a reply posted to it *today* arrives nested under it
+   * there. A page of old parents in between is not evidence that nothing newer
+   * follows, and the watermark only moves forward, so a comment missed this
+   * way is missed permanently. Paging the full history every few minutes is
+   * the honest cost of this edge; the fix is the webhook subscription, not a
+   * cleverer loop.
+   *
+   * **2. Replies are not in the list.** `filter=stream` does not exist here —
+   * the edge returns only top-level comments. Replies arrive solely through
+   * field expansion, which is why `replies` is nested into `fields` and the
+   * rows are flattened below. Without it the brand's own answers would never
+   * be read back, so a comment the client answered from the Instagram app
+   * would sit in the queue as unhandled forever.
+   *
+   * **3. No permalink.** IG comments have no per-comment URL, so `permalink`
+   * is left unset and the UI falls back to the post's. Better an absent field
+   * than a link built by string concatenation that may not resolve.
+   *
+   * ## The author id, again read here and nowhere else
+   *
+   * Same contract as Facebook: `from` is requested only to decide `ours`, and
+   * the id is consumed in this method. `username` is what the public sees, so
+   * that is what becomes `authorName` — there is no `name` on a comment author
+   * here.
+   *
+   * A comment whose `from` is missing resolves to `ours: false`, which puts a
+   * reply of our own in the queue as though the audience wrote it. That is the
+   * noisy direction, and it is chosen: the opposite default would mark a real
+   * customer question `HANDLED` on arrival and nobody would ever see it.
+   */
+  async fetchComments(input: FetchCommentsInput): Promise<CommentPage> {
+    const { ref, credential, since, cursor, limit, signal } = input;
+
+    // 50 is the edge's own ceiling. Asking for more is not an error — Meta
+    // quietly returns 50 — but the caller's page size is shared with Facebook,
+    // where 100 is honoured, so the clamp belongs here, where the limit is known.
+    const pageSize = Math.min(limit ?? INSTAGRAM_COMMENT_PAGE_SIZE, INSTAGRAM_COMMENT_PAGE_SIZE);
+
+    // No try/catch: `call` routes to the host that issued the token and both
+    // paths already normalize a Graph failure into the error taxonomy.
+    // Re-wrapping here would flatten a rate limit, a dead token and a refused
+    // scope into one thing.
+    const response = await this.call<{
+      data?: InstagramCommentRow[];
+      paging?: { cursors?: { after?: string }; next?: string };
+    }>(credential, {
+      path: `/${ref.externalPostId}/comments`,
+      params: {
+        fields: `${INSTAGRAM_COMMENT_FIELDS},replies.limit(${INSTAGRAM_REPLY_PAGE_SIZE}){${INSTAGRAM_COMMENT_FIELDS}}`,
+        limit: pageSize,
+        ...(cursor ? { after: cursor } : {}),
+      },
+      ...(signal ? { signal } : {}),
+    });
+
+    const sinceMs = since?.getTime();
+    const comments: AudienceComment[] = [];
+
+    const collect = (row: InstagramCommentRow, parentId: string | undefined): void => {
+      // A comment with no id cannot be deduped or replied to, and one with no
+      // usable timestamp cannot be ordered. Both are dropped rather than
+      // guessed at.
+      if (!row.id || !row.timestamp) return;
+
+      const postedAt = new Date(row.timestamp);
+      if (Number.isNaN(postedAt.getTime())) return;
+      if (sinceMs !== undefined && postedAt.getTime() < sinceMs) return;
+
+      const parentExternalId = parentId ?? row.parent_id;
+      const authorName = row.username ?? row.from?.username;
+
+      comments.push({
+        externalId: row.id,
+        ...(parentExternalId ? { parentExternalId } : {}),
+        ...(authorName ? { authorName } : {}),
+        message: row.text ?? '',
+        postedAt,
+        // The comparison that justifies requesting `from` at all. The id goes
+        // no further than this expression.
+        ours: row.from?.id === ref.accountExternalId,
+      });
+    };
+
+    for (const row of response.data ?? []) {
+      collect(row, undefined);
+      // The parent's id is passed down rather than read from the reply's own
+      // `parent_id`: nesting already proves the relationship, and it holds even
+      // if the field is omitted inside an expansion.
+      for (const reply of row.replies?.data ?? []) collect(reply, row.id);
+    }
+
+    // `next` rather than the cursor alone: Meta returns an `after` cursor on
+    // the last page too, so paging on the cursor's presence never terminates.
+    const nextCursor = response.paging?.next ? response.paging.cursors?.after : undefined;
+
+    return { comments, ...(nextCursor ? { nextCursor } : {}) };
+  }
+
+  /**
+   * Reply to a comment, threaded under it.
+   *
+   * `POST /{ig-comment-id}/replies`, not the media's `comments` edge — the
+   * latter posts a new top-level comment that nobody is notified about.
+   *
+   * **Instagram re-parents a reply to a reply.** Meta's reference is explicit:
+   * only top-level comments can be answered, and a reply aimed at a reply is
+   * attached to the top-level comment instead. So the id this returns can sit
+   * under a different parent than the one the caller addressed. Nothing is
+   * done about that here, because nothing *can* be — the adapter is told which
+   * comment to answer and Instagram decides where it lands. Ingestion is what
+   * reconciles it, by treating `parentExternalId` as a platform fact it may
+   * correct on a later pass.
+   *
+   * Two refusals are the platform's, and surface as translated Graph errors
+   * rather than as guesses made here: a hidden comment cannot be replied to,
+   * and neither can a comment on a live broadcast.
+   */
+  async replyToComment(input: ReplyInput): Promise<ReplyResult> {
+    const { commentExternalId, message, credential, signal } = input;
+
+    const response = await this.call<{ id?: string }>(credential, {
+      path: `/${commentExternalId}/replies`,
+      method: 'POST',
+      form: { message },
+      ...(signal ? { signal } : {}),
+    });
+
+    if (!response.id) {
+      // Accepted without an id, which leaves us unable to recognise our own
+      // reply on the next ingestion pass — and a reply we cannot identify is
+      // one we might send again. Reported as a failure rather than recorded as
+      // sent, with wording that says the ambiguity out loud: the same posture
+      // an ambiguous publish takes (D-027).
+      throw toAppError('INSTAGRAM', {
+        kind: 'VALIDATION',
+        message: 'Instagram accepted the reply without returning an id',
+        userMessage:
+          'The reply may have been posted, but Instagram did not confirm it. Check the post before sending it again.',
+      });
+    }
+
+    return { externalId: response.id, postedAt: clock.now() };
   }
 
   // ── Webhooks ──────────────────────────────────────────────────────────────

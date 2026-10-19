@@ -25,8 +25,23 @@ import { defineCapabilities, type PlatformCapabilities } from '../capabilities.j
  * descriptors follow — a guess dressed as a fact is worse than an absent limit.
  */
 
-/** Login Kit baseline plus what publishing needs. */
-export const TIKTOK_DEFAULT_SCOPES = ['user.info.basic'] as const;
+/**
+ * Login Kit baseline plus what publishing needs.
+ *
+ * `user.info.profile` is in here for one field: `username`, the @handle. It
+ * reads like basic profile data and is not — TikTok puts it behind its own
+ * scope, which is what broke the first live connection attempt.
+ *
+ * Worth the extra line on the consent screen because an agency managing ten
+ * TikTok accounts cannot tell them apart by `display_name` alone: display
+ * names are not unique and are changed freely, while the @handle is the thing
+ * a client actually calls their account.
+ *
+ * Declining it is survivable by design. `tiktokUserFieldsFor` builds the field
+ * list from the scopes actually granted, so a user who approves a subset still
+ * completes the connection — they just arrive without a handle.
+ */
+export const TIKTOK_DEFAULT_SCOPES = ['user.info.basic', 'user.info.profile'] as const;
 
 /**
  * Direct Post — the post lands on the profile.
@@ -35,7 +50,10 @@ export const TIKTOK_DEFAULT_SCOPES = ['user.info.basic'] as const;
  * target TikTok user must have authorized your app for the `video.publish`
  * scope".
  */
-export const TIKTOK_PUBLISH_SCOPES = ['user.info.basic', 'video.publish'] as const;
+export const TIKTOK_PUBLISH_SCOPES = [
+  ...TIKTOK_DEFAULT_SCOPES,
+  'video.publish',
+] as const;
 
 /**
  * Upload to the creator's inbox — they finish the post in TikTok's editor.
@@ -43,7 +61,10 @@ export const TIKTOK_PUBLISH_SCOPES = ['user.info.basic', 'video.publish'] as con
  * Verified: the upload guide requires `video.upload` rather than
  * `video.publish`, and needs no audit.
  */
-export const TIKTOK_UPLOAD_SCOPES = ['user.info.basic', 'video.upload'] as const;
+export const TIKTOK_UPLOAD_SCOPES = [
+  ...TIKTOK_DEFAULT_SCOPES,
+  'video.upload',
+] as const;
 
 /** Reading back post metrics needs the user's video list. */
 export const TIKTOK_ANALYTICS_SCOPES = ['video.list'] as const;

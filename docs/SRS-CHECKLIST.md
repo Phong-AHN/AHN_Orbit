@@ -112,7 +112,7 @@ thống** — xem cuối tài liệu.
 | Màn hình hàng chờ duyệt | P0 | ✅ | `/orgs/{slug}/approvals` |
 | Client portal: lịch, chờ duyệt, đã đăng | P0 | ✅ | `(portal)/portal/` — 5 trang |
 | **Thông báo hai chiều agency ↔ client** | P1 | ✅ | **D-101** — client được thông báo khi tới lượt duyệt; agency biết khi client quyết định |
-| **Community inbox: đọc & trả lời comment khán giả** | P1 | ✅ | **D-102** — Facebook; chỉ post do Orbit đăng; không lưu danh tính người comment |
+| **Community inbox: đọc & trả lời comment khán giả** | P1 | ✅ | **D-102**, **D-103** — Facebook + Instagram; chỉ post do Orbit đăng; không lưu danh tính người comment |
 | **Phân công & đánh dấu đã xử lý comment** | P1 | ✅ | **D-102** — Approver đọc được nhưng không trả lời được |
 | **Client portal: có chuông thông báo** | P1 | ✅ | **D-101** — feed lọc theo audience ở server; không lộ tên nhân sự agency |
 | Production task (§11) | P1 | ✅ | `features/tasks/` — **D-052** |

@@ -8,9 +8,10 @@ import {
   type TenantContext,
 } from '@orbit/core';
 import { platformDb } from '@orbit/db';
+import { closeQueues, closeSharedConnection, redis } from '@orbit/queue';
 import { CredentialCipher, registerProvider, resetRegistry } from '@orbit/providers';
-import { MockProvider } from '@orbit/providers/mock';
-import { assignComment, listComments, replyToComment, setHandled } from './service';
+import { MOCK_SECOND_ACCOUNT_TYPE, MockProvider } from '@orbit/providers/mock';
+import { assignComment, listComments, replyToComment, setHandled, syncNow } from './service';
 
 /**
  * Community management against real Postgres, the real grant matrix and the
@@ -302,6 +303,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await closeQueues();
+  await closeSharedConnection();
   restoreClock?.();
   await platformDb.organization.deleteMany({ where: { id: { in: [ORG, ORG_B] } } });
   await platformDb.user.deleteMany({ where: { email: { endsWith: '@comm.test' } } });
@@ -437,7 +440,12 @@ describe('replying', () => {
   it('posts to the platform and records the reply', async () => {
     await seedWithPlatformComment();
 
-    const reply = await replyToComment(owner, COMMENT, { message: 'Yes — from Monday!' }, fingerprint);
+    const reply = await replyToComment(
+      owner,
+      COMMENT,
+      { message: 'Yes — from Monday!' },
+      fingerprint,
+    );
 
     expect(mock.callCounts.reply).toBe(1);
     expect(reply.origin).toBe('ORBIT');
@@ -556,6 +564,58 @@ describe('replying', () => {
     }
   });
 
+  /**
+   * The descriptor must be resolved with the account's own type.
+   *
+   * This was wrong and invisible. The service asked for `capabilities(null)`,
+   * which is harmless on a platform whose descriptor does not vary — and
+   * Instagram's does: one permission has two names, picked by which connection
+   * flow the account used. Resolved without the type, `replyScopes` names the
+   * scope belonging to the *other* flow, the credential does not hold it, and
+   * the pre-flight check below refuses every reply as "needs reconnecting" on
+   * an account that is connected perfectly well.
+   *
+   * Driven here through a second mock account type rather than a real
+   * Instagram credential, because the shape of the bug is the platform's and
+   * the bug itself is this service's.
+   */
+  it('resolves the reply scope from the account’s own connection flow', async () => {
+    await seedWithPlatformComment();
+    await platformDb.socialAccount.update({
+      where: { id: ACCOUNT_A },
+      data: { accountType: MOCK_SECOND_ACCOUNT_TYPE },
+    });
+
+    try {
+      // The credential holds the *first* flow's scope. Resolved correctly, the
+      // descriptor asks for the second flow's, which is genuinely missing.
+      await expect(
+        replyToComment(owner, COMMENT, { message: 'Yes!' }, fingerprint),
+      ).rejects.toMatchObject({ userMessage: expect.stringMatching(/reconnect/i) });
+      expect(mock.callCounts.reply).toBe(0);
+
+      // And with the scope that flow actually names, the same reply goes out —
+      // so the refusal above is the descriptor being honoured, not a blanket
+      // failure on an unrecognised account type.
+      await platformDb.socialCredential.update({
+        where: { socialAccountId: ACCOUNT_A },
+        data: { scopes: ['mock_second_flow_manage_engagement'] },
+      });
+
+      await replyToComment(owner, COMMENT, { message: 'Yes!' }, fingerprint);
+      expect(mock.callCounts.reply).toBe(1);
+    } finally {
+      await platformDb.socialAccount.update({
+        where: { id: ACCOUNT_A },
+        data: { accountType: 'PAGE' },
+      });
+      await platformDb.socialCredential.update({
+        where: { socialAccountId: ACCOUNT_A },
+        data: { scopes: ['mock_manage_engagement'] },
+      });
+    }
+  });
+
   it('audits the reply', async () => {
     await seedWithPlatformComment();
     await replyToComment(owner, COMMENT, { message: 'Yes!' }, fingerprint);
@@ -630,5 +690,74 @@ describe('triage', () => {
     await expect(setHandled(approver, COMMENT, true, fingerprint)).rejects.toBeInstanceOf(
       ForbiddenError,
     );
+  });
+});
+
+/**
+ * The manual refresh.
+ *
+ * The sweep runs every 15 minutes for a fresh post, which is right for the
+ * steady state and useless when somebody needs to look *now* — including when
+ * somebody is recording an App Review screencast, where Meta allows 30 seconds
+ * between a comment arriving and the reply going out.
+ *
+ * The queued jobs are not inspected here. What is worth proving at this layer
+ * is who may press it, which accounts it reaches, and that it cannot be held
+ * down; the job's own shape is the queue package's to test.
+ */
+describe('syncing the inbox on demand', () => {
+  const correlation = 'itest-sync';
+
+  /** The cooldown is a Redis key, and it outlives a test unless cleared. */
+  async function clearCooldown() {
+    await redis().del(`ratelimit:community-sync:org:${ORG}`);
+  }
+
+  beforeEach(clearCooldown);
+
+  it('queues the reachable accounts and says how many', async () => {
+    const result = await syncNow(owner, correlation);
+
+    // Two accounts live in this organization; the third belongs to ORG_B.
+    expect(result.queued).toBe(2);
+  });
+
+  /**
+   * **Meta's rate limit is per app, not per tenant.** Every call one agency
+   * makes is quota no other agency gets, so an unbounded refresh button lets
+   * one organization degrade every other organization on the platform. The
+   * cooldown is the only thing between a double-bound button and an app-wide
+   * quota outage — not politeness about server load.
+   */
+  it('refuses a second press inside the cooldown', async () => {
+    await syncNow(owner, correlation);
+
+    await expect(syncNow(owner, correlation)).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+    });
+  });
+
+  it('allows it again once the cooldown has passed', async () => {
+    await syncNow(owner, correlation);
+    await clearCooldown();
+
+    await expect(syncNow(owner, correlation)).resolves.toMatchObject({ queued: 2 });
+  });
+
+  /**
+   * A brand-scoped role must not spend the tenant's provider quota reading an
+   * account outside its brands — an account it cannot see is also one it must
+   * not cause a call against.
+   */
+  it('narrows to the workspaces a brand-scoped role can reach', async () => {
+    const result = await syncNow(creator, correlation);
+
+    // The creator reaches WS only, so the account in WS_OTHER is excluded.
+    expect(result.queued).toBe(1);
+  });
+
+  /** A client has no audience data anywhere in the product. */
+  it('refuses a client outright', async () => {
+    await expect(syncNow(client, correlation)).rejects.toBeInstanceOf(ForbiddenError);
   });
 });

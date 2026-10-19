@@ -35,12 +35,83 @@ export const INSTAGRAM_PUBLISH_SCOPES = [
 ] as const;
 
 /**
- * No separate insights scope.
+ * Scopes for reading and answering comments — **two names for one capability.**
  *
- * Instagram post and account metrics are read with `instagram_basic` plus the
- * Page token, unlike Facebook where `read_insights` is its own permission.
+ * Instagram splits this by connection flow, and the names are not
+ * interchangeable:
+ *
+ * | Flow | Host | Scope |
+ * |---|---|---|
+ * | Facebook Login (`INSTAGRAM_BUSINESS`) | `graph.facebook.com` | `instagram_manage_comments` |
+ * | Business Login (`INSTAGRAM_LOGIN`) | `graph.instagram.com` | `instagram_business_manage_comments` |
+ *
+ * Which is why the descriptor has to vary by account type rather than listing
+ * both: a connection only ever holds one of them, so a `replyScopes` naming
+ * both would refuse every reply as "needs reconnecting" — on an account that
+ * is correctly connected.
+ *
+ * Both cover reading, replying, hiding and deleting. Orbit asks for them to
+ * read and reply; it does not hide or delete, and the descriptor says so with
+ * `moderate: false`.
  */
-export const INSTAGRAM_DEFAULT_SCOPES = INSTAGRAM_PUBLISH_SCOPES;
+export const INSTAGRAM_COMMENT_SCOPES = ['instagram_manage_comments'] as const;
+export const INSTAGRAM_LOGIN_COMMENT_SCOPES = ['instagram_business_manage_comments'] as const;
+
+/**
+ * Scopes for reading insights — **split by flow, like comments.**
+ *
+ * | Flow | Scope |
+ * |---|---|
+ * | Facebook Login | `instagram_manage_insights` |
+ * | Business Login | `instagram_business_manage_insights` |
+ *
+ * This file previously asserted that Instagram needed *no* separate insights
+ * scope — that metrics came with `instagram_basic` and the Page token, unlike
+ * Facebook's `read_insights`. That was wrong, and wrong in the direction that
+ * does not announce itself: the token still reads media *fields* perfectly
+ * well and fails only on the metrics call, so publishing worked and analytics
+ * would have returned a permission error for every account.
+ *
+ * Meta's Instagram Platform insights reference lists the requirement plainly:
+ * `instagram_basic`, `instagram_manage_insights` and `pages_read_engagement`
+ * for Facebook Login; `instagram_business_basic` and
+ * `instagram_business_manage_insights` for Business Login.
+ *
+ * **Not included, and a decision rather than an omission:** that same page adds
+ * `ads_management` and `ads_read` *if the app user holds their Page role
+ * through Business Manager* — which for an agency is the normal case, not the
+ * exception. They are left out because advertising permissions widen an App
+ * Review considerably and Orbit touches no ad object; the consequence is that
+ * an account whose Page role came via Business Manager may still be refused
+ * insights. Recorded in `OWNER-TODO.md` §1 as something to decide with eyes
+ * open, not discovered later from an empty chart.
+ */
+export const INSTAGRAM_INSIGHTS_SCOPES = ['instagram_manage_insights'] as const;
+export const INSTAGRAM_LOGIN_INSIGHTS_SCOPES = ['instagram_business_manage_insights'] as const;
+
+/**
+ * Everything asked for at connect time: publish, comments and insights.
+ *
+ * Each of the three capabilities the descriptor claims has a scope here, which
+ * is the invariant worth stating out loud — the insights one was missing for
+ * months because nothing tied the two together, and `instagram.test.ts` now
+ * asserts the link rather than the literal list.
+ *
+ * **A scope cannot be added to a grant already issued.** So an account
+ * connected before any of these were requested has to be reconnected before
+ * the capability works, and the product says which in advance rather than
+ * failing at the button. That lesson came from `read_insights` on the Facebook
+ * side; it is applied here early, while asking costs nothing.
+ *
+ * Declaration order matters: this spreads two top-level `const`s, so both have
+ * to be declared above. Below them this is a module-load ReferenceError, which
+ * no type check catches.
+ */
+export const INSTAGRAM_DEFAULT_SCOPES = [
+  ...INSTAGRAM_PUBLISH_SCOPES,
+  ...INSTAGRAM_COMMENT_SCOPES,
+  ...INSTAGRAM_INSIGHTS_SCOPES,
+] as const;
 
 /**
  * The two ways an Instagram account can be reached.
@@ -68,6 +139,8 @@ export type InstagramAccountType = (typeof INSTAGRAM_ACCOUNT_TYPES)[number];
 export const INSTAGRAM_LOGIN_SCOPES = [
   'instagram_business_basic',
   'instagram_business_content_publish',
+  ...INSTAGRAM_LOGIN_COMMENT_SCOPES,
+  ...INSTAGRAM_LOGIN_INSIGHTS_SCOPES,
 ] as const;
 
 /**
@@ -145,10 +218,24 @@ const DEPRECATED_METRICS = [
   'ig_reels_aggregated_all_plays_count',
 ] as const;
 
-export function instagramCapabilities(apiVersion: string): PlatformCapabilities {
+/**
+ * The descriptor, which now genuinely depends on the account type.
+ *
+ * It did not before: one cached `INSTAGRAM_BUSINESS` descriptor served both
+ * connection flows, which was harmless while everything it described was
+ * identical in shape and differed only in host. Comments broke that — the
+ * scope name differs per flow — so the parameter the interface always declared
+ * is finally used.
+ */
+export function instagramCapabilities(
+  apiVersion: string,
+  accountType: 'INSTAGRAM_BUSINESS' | 'INSTAGRAM_LOGIN' = 'INSTAGRAM_BUSINESS',
+): PlatformCapabilities {
+  const isLogin = accountType === 'INSTAGRAM_LOGIN';
+
   return defineCapabilities({
     platform: 'INSTAGRAM',
-    accountType: 'INSTAGRAM_BUSINESS',
+    accountType,
     apiVersion,
     verifiedOn: '2026-08-14',
 
@@ -301,6 +388,23 @@ export function instagramCapabilities(apiVersion: string): PlatformCapabilities 
 
     // Instagram webhooks exist but need their own subscription and a published
     // app; not wired, so nothing claims to receive them.
+    engagement: {
+      readComments: true,
+      reply: true,
+      // `POST /{ig-comment-id}/replies` threads the reply under the comment it
+      // answers, which is what notifies the person who wrote it. A comment
+      // posted on the media instead is a new top-level comment nobody sees.
+      threadedReply: true,
+      // Hiding and deleting are both covered by the scope and deliberately not
+      // claimed: the product has no moderation UI, and a descriptor that says
+      // yes invites the engine to call a method nothing implements.
+      moderate: false,
+      // Same as a caption. Checked before the call so an over-long reply is
+      // refused with a number rather than a platform error.
+      maxReplyLength: 2_200,
+      replyScopes: isLogin ? INSTAGRAM_LOGIN_COMMENT_SCOPES : INSTAGRAM_COMMENT_SCOPES,
+    },
+
     webhooks: { supported: false },
   });
 }

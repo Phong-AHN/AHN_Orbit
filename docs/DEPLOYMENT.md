@@ -181,11 +181,17 @@ platform. `SKIP_ENV_VALIDATION=true` is the designed seam for `next build`, whic
 
    - The worker must be running the release that has the `engagement` queue, since that is what
      reads comments back.
-   - Every Facebook account must be **reconnected**. Replying needs
-     `pages_manage_engagement`, a new scope that also requires App Review, and a scope cannot be
-     added to a grant already issued. Until an account is reconnected its queue can be read and
-     Reply will refuse — which the product says in advance rather than discovering at the button,
-     because the descriptor names the scope under `engagement.replyScopes`.
+   - Every Facebook **and Instagram** account must be **reconnected**. Replying needs a new
+     scope that also requires App Review — `pages_manage_engagement` on Facebook,
+     `instagram_manage_comments` on Instagram — and a scope cannot be added to a grant already
+     issued. Until an account is reconnected its queue can be read and Reply will refuse — which
+     the product says in advance rather than discovering at the button, because the descriptor
+     names the scope under `engagement.replyScopes`.
+
+     On Instagram that scope has **two names**, chosen by connection flow:
+     `instagram_manage_comments` for Facebook Login, `instagram_business_manage_comments` for
+     Business Login. A connection only ever holds one, so the descriptor is resolved per account
+     type and every caller must pass the account's `accountType` (**D-103**).
 
 2. **Worker.** It drains on SIGTERM and reports `outcome: DRAINED`. **Do not set the grace period
    below 90s** — a publish may be mid-call with a 60s timeout, and killing it produces a variant

@@ -2,6 +2,7 @@ import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
+  RateLimitedError,
   accessibleWorkspaceIds,
   actorUserId,
   clock,
@@ -9,9 +10,10 @@ import {
   type TenantContext,
 } from '@orbit/core';
 import { withTenant } from '@orbit/db';
+import { enqueue, takeToken } from '@orbit/queue';
 import { assertCan, canSomewhere } from '@orbit/rbac';
 import { logger } from '@orbit/observability';
-import { getProvider } from '@orbit/providers';
+import { capabilitiesFor, getProvider } from '@orbit/providers';
 import { audit, type AuditInput } from '@/server/audit';
 import { loadCredential } from '@/features/social/service';
 import type { AssignInput, CommentQuery, ReplyInput } from './contracts';
@@ -82,7 +84,13 @@ const COMMENT_SELECT = {
   handledAt: true,
   createdAt: true,
   assignedTo: { select: { id: true, name: true, email: true } },
-  socialAccount: { select: { id: true, displayName: true, platform: true } },
+  // `accountType` is selected for the capability lookup, not for display: on
+  // Instagram the reply scope's *name* depends on which connection flow the
+  // account used, so a descriptor resolved without it names the wrong scope
+  // and refuses every reply as "needs reconnecting".
+  socialAccount: {
+    select: { id: true, displayName: true, platform: true, accountType: true },
+  },
   postVariant: {
     select: {
       id: true,
@@ -218,7 +226,10 @@ export async function replyToComment(
   }
 
   const provider = getProvider(comment.socialAccount.platform);
-  const engagement = provider.capabilities(null).engagement;
+  const engagement = capabilitiesFor(
+    comment.socialAccount.platform,
+    comment.socialAccount.accountType,
+  ).engagement;
 
   // Checked against the descriptor rather than assumed from the platform name:
   // the whole point of the capability layer is that no caller outside the
@@ -315,6 +326,91 @@ export async function replyToComment(
   });
 
   return reply;
+}
+
+/**
+ * Read the connected accounts now, instead of waiting for the sweep.
+ *
+ * ## Why this exists
+ *
+ * The queue is filled by a worker sweep — every 15 minutes for a post under
+ * two days old, every two hours after that. That cadence is right for the
+ * steady state and wrong for two cases a person actually hits: somebody has
+ * just been told by a client that a comment needs answering, and somebody is
+ * demonstrating the product. An inbox with no way to say "check now" is an
+ * inbox people refresh by reloading the page and then distrust.
+ *
+ * ## Why it is rate limited, and hard
+ *
+ * **Meta's rate limit is per app, not per tenant.** Every call one agency makes
+ * is quota no other agency gets, which makes an unbounded refresh button a way
+ * for one organization to degrade every other organization on the platform.
+ * The cooldown is therefore not politeness about server load — it is the only
+ * thing standing between a double-bound button and an app-wide quota outage.
+ *
+ * One token per organization per minute. Generous for the human case: a person
+ * checking an inbox presses this once and reads the result. A script presses it
+ * in a loop, and is refused on the second press.
+ *
+ * ## What it does not do
+ *
+ * It does not read comments itself. It enqueues the same `engagement` job the
+ * sweep enqueues, so there is exactly one ingestion path and no second place
+ * where a comment could be written differently. The job is asynchronous, so
+ * this returns how many accounts were queued rather than how many comments
+ * arrived — claiming a count here would mean lying about work not yet done.
+ */
+export async function syncNow(ctx: TenantContext, correlationId: string) {
+  // Same authorization shape as `listComments`: `comment:read_public` is
+  // brand-scoped for a Content Creator and an Approver, so asserting it with an
+  // empty resource scope would deny the very people the queue is for (D-069).
+  assertReadable(ctx);
+
+  const limit = await takeToken(`ratelimit:community-sync:org:${ctx.organizationId}`, {
+    capacity: 1,
+    refillWindowMs: 60_000,
+  });
+
+  if (!limit.allowed) {
+    throw new RateLimitedError('Community sync is rate limited', {
+      retryAfterSeconds: Math.ceil(limit.retryAfterMs / 1_000),
+      userMessage: 'The inbox was just refreshed. Try again in a moment.',
+    });
+  }
+
+  const scope = accessibleWorkspaceIds(ctx);
+
+  // Only accounts the caller can actually reach. A brand-scoped role refreshing
+  // the inbox must not cause a read of an account outside its brands — that
+  // would spend the tenant's quota on data the caller may not see.
+  const accounts = await withTenant(ctx, (db) =>
+    db.socialAccount.findMany({
+      where: {
+        status: 'ACTIVE',
+        ...(scope === 'ALL' ? {} : { workspaceId: { in: [...scope] } }),
+      },
+      select: { id: true },
+      // A bound, so one organization with hundreds of accounts cannot turn one
+      // press into hundreds of jobs.
+      take: 50,
+    }),
+  );
+
+  for (const account of accounts) {
+    await enqueue('engagement', {
+      organizationId: ctx.organizationId,
+      correlationId,
+      socialAccountId: account.id,
+    });
+  }
+
+  logger.info('community inbox sync requested', {
+    organizationId: ctx.organizationId,
+    accounts: accounts.length,
+    correlationId,
+  });
+
+  return { queued: accounts.length };
 }
 
 /** Mark a comment dealt with, or put it back in the queue. */

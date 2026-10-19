@@ -3654,7 +3654,276 @@ are unverified by observation, which keeps this inside the two open P0s.
 
 Facebook only. Instagram, TikTok, YouTube, Threads, LinkedIn and Pinterest
 declare `engagement` false by default, so the queue correctly shows nothing for
-them rather than pretending.
+them rather than pretending. Instagram is no longer among them — see **D-103**.
+
+---
+
+## D-103 — Instagram comments, and a descriptor that finally reads its argument
+
+`instagram_manage_comments` was the next App Review permission to request, and
+the honest thing to submit was nothing: Meta asks what the app does with a
+permission, and the answer was "nothing yet". So the feature came first.
+
+The community inbox (**D-102**) already had the queue, the reply box, the
+threading, the triage and the worker. This is one adapter and two latent bugs.
+
+### The edge is not the Facebook one with different words
+
+Four differences, each verified against Meta's IG Media `comments` and IG
+Comment references rather than inferred from the Facebook shape:
+
+| | Facebook | Instagram |
+|---|---|---|
+| Comment text | `message` | `text` |
+| Posted at | `created_time` | `timestamp` |
+| Author display | `from.name` | `username` |
+| Replies in the list | `filter=stream` | field expansion only |
+| Filter by time | `since` | **not supported** |
+| Reply endpoint | `/{comment}/comments` | `/{comment}/replies` |
+
+The two that changed the design are the last pair but one.
+
+**Replies are not in the list.** The edge returns only top-level comments, and
+`filter=stream` does not exist. Replies arrive solely through field expansion,
+so `replies.limit(50){…}` is nested into `fields` and the rows are flattened.
+Missing this would not have looked like a bug: the queue would fill correctly
+and every comment the client had answered from the Instagram app would sit in
+it as unhandled, forever, because the answer was never read back.
+
+The nested edge has no cursor reachable from here, so 50 replies per comment is
+a hard ceiling and the oldest beyond it go unread. Recorded rather than hidden.
+
+**There is no `since`.** Comments cannot be filtered by timestamp at all, so
+`since` is applied to the rows after the fetch. It still earns its keep — it is
+the difference between a database round trip per historical comment on every
+pass and none — but it saves no API call, and `fetchComments` deliberately
+**does not stop paging when a page filters down to nothing.**
+
+That refusal is the interesting part, because stopping is the obvious
+optimisation and it silently loses comments. Top-level comments come back
+newest-first, so a month-old comment sits on a late page — and a reply posted to
+it *today* arrives nested under it, there. A page of old parents in between is
+not evidence that nothing newer follows. And because the watermark only ever
+moves forward, a comment skipped this way is skipped on every subsequent pass
+too: a permanent miss, not a delayed one.
+
+So Instagram pages the full comment history of every published post every few
+minutes. **That is a real cost, not a rounding error**, and the fix is the
+webhook subscription already planned in `OWNER-TODO.md` §7 — not a cleverer
+loop here. Until then it is bounded by the sweep horizon rather than by the
+API.
+
+### Two bugs the feature surfaced
+
+**The Instagram descriptor ignored its `accountType` argument.** It had got
+away with it for as long as everything it described was identical on both
+connection flows and differed only in host. Comments broke that: one permission
+has two names — `instagram_manage_comments` for Facebook Login,
+`instagram_business_manage_comments` for Business Login — and a connection only
+ever holds one.
+
+Listing both in one descriptor is the trap. `replyScopes` would always name a
+scope the credential lacks, the pre-flight check in `replyToComment` refuses on
+a missing scope, and **every reply would be rejected as "needs reconnecting" on
+an account connected perfectly correctly.** Two cached descriptors instead, and
+`capabilities(accountType)` now chooses between them.
+
+**And the community service was asking for `capabilities(null)`.** Harmless on
+a platform whose descriptor does not vary, and the exact input that triggers
+the failure above. `accountType` is now selected in `COMMENT_SELECT` and passed
+through `capabilitiesFor`.
+
+Neither was observable in a test, because the mock provider ignored the
+argument too — so passing `null` and passing the truth were indistinguishable.
+The mock now carries a second account type whose only difference is the reply
+scope's name, which is what makes the integration test above possible without
+an Instagram credential.
+
+### Ingestion may now correct a parent
+
+Meta's reference is explicit that only a top-level comment can be answered, and
+that a reply aimed at another reply is **attached to the top-level comment
+instead**. Orbit records the parent it asked for, which is then not where the
+reply lives.
+
+That is not cosmetic. A thread is assembled by matching `parentExternalId`
+against the root's `externalId`, so a reply still claiming a parent of its own
+hangs off nothing and disappears from the thread view — the agency's own answer,
+missing from the conversation it answered.
+
+`parentExternalId` is a platform fact, so ingestion now refreshes it, including
+clearing it when the platform drops it. `state`, `assignedToId`, `handledAt`
+and `handledById` remain untouchable: those are the agency's work, and the whole
+reason ingestion may not write them is that re-reading a thread every few
+minutes would otherwise reopen everything the team had answered.
+
+### What is deliberately not claimed
+
+The scope covers hiding and deleting a comment. `moderate` stays `false`:
+there is no moderation UI, and a descriptor that claims a capability invites
+the engine to call a method nothing implements. The App Review description says
+read and reply, which is what the code does.
+
+### The reconnection, again
+
+`INSTAGRAM_DEFAULT_SCOPES` now asks for the comment scope at connect time. A
+scope cannot be added to a grant already issued, so every Instagram account
+connected before this needs reconnecting before the team can reply — the same
+bill `read_insights` presented once already on the Facebook side, paid early
+this time because asking for it costs nothing today.
+
+Until then the inbox reads normally and the Reply button refuses with the
+reason, which is the behaviour **D-102** already built.
+
+### Not seen on screen
+
+Same as D-100, D-101 and D-102: no browser here. The Instagram queue has been
+verified as generated text and request shape, not as a picture. The two open
+P0s still cover that.
+
+---
+
+## D-104 — A refresh button, and why it has a cooldown
+
+Meta's App Review screencast for `instagram_manage_comments` allows **30
+seconds** between a reviewer's comment arriving and the reply going out. The
+community inbox is filled by a worker sweep — 15 minutes for a post under two
+days old — so the permission was built, correct, and **undemonstrable**.
+
+### What was nearly built instead
+
+The first answer was the webhook subscription from `OWNER-TODO.md` §7: comments
+arrive in seconds, the sweep becomes a fallback, and the demo is trivial. It is
+still the better end state and still planned.
+
+It is not what this is, because on a second look the webhook is not what the
+*demo* needs. A "check now" button clears the same bar for a fraction of the
+work, and — the part that settles it — **an inbox should have one anyway**.
+Every mail client has a refresh. Its absence was a gap, not a consequence of
+choosing polling: somebody told about a comment by a client on the phone had no
+way to look, and reloading the page did nothing because the page was never the
+thing that was stale.
+
+So this is not a workaround that happens to unblock a submission. It is a
+missing affordance that the submission exposed.
+
+### The cooldown is the security control, not politeness
+
+**Meta's rate limit is per app, not per tenant.** Every call one agency makes is
+quota no other agency gets. An unbounded refresh button is therefore a way for
+one organization — or one double-bound click handler — to degrade every other
+organization on the platform.
+
+One token per organization per minute, through the same Redis bucket the AI
+rate limiter uses. Generous for the human case and immediate for a loop, which
+is the same shape the AI rate limiter takes against runaway spend: invisible to
+a person, instant for a script.
+
+Three further bounds, each for a reason rather than for tidiness:
+
+- **The accounts are narrowed to what the caller can reach.** A brand-scoped
+  role pressing refresh must not cause a provider call against an account
+  outside its brands — an account somebody cannot see is an account they must
+  not spend quota on.
+- **At most 50 accounts per press**, so one organization with hundreds cannot
+  turn one click into hundreds of jobs.
+- **Offered only to people who hold `comment:reply` somewhere.** It costs
+  provider quota, which is not a control to hand to somebody who is only
+  reading the queue.
+
+### One ingestion path, still
+
+It enqueues the same `engagement` job the sweep enqueues. It does not read
+comments itself, so there is no second place a comment could be written
+differently — the rule that kept the ingestion logic honest when Instagram was
+added (**D-103**) applies to its triggers too.
+
+Which is also why it returns the number of accounts **queued** rather than
+comments found: the work is asynchronous, and a comment count here would be a
+number invented before the job ran. The UI says a check has started and
+refreshes; it does not promise "3 new comments".
+
+### Authorization, the same shape as the queue
+
+No `permission` on the route wrapper. `comment:read_public` is brand-scoped for
+a Content Creator and an Approver, so asserting it with an empty resource scope
+denies exactly the people the inbox is for (**D-069**) — the third time that
+trap has been walked into in this feature, and the reason the service
+authorizes instead.
+
+### Not seen on screen
+
+As with D-100 through D-103: no browser here. The button's wiring is verified
+by test and by the generated markup, not by eye. The two open P0s still cover
+it.
+
+---
+
+## D-105 — Business Login tokens expire, and nothing renewed them
+
+Found while answering which Instagram permissions to submit for App Review, by
+reading which connect flow production actually uses — not by a test, and not by
+anything failing.
+
+### The bug
+
+`refreshCredential` treated both Instagram surfaces the same way. For the
+username-login surface it read `/me`, proved the token worked, and returned
+`STILL_VALID`.
+
+That is a **liveness check, not a refresh**. A Business Login token expires 60
+days from the day it was issued, and reading it successfully says nothing about
+that date. So the method would have reported every Instagram connection healthy
+for 60 days, and then all of them would have failed on the same afternoon —
+every client needing an email and a walkthrough to reconnect, all at once,
+with no partial degradation to notice first.
+
+A Page token, by contrast, genuinely has nothing to refresh. The two surfaces
+have opposite token models and sharing one method hid that completely.
+
+### The fix
+
+`refresh_access_token` with `grant_type=ig_refresh_token` extends the token
+another 60 days *from the day it is called*, so a connection in use stays alive
+indefinitely and only a genuinely abandoned one lapses. The `REFRESHED` outcome
+the interface already declared was built for exactly this and had no caller on
+this path.
+
+Meta's two constraints shape the rest:
+
+- **At least 24 hours old.** A younger token reports `STILL_VALID` rather than
+  being refused, so a brand-new connection is not immediately an error. Age is
+  inferred from `expiresAt` — a 60-day token with more than 59 days left was
+  issued today — and a credential with no `expiresAt` is treated as old enough,
+  which is the permissive direction on purpose: asking too early costs one
+  refused call that is already handled, never asking costs the connection.
+- **Must not have expired.** Which is why a failure is `REQUIRES_RECONNECT`
+  rather than a retry: past the date, no amount of retrying helps and only a
+  person can fix it.
+
+Scopes are carried over rather than re-read. A refresh renews a token; it does
+not re-grant consent.
+
+An answer with no token in it is a **failed** refresh, not a successful one.
+Recording the old token as renewed is precisely how a connection dies silently
+on a date nobody is watching — the same posture as an ambiguous publish
+(**D-027**) and an unconfirmed reply (**D-103**).
+
+### Why it had survived
+
+Nothing exercised it. The suite covered the Page-linked path's `debug_token`
+call and the login surface's *publishing*, and the login surface's refresh was
+a single `try` that could only return `STILL_VALID` or `REQUIRES_RECONNECT` —
+both of which look like success from outside. Four sabotages now fail a test,
+including reverting to the liveness check.
+
+### The lesson worth keeping
+
+This was not found by testing. It was found by asking *which code path
+production actually runs* — and discovering the answer was the one with less
+coverage, because the Page-linked flow was the one written first and the one
+every test fixture defaulted to. The connect screen stopped offering it some
+time ago (**the docstring says "full stop"**) and the test suite never noticed.
 
 ---
 

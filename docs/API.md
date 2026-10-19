@@ -432,6 +432,7 @@ audit log with the administrator named as the actor (**D-046**, T1.18 DoD).
 | `POST` | `/orgs/{orgId}/community/{commentId}/reply` | `{ message }` — posts to the platform, then records |
 | `POST` | `/orgs/{orgId}/community/{commentId}/handled` | `{ handled: boolean }` — both directions, one route |
 | `POST` | `/orgs/{orgId}/community/{commentId}/assign` | `{ assignedToId: string \| null }` |
+| `POST` | `/orgs/{orgId}/community/sync` | No body. Enqueues an `engagement` job per reachable account; returns `{ queued }`. **One call per organization per minute** — Meta's rate limit is per app, so an unbounded refresh spends quota belonging to every other tenant |
 
 **A comment is always addressed by Orbit's uuid, never the platform's id.** A
 body carrying `externalId` would let a caller post a comment on any object their

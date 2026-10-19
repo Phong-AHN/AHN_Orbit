@@ -144,6 +144,15 @@ export async function ingestPostComments(input: {
          * agency's own work and ingestion must not touch them — re-reading a
          * thread every few minutes would otherwise reopen every comment
          * somebody had already dealt with, on a loop, forever.
+         *
+         * `parentExternalId` is on the platform's side of that line, and it is
+         * here because a platform can move a reply. Instagram does: it accepts
+         * a reply aimed at another reply and attaches it to the top-level
+         * comment instead, so the parent recorded when we sent it is not where
+         * it ended up. Letting the next pass correct it is what keeps the
+         * thread we render the same as the one the public sees — and without
+         * it such a reply hangs off a parent nothing threads on, so it
+         * disappears from the thread view entirely.
          */
         await db.socialComment.update({
           where: { id: existing.id },
@@ -151,6 +160,9 @@ export async function ingestPostComments(input: {
             message: comment.message,
             ...(comment.authorName ? { authorName: comment.authorName } : {}),
             ...(comment.permalink ? { permalink: comment.permalink } : {}),
+            // Written even when absent, so a reply the platform promoted to
+            // top level stops claiming a parent it no longer has.
+            parentExternalId: comment.parentExternalId ?? null,
           },
         });
         updated += 1;

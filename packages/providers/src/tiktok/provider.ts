@@ -389,8 +389,12 @@ export class TikTokProvider implements SocialProvider {
    * complete, which is exactly how the first live attempt failed: `username`
    * reads like basic profile data but sits behind `user.info.profile`.
    *
-   * The upshot is that enabling `user.info.profile` on the TikTok app makes the
-   * @handle appear on its own, with no change here.
+   * A scope enabled on the TikTok app is one the app *may* request, not one it
+   * is granted — so enabling `user.info.profile` in the portal does nothing on
+   * its own. It also has to be in the authorization URL, which is why it sits
+   * in `TIKTOK_DEFAULT_SCOPES`. An earlier version of this comment claimed the
+   * portal switch was enough, and no TikTok account had a handle for as long
+   * as that was believed.
    */
   private async fetchUserInfo(
     accessToken: string,

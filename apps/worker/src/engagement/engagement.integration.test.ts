@@ -310,6 +310,79 @@ describe('ingesting comments', () => {
   });
 
   /**
+   * `parentExternalId` is on the platform's side of the triage line, so unlike
+   * `state` it is refreshed — because a platform can move a reply.
+   *
+   * Instagram does. Its reference is explicit that only a top-level comment
+   * can be answered, and a reply aimed at another reply is attached to the
+   * top-level comment instead. Orbit records the parent it asked for, which is
+   * then not where the reply lives.
+   *
+   * Leaving that alone is not cosmetic: a thread is assembled by matching
+   * `parentExternalId` to the root's `externalId`, so a reply still claiming a
+   * parent of its own hangs off nothing and vanishes from the thread view —
+   * the agency's own answer, missing from the conversation it answered.
+   */
+  it('corrects a parent the platform moved', async () => {
+    await seedVariant();
+    const reparented = {
+      externalId: 'r-1',
+      parentExternalId: 'r-0',
+      authorName: 'Mock Page',
+      message: 'Both!',
+      postedAt: NOW,
+      ours: true,
+    };
+
+    mock.comments.set(EXTERNAL_POST, [audienceComment('c-1', NOW), reparented]);
+    await ingestPostComments({ ctx: ctx(), postVariantId: VARIANT, correlationId: 'itest' });
+
+    const before = await platformDb.socialComment.findFirstOrThrow({
+      where: { organizationId: ORG, externalId: 'r-1' },
+    });
+    expect(before.parentExternalId).toBe('r-0');
+
+    // The next read shows it where the platform actually put it: under the
+    // top-level comment, not under the reply it was addressed to.
+    mock.comments.set(EXTERNAL_POST, [
+      audienceComment('c-1', NOW),
+      { ...reparented, parentExternalId: 'c-1' },
+    ]);
+    await ingestPostComments({ ctx: ctx(), postVariantId: VARIANT, correlationId: 'itest' });
+
+    const after = await platformDb.socialComment.findUniqueOrThrow({ where: { id: before.id } });
+    expect(after.parentExternalId).toBe('c-1');
+    // Still ours, still handled: a parent moving is not a reason to reopen it.
+    expect(after.state).toBe('HANDLED');
+  });
+
+  /** A reply promoted to top level stops claiming a parent it no longer has. */
+  it('clears a parent the platform dropped', async () => {
+    await seedVariant();
+    const reply = {
+      externalId: 'r-1',
+      parentExternalId: 'c-1',
+      authorName: 'Mock Page',
+      message: 'Both!',
+      postedAt: NOW,
+      ours: true,
+    };
+
+    mock.comments.set(EXTERNAL_POST, [audienceComment('c-1', NOW), reply]);
+    await ingestPostComments({ ctx: ctx(), postVariantId: VARIANT, correlationId: 'itest' });
+
+    const { parentExternalId, ...promoted } = reply;
+    expect(parentExternalId).toBe('c-1');
+    mock.comments.set(EXTERNAL_POST, [audienceComment('c-1', NOW), promoted]);
+    await ingestPostComments({ ctx: ctx(), postVariantId: VARIANT, correlationId: 'itest' });
+
+    const after = await platformDb.socialComment.findFirstOrThrow({
+      where: { organizationId: ORG, externalId: 'r-1' },
+    });
+    expect(after.parentExternalId).toBeNull();
+  });
+
+  /**
    * The incremental story. Without a watermark every run pages a popular post
    * from the beginning, which is the cost that makes a 15-minute cadence
    * impossible.
