@@ -867,7 +867,29 @@ cả hai đều gọi API.
 | `S3_*` | bucket chặn toàn bộ public access | ✅ |
 | `APP_URL` | URL production thật | ✅ |
 | `ORBIT_ROLE=worker` | **chỉ trên Railway**, không đặt ở Vercel | ✅ |
+| `SENTRY_DSN` | **bắt buộc khi `APP_ENV=production`** — cả web lẫn worker | ✅ |
+| `S3_ENDPOINT` | **phải để TRỐNG trên production** — chỉ dùng cho MinIO local. Set nó là boot fail | ❌ |
 | `GEMINI_API_KEY` | Google AI Studio | tuỳ chọn¹ |
+
+> **Worker trên Railway — ba cái bắt được lúc deploy hỏng (19/10/2026).**
+>
+> 1. **`PORT`.** Railway tiêm biến này rồi probe vào đó. Worker trước đây bind
+>    cứng 3100 và **không đọc `PORT`**, nên healthcheck gõ vào cổng đóng và
+>    Railway giết một container đang chạy bình thường. **Đã sửa** — giờ ưu tiên
+>    `WORKER_HEALTH_PORT` → `PORT` → 3100. Anh **không cần** đặt
+>    `WORKER_HEALTH_PORT` trên Railway nữa; đặt vào lại là hỏng.
+> 2. **Ba biến `NEXT_PUBLIC_FIREBASE_*`.** Trước đây worker **bắt buộc** phải có
+>    chúng khi `APP_ENV=production` — dù đó là cấu hình của trình duyệt và worker
+>    không có trình duyệt. **Đã sửa**: worker được miễn ba biến đó.
+> 3. **`S3_ENDPOINT` phải trống.** Nếu copy cả khối env từ local sang thì biến
+>    này đi theo, và production từ chối boot. **Không phải bug** — cố ý như vậy.
+>
+> Worker **vẫn cần** đủ: `DATABASE_URL`, `REDIS_URL`, `S3_BUCKET`,
+> `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `CREDENTIAL_ENCRYPTION_KEY`,
+> `STATE_SIGNING_SECRET`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`,
+> `FIREBASE_PRIVATE_KEY`, `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`,
+> `SENTRY_DSN`, `ORBIT_ROLE=worker`.
+
 | `RESEND_API_KEY` + `EMAIL_FROM` | Resend | tuỳ chọn² |
 | `SENTRY_DSN` | Sentry | tuỳ chọn |
 

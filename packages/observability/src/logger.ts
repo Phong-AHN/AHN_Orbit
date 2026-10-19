@@ -127,8 +127,46 @@ export function currentLogContext(): LogContext | undefined {
  * normalized — Meta's `error_user_msg` is the only thing lifted into a user
  * message, and it is Meta's own end-user-safe copy.
  */
+/**
+ * The chain of `cause`s under an error, flattened for a log line.
+ *
+ * An `InternalError('Unhandled error')` carries the real failure as its
+ * `cause`, and that cause may itself wrap another. Without this the log says
+ * only that *something* went wrong — a dead Redis, a Prisma failure and a typo
+ * all produce the identical line, and a production incident starts with no
+ * information at all.
+ *
+ * Bounded at four links. A cycle would otherwise spin here, and anything
+ * deeper is a wrapper chain nobody reads to the end of.
+ *
+ * This is for the **log**, never the HTTP response: an unexpected error's
+ * message is exactly the kind that leaks internals, which is why `toAppError`
+ * replaces it on the way out and why that must stay.
+ */
+function causeChain(error: unknown): Array<{ message: string; stack?: string }> {
+  const chain: Array<{ message: string; stack?: string }> = [];
+  const seen = new Set<unknown>();
+  let current: unknown = (error as { cause?: unknown } | undefined)?.cause;
+
+  while (current !== undefined && current !== null && chain.length < 4) {
+    if (seen.has(current)) break;
+    seen.add(current);
+
+    chain.push(
+      current instanceof Error
+        ? { message: current.message, ...(current.stack ? { stack: current.stack } : {}) }
+        : { message: String(current) },
+    );
+
+    current = (current as { cause?: unknown }).cause;
+  }
+
+  return chain;
+}
+
 export function logError(msg: string, error: unknown, bindings?: Bindings): void {
   if (isAppError(error)) {
+    const causes = causeChain(error);
     const payload = {
       ...bindings,
       code: error.code,
@@ -136,6 +174,8 @@ export function logError(msg: string, error: unknown, bindings?: Bindings): void
       retryable: error.retryable,
       reason: error.message,
       errorContext: error.context,
+      // Only when there is one, so a deliberate AppError stays a clean line.
+      ...(causes.length > 0 ? { causes } : {}),
     };
     if (error.status >= 500) logger.error(msg, { ...payload, stack: error.stack });
     else logger.warn(msg, payload);

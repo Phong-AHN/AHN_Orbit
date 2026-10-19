@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { EnvValidationError, describeEnv, parseServerEnv } from './env.js';
+import {
+  EnvValidationError,
+  describeEnv,
+  parseServerEnv,
+  workerHealthPort,
+} from './env.js';
 
 const key32 = Buffer.alloc(32, 7).toString('base64');
 
@@ -144,5 +149,84 @@ describe('describeEnv', () => {
     expect(described.hasGemini).toBe(true);
     expect(JSON.stringify(described)).not.toContain('super-secret-value');
     expect(JSON.stringify(described)).not.toContain(key32);
+  });
+});
+
+/**
+ * The worker is headless, and was being asked for the browser's Firebase keys.
+ *
+ * `NEXT_PUBLIC_*` is what a sign-in page needs to reach Firebase from somebody's
+ * tab. The worker serves no page, verifies no ID token, and `adminAuth()` is
+ * lazy so Firebase is never initialised in that process. Requiring them anyway
+ * failed a Railway deploy over three variables the process cannot use — with
+ * an error naming them as required, which sends somebody hunting for config a
+ * worker was never going to read.
+ */
+describe('production requirements by process role', () => {
+  const prod = {
+    ...valid,
+    APP_ENV: 'production',
+    APP_URL: 'https://orbit.example.com',
+    FIREBASE_PROJECT_ID: 'p',
+    FIREBASE_CLIENT_EMAIL: 'a@b.com',
+    FIREBASE_PRIVATE_KEY: 'k',
+    FACEBOOK_APP_ID: 'id',
+    FACEBOOK_APP_SECRET: 'secret',
+    SENTRY_DSN: 'https://sentry.example.com/1',
+  } satisfies NodeJS.ProcessEnv;
+
+  it('lets the worker boot without the browser Firebase config', () => {
+    expect(() => parseServerEnv({ ...prod, ORBIT_ROLE: 'worker' })).not.toThrow();
+  });
+
+  /** The web app still needs them — the exemption is the worker's alone. */
+  it('still refuses the web app without them', () => {
+    expect(() => parseServerEnv(prod)).toThrow(/NEXT_PUBLIC_FIREBASE_API_KEY/);
+  });
+
+  /**
+   * The exemption covers exactly the browser keys. Everything else on the
+   * production list applies to the worker too: it publishes with the Facebook
+   * credentials, and `SENTRY_DSN` is how a failed job is seen at all.
+   */
+  it('still requires what the worker genuinely uses', () => {
+    const { FACEBOOK_APP_SECRET: _secret, ...noFacebook } = prod;
+    expect(() => parseServerEnv({ ...noFacebook, ORBIT_ROLE: 'worker' })).toThrow(
+      /FACEBOOK_APP_SECRET/,
+    );
+
+    const { SENTRY_DSN: _dsn, ...noSentry } = prod;
+    expect(() => parseServerEnv({ ...noSentry, ORBIT_ROLE: 'worker' })).toThrow(/SENTRY_DSN/);
+
+    // Server-side Firebase stays required for both: it is credentials, not
+    // browser config, and one process diverging on those is a sharper edge.
+    const { FIREBASE_PRIVATE_KEY: _fb, ...noAdmin } = prod;
+    expect(() => parseServerEnv({ ...noAdmin, ORBIT_ROLE: 'worker' })).toThrow(
+      /FIREBASE_PRIVATE_KEY/,
+    );
+  });
+});
+
+/**
+ * Railway, Heroku and Fly inject `PORT` and then probe it.
+ *
+ * The worker bound a hardcoded 3100 and nothing read `PORT`, so the platform's
+ * health check hit a closed port and killed a container that was running
+ * perfectly.
+ */
+describe('workerHealthPort', () => {
+  it('binds the port the platform injected', () => {
+    const env = parseServerEnv({ ...valid, PORT: '8080' });
+    expect(workerHealthPort(env)).toBe(8080);
+  });
+
+  /** An explicit choice for this service outranks the platform's default. */
+  it('prefers an explicit WORKER_HEALTH_PORT over PORT', () => {
+    const env = parseServerEnv({ ...valid, PORT: '8080', WORKER_HEALTH_PORT: '3100' });
+    expect(workerHealthPort(env)).toBe(3100);
+  });
+
+  it('falls back to 3100, matching the Dockerfile\u2019s EXPOSE', () => {
+    expect(workerHealthPort(parseServerEnv(valid))).toBe(3100);
   });
 });

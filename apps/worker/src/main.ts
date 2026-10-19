@@ -1,4 +1,4 @@
-import { serverEnv } from '@orbit/config';
+import { serverEnv, workerHealthPort } from '@orbit/config';
 import { logger } from '@orbit/observability';
 import { platformDb } from '@orbit/db';
 import {
@@ -61,7 +61,9 @@ async function main(): Promise<void> {
 
   await scheduleRepeatableJobs();
 
-  const health = startHealthServer(env.WORKER_HEALTH_PORT);
+  // `PORT` when the platform injected one, so a health probe reaches us.
+  const port = workerHealthPort(env);
+  const health = startHealthServer(port);
 
   installShutdownHandlers({
     workers,
@@ -73,7 +75,7 @@ async function main(): Promise<void> {
     },
   });
 
-  logger.info('worker ready', { queues: workers.map((w) => w.name) });
+  logger.info('worker ready', { queues: workers.map((w) => w.name), healthPort: port });
 }
 
 /**

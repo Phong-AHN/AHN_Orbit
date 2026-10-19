@@ -64,7 +64,23 @@ export const serverEnvSchema = z.object({
    * Liveness and metrics port for the worker container. The worker has no
    * other HTTP surface; this is not routed publicly.
    */
-  WORKER_HEALTH_PORT: z.coerce.number().int().positive().default(3100),
+  /**
+   * Injected by the platform — Railway, Heroku, Fly and friends all set it and
+   * then probe it.
+   *
+   * Nothing read it, and the worker bound a hardcoded 3100, so the platform's
+   * health check hit a closed port and killed the container. Resolved by
+   * `workerHealthPort` below rather than here, because the precedence between
+   * this and `WORKER_HEALTH_PORT` is a decision worth writing down once.
+   */
+  PORT: z.coerce.number().int().positive().optional(),
+
+  /**
+   * An explicit override. Left without a default so "unset" stays
+   * distinguishable from "set to 3100" — the fallback lives in
+   * `workerHealthPort`.
+   */
+  WORKER_HEALTH_PORT: z.coerce.number().int().positive().optional(),
 
   // ── Storage (SRS §17) ─────────────────────────────────────────────────────
   S3_REGION: z.string().min(1).default('eu-west-1'),
@@ -276,6 +292,21 @@ export const serverEnvSchema = z.object({
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 
 /**
+ * Which port the worker's health server binds.
+ *
+ * Precedence, and the reasoning for it:
+ *
+ * 1. `WORKER_HEALTH_PORT` — somebody chose this deliberately for this service,
+ *    so it outranks a platform default.
+ * 2. `PORT` — the platform injected it and will probe it. Ignoring it is how
+ *    a container that is running perfectly gets killed as unhealthy.
+ * 3. `3100` — the documented local default, matching the Dockerfile's EXPOSE.
+ */
+export function workerHealthPort(env: ServerEnv = serverEnv()): number {
+  return env.WORKER_HEALTH_PORT ?? env.PORT ?? 3100;
+}
+
+/**
  * Production requires the credentials that development can stub. Enforced
  * separately so local development stays frictionless while a production deploy
  * cannot start half-configured.
@@ -294,6 +325,38 @@ const productionRequired = [
   'FACEBOOK_APP_SECRET',
   'SENTRY_DSN',
 ] as const satisfies readonly (keyof ServerEnv)[];
+
+/**
+ * The three the worker is exempt from, and why.
+ *
+ * `NEXT_PUBLIC_*` is browser configuration by definition — it is what the
+ * sign-in page needs to reach Firebase from someone's tab. The worker has no
+ * tab. It serves no page, verifies no ID token, and `adminAuth()` is lazy, so
+ * Firebase is never initialised in that process at all.
+ *
+ * Demanding them anyway failed a deploy over three variables the process
+ * cannot use, with an error naming them as required — which sends somebody
+ * hunting for the Firebase config a worker was never going to read.
+ *
+ * The rest of the list still applies to the worker, and deliberately:
+ * `FACEBOOK_APP_ID` / `_SECRET` are what it publishes with, and `SENTRY_DSN`
+ * is how a job failure is seen at all.
+ *
+ * The Firebase **admin** trio is left required for both. The worker does not
+ * use it today, but it is server-side credentials rather than browser config,
+ * and one process silently diverging from the other on *those* is a sharper
+ * edge than three unused variables.
+ */
+const browserOnlyKeys = [
+  'NEXT_PUBLIC_FIREBASE_API_KEY',
+  'NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN',
+  'NEXT_PUBLIC_FIREBASE_APP_ID',
+] as const satisfies readonly (keyof ServerEnv)[];
+
+/** Same signal `assertWorkerProcess` uses, so the two cannot disagree. */
+function isWorkerRole(source: NodeJS.ProcessEnv): boolean {
+  return source.ORBIT_ROLE === 'worker';
+}
 
 /**
  * Why a `.env` sitting right there did not help.
@@ -348,7 +411,11 @@ export function parseServerEnv(source?: NodeJS.ProcessEnv): ServerEnv {
   const env = parsed.data;
 
   if (env.APP_ENV === 'production') {
-    const missing = productionRequired.filter((key) => !env[key]);
+    const exempt = isWorkerRole(source ?? process.env)
+      ? new Set<string>(browserOnlyKeys)
+      : new Set<string>();
+
+    const missing = productionRequired.filter((key) => !exempt.has(key) && !env[key]);
     if (missing.length > 0) {
       throw new EnvValidationError(missing.map((k) => `${k}: required when APP_ENV=production`));
     }

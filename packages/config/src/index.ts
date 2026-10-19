@@ -2,6 +2,7 @@ export {
   serverEnvSchema,
   parseServerEnv,
   serverEnv,
+  workerHealthPort,
   resetServerEnvCache,
   describeEnv,
   EnvValidationError,
