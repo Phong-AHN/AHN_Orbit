@@ -45,7 +45,9 @@ export async function processMaintenance({ payload }: JobContext<'maintenance'>)
       // inside the fan-out transaction would be a third-party HTTP request in
       // the slowest possible place, and a timeout would roll back notifications
       // that ought to exist.
-      await drainEmailOutbox(mailer());
+      // The factory, not the instance: a missing RESEND_API_KEY must not fail
+      // this job when there is no mail to send.
+      await drainEmailOutbox(mailer);
       return;
     case 'sweep-account-health':
       // Queues the probes; it does not perform them. The provider calls run on

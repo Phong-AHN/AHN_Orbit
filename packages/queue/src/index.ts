@@ -69,6 +69,7 @@ export {
   queueFor,
   type EnqueueOptions,
   type QueueDepth,
+  DEFAULT_JOB_OPTIONS,
 } from './producer.js';
 
 export {

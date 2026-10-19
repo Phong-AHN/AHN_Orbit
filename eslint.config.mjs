@@ -126,7 +126,15 @@ export default tseslint.config(
   },
 
   {
-    files: ['**/*.test.ts', '**/*.test.tsx', '**/test/**/*.ts', 'packages/db/prisma/seed.ts'],
+    files: [
+      '**/*.test.ts',
+      '**/*.test.tsx',
+      '**/test/**/*.ts',
+      'packages/db/prisma/seed.ts',
+      // Operator CLIs. Their whole output is stdout, so `console.log` is the
+      // correct call and not a stray debug statement.
+      '**/scripts/**/*.ts',
+    ],
     rules: {
       'no-console': 'off',
       'no-restricted-syntax': 'off',

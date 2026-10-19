@@ -99,7 +99,7 @@ describe('draining', () => {
   it('sends a pending row and stamps it', async () => {
     const notification = await seed();
 
-    const result = await drainEmailOutbox(mailer);
+    const result = await drainEmailOutbox(() => mailer);
 
     expect(result.sent).toBe(1);
     expect(mailer.sent[0]?.to).toBe('someone@outbox.test');
@@ -114,7 +114,7 @@ describe('draining', () => {
   it('deep-links to the thing that needs attention', async () => {
     await seed();
 
-    await drainEmailOutbox(mailer);
+    await drainEmailOutbox(() => mailer);
 
     // Not the dashboard: an alert that makes somebody hunt is one they stop
     // opening.
@@ -124,7 +124,7 @@ describe('draining', () => {
   it('never sends an IN_APP row', async () => {
     await seed({ channel: 'IN_APP' });
 
-    const result = await drainEmailOutbox(mailer);
+    const result = await drainEmailOutbox(() => mailer);
 
     expect(result.sent).toBe(0);
     expect(mailer.sent).toHaveLength(0);
@@ -133,8 +133,8 @@ describe('draining', () => {
   it('does not send the same row twice', async () => {
     await seed();
 
-    await drainEmailOutbox(mailer);
-    await drainEmailOutbox(mailer);
+    await drainEmailOutbox(() => mailer);
+    await drainEmailOutbox(() => mailer);
 
     expect(mailer.sent).toHaveLength(1);
   });
@@ -149,7 +149,7 @@ describe('when mail fails', () => {
     mailer.failFor = 'someone@outbox.test';
     const notification = await seed();
 
-    const result = await drainEmailOutbox(mailer);
+    const result = await drainEmailOutbox(() => mailer);
 
     expect(result.failed).toBe(1);
 
@@ -179,7 +179,7 @@ describe('when mail fails', () => {
     await seed();
     await seed({ userId: '018f1200-0000-7000-8000-001200000003' });
 
-    const result = await drainEmailOutbox(mailer);
+    const result = await drainEmailOutbox(() => mailer);
 
     expect(result.failed).toBe(1);
     expect(result.sent).toBe(1);
@@ -192,10 +192,10 @@ describe('when mail fails', () => {
   it('succeeds on a later pass once mail recovers', async () => {
     mailer.failFor = 'someone@outbox.test';
     await seed();
-    await drainEmailOutbox(mailer);
+    await drainEmailOutbox(() => mailer);
 
     mailer.failFor = null;
-    const second = await drainEmailOutbox(mailer);
+    const second = await drainEmailOutbox(() => mailer);
 
     expect(second.sent).toBe(1);
   });
@@ -209,7 +209,7 @@ describe('stale messages', () => {
   it('abandons anything older than a day without sending it', async () => {
     const old = await seed({ createdAt: new Date(NOW.getTime() - 25 * 60 * 60 * 1_000) });
 
-    const result = await drainEmailOutbox(mailer);
+    const result = await drainEmailOutbox(() => mailer);
 
     expect(result.abandoned).toBe(1);
     expect(mailer.sent).toHaveLength(0);
@@ -223,6 +223,72 @@ describe('stale messages', () => {
   it('still sends one that is inside the window', async () => {
     await seed({ createdAt: new Date(NOW.getTime() - 23 * 60 * 60 * 1_000) });
 
-    expect((await drainEmailOutbox(mailer)).sent).toBe(1);
+    expect((await drainEmailOutbox(() => mailer)).sent).toBe(1);
+  });
+});
+
+/**
+ * The failure that took production down, as a test.
+ *
+ * `mailer()` refuses in production when `RESEND_API_KEY` is unset — correctly,
+ * so a client's approval request cannot go quietly nowhere. But the drain
+ * resolved it **eagerly**, on a job that runs every two minutes, whether or not
+ * anything was waiting.
+ *
+ * On 2026-10-19 that had produced 7,683 dead-lettered jobs over roughly ten
+ * days. They filled a 30 MB Redis, and because Redis runs `noeviction` a full
+ * instance refuses every write — so the visible symptom was `publish-now`
+ * answering 500 with `OOM command not allowed`, an endpoint with nothing to do
+ * with email.
+ */
+describe('an empty outbox needs no mailer', () => {
+  it('does not resolve one when there is nothing to send', async () => {
+    let resolved = 0;
+
+    const result = await drainEmailOutbox(() => {
+      resolved += 1;
+      return mailer;
+    });
+
+    expect(result).toEqual({ sent: 0, failed: 0, abandoned: 0 });
+    expect(resolved).toBe(0);
+  });
+
+  /**
+   * The precise shape of the outage: a configuration error must not become a
+   * failed job on every pass of a two-minute cron.
+   */
+  it('survives a mailer that refuses, when there is no mail', async () => {
+    await expect(
+      drainEmailOutbox(() => {
+        throw new Error('RESEND_API_KEY is not set but EMAIL notifications exist');
+      }),
+    ).resolves.toEqual({ sent: 0, failed: 0, abandoned: 0 });
+  });
+
+  /** And it still refuses loudly when there *is* mail — that part is the point. */
+  it('still raises when mail is waiting and no mailer can be built', async () => {
+    await seed();
+
+    await expect(
+      drainEmailOutbox(() => {
+        throw new Error('RESEND_API_KEY is not set but EMAIL notifications exist');
+      }),
+    ).rejects.toThrow(/RESEND_API_KEY/);
+  });
+
+  /** Stamping stale rows is abandonment, not sending, so it needs no mailer. */
+  it('abandons rows past the window without a mailer', async () => {
+    await seed({ createdAt: new Date(NOW.getTime() - 48 * 60 * 60 * 1_000) });
+
+    let resolved = 0;
+    const result = await drainEmailOutbox(() => {
+      resolved += 1;
+      return mailer;
+    });
+
+    expect(result.abandoned).toBe(1);
+    expect(result.sent).toBe(0);
+    expect(resolved).toBe(0);
   });
 });

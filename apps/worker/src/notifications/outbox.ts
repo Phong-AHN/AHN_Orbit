@@ -41,7 +41,26 @@ export interface OutboxResult {
   abandoned: number;
 }
 
-export async function drainEmailOutbox(mailer: Mailer): Promise<OutboxResult> {
+/**
+ * Drain the outbox, resolving a mailer **only if there is mail**.
+ *
+ * `resolveMailer` is a factory rather than an instance on purpose. In
+ * production `mailer()` refuses when `RESEND_API_KEY` is unset — correctly, so
+ * that a client's approval request cannot go quietly nowhere — but this job
+ * runs every two minutes, and calling it eagerly turned that refusal into a
+ * failure every two minutes forever, whether or not anything was waiting.
+ *
+ * On production that cost 7,683 dead-lettered jobs over about ten days, which
+ * filled Redis; and because Redis runs `noeviction`, a full instance refuses
+ * every write and the whole product began answering 500 on endpoints that have
+ * nothing to do with email.
+ *
+ * Stamping stale rows needs no mailer, so it happens either way: those are
+ * being *abandoned*, not sent.
+ */
+export async function drainEmailOutbox(
+  resolveMailer: () => Mailer,
+): Promise<OutboxResult> {
   const now = clock.now();
   const cutoff = new Date(now.getTime() - MAX_AGE_MS);
   const result: OutboxResult = { sent: 0, failed: 0, abandoned: 0 };
@@ -74,6 +93,15 @@ export async function drainEmailOutbox(mailer: Mailer): Promise<OutboxResult> {
     data: { emailedAt: now },
   });
   result.abandoned = stale.count;
+
+  // Nothing to send: no mailer is needed, and asking for one here is what
+  // made a missing key fail a job every two minutes instead of at boot.
+  if (pending.length === 0) {
+    if (result.abandoned > 0) logger.info('email outbox drained', { ...result });
+    return result;
+  }
+
+  const mailer = resolveMailer();
 
   for (const notification of pending) {
     try {

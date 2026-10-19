@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_JOB_OPTIONS } from './producer.js';
 import {
   QUEUE_DEFINITIONS,
   QUEUE_NAMES,
@@ -136,5 +137,50 @@ describe('payload validation', () => {
     expect(publishFields).not.toContain('body');
     expect(publishFields).not.toContain('content');
     expect(publishFields).not.toContain('accessToken');
+  });
+});
+
+/**
+ * Redis runs `noeviction`, so a full instance refuses every write.
+ *
+ * That is the right policy for a queue — a job must never be evicted to make
+ * room — and it means unbounded retention is not a disk-space problem but an
+ * availability one. `removeOnFail` was `false`, keeping every failed job
+ * forever, and production answered 500 on unrelated endpoints with
+ * `OOM command not allowed` raised inside a BullMQ Lua script.
+ *
+ * The justification in the code was that the admin dead-letter view needed the
+ * trail. It does not: that view reads `dlq:index`, which carries its own
+ * 30-day TTL and trims its index on every write.
+ */
+describe('job retention is bounded', () => {
+  it('bounds failed jobs by both count and age', () => {
+    const onFail = DEFAULT_JOB_OPTIONS.removeOnFail;
+
+    // `false` means "keep forever" and is what caused the outage.
+    expect(onFail).not.toBe(false);
+    expect(typeof onFail).toBe('object');
+    expect(onFail).toMatchObject({ count: expect.any(Number), age: expect.any(Number) });
+  });
+
+  it('bounds completed jobs by both count and age', () => {
+    expect(DEFAULT_JOB_OPTIONS.removeOnComplete).toMatchObject({
+      count: expect.any(Number),
+      age: expect.any(Number),
+    });
+  });
+
+  /**
+   * The failure window matches the dead-letter store's retention, so the
+   * `failed` count and the admin view agree on what "recent" means.
+   */
+  it('keeps failures for the same window the dead-letter store does', () => {
+    const onFail = DEFAULT_JOB_OPTIONS.removeOnFail as { age: number };
+    expect(onFail.age).toBe(30 * 24 * 3_600);
+  });
+
+  /** The worker owns retry policy; BullMQ must not re-run a job behind it. */
+  it('leaves retries to the worker', () => {
+    expect(DEFAULT_JOB_OPTIONS.attempts).toBe(1);
   });
 });

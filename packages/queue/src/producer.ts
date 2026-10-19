@@ -18,6 +18,45 @@ import { parsePayload, QUEUE_NAMES, type PayloadOf, type QueueName } from './que
  * `decideRetry` has ruled. `MAX_ATTEMPTS` still bounds that loop.
  */
 
+/**
+ * Job retention, exported so it can be asserted without a Redis connection.
+ *
+ * Both bounds matter and for different reasons. `removeOnComplete` keeps a
+ * short debugging trail. `removeOnFail` is bounded because Redis runs
+ * `noeviction` — correct for a queue, since a job must never be evicted to
+ * make room — which means a full Redis refuses every write and the product
+ * answers 500 rather than merely queuing slowly.
+ */
+export const DEFAULT_JOB_OPTIONS = {
+  // The worker owns retry policy; BullMQ must not second-guess it.
+  attempts: 1,
+  // A short success trail for debugging.
+  removeOnComplete: { count: 1_000, age: 24 * 3_600 },
+  /**
+   * Bounded, and it was not.
+   *
+   * This was `false` — keep every failed job forever — justified as the
+   * trail behind the admin panel's dead-letter view (SRS §28). **That
+   * view does not read these.** It reads `dlq:index`, the sorted set
+   * `recordDeadLetter` writes, whose entries carry a 30-day TTL and
+   * whose index is trimmed on every write. That store was already
+   * bounded; this one was retaining payloads for no reader at all,
+   * beyond the `failed` number in `getJobCounts`.
+   *
+   * Why it mattered more than wasted space: Redis runs `noeviction`,
+   * which is correct for a queue — a job must never be evicted to make
+   * room. So a full Redis does not degrade, it **refuses every write**,
+   * and the first symptom is the whole product answering 500 with
+   * `OOM command not allowed` raised from inside a BullMQ Lua script,
+   * on endpoints that look nothing to do with queues.
+   *
+   * The window matches the dead-letter retention so the count and the
+   * view agree about what "recent failures" means; the count cap bounds
+   * a burst that arrives faster than the window expires.
+   */
+  removeOnFail: { count: 5_000, age: 30 * 24 * 3_600 },
+} as const;
+
 const queues = new Map<QueueName, Queue>();
 
 export function queueFor<Q extends QueueName>(name: Q): Queue<PayloadOf<Q>> {
@@ -26,14 +65,7 @@ export function queueFor<Q extends QueueName>(name: Q): Queue<PayloadOf<Q>> {
   if (!queue) {
     queue = new Queue(name, {
       connection: redis(),
-      defaultJobOptions: {
-        // The worker owns retry policy; BullMQ must not second-guess it.
-        attempts: 1,
-        // Keep a short success trail for debugging, a long failure trail for
-        // the admin panel's dead-letter view (SRS §28).
-        removeOnComplete: { count: 1_000, age: 24 * 3_600 },
-        removeOnFail: false,
-      },
+      defaultJobOptions: DEFAULT_JOB_OPTIONS,
     });
     queues.set(name, queue);
   }
