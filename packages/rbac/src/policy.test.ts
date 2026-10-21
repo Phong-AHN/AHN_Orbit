@@ -280,6 +280,34 @@ describe('scoping', () => {
   });
 });
 
+describe('org-level-only checks', () => {
+  /**
+   * Asking a permission with an empty resource is how a service says "only
+   * people who answer for the whole organization". Switching a workspace's
+   * client off depends on it (D-106): an Account Manager holds
+   * `workspace:update` for the workspace they run, and must still be refused.
+   */
+  it('refuses a workspace-scoped grant asked without a workspace', () => {
+    const am = ctx({ organizationRole: 'ACCOUNT_MANAGER' });
+    expect(can(am, 'workspace:update', { workspaceId: WS_A })).toBe(true);
+    expect(can(am, 'workspace:update', {})).toBe(false);
+  });
+
+  it('allows it for the Owner and an Admin', () => {
+    for (const role of ['OWNER', 'ADMIN'] as const) {
+      expect(can(ctx({ organizationRole: role, workspaces: [] }), 'workspace:update', {})).toBe(
+        true,
+      );
+    }
+  });
+
+  it('refuses everyone else', () => {
+    for (const role of ['CONTENT_CREATOR', 'APPROVER', 'CLIENT'] as const) {
+      expect(can(ctx({ organizationRole: role }), 'workspace:update', {})).toBe(false);
+    }
+  });
+});
+
 describe('edit locking', () => {
   it('stops anyone editing content from APPROVED onward', () => {
     for (const role of ['OWNER', 'ADMIN', 'ACCOUNT_MANAGER'] as const) {

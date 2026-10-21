@@ -59,6 +59,8 @@ export const updateWorkspaceSchema = z
     timezone: timezone.optional(),
     clientCompanyName: z.string().trim().max(160).nullish(),
     clientUploadsEnabled: z.boolean().optional(),
+    /** Org-level authority only — see `assertMayChangeClientGate` (**D-106**). */
+    requiresClientApproval: z.boolean().optional(),
     status: z.enum(['ACTIVE', 'ARCHIVED']).optional(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), {

@@ -23,6 +23,15 @@ export interface ResourceScope {
   brandId?: string;
   /** Who created it. Required for OWN-scoped grants. */
   createdById?: string | null;
+  /**
+   * Whether the resource's workspace has a client who approves (**D-106**).
+   *
+   * Read by exactly one rule — the author finishing their own post in a
+   * workspace with no client, in `transitions.ts`. Only an explicit `false`
+   * grants anything there, so a caller that forgets to pass it falls back to
+   * the ordinary grants rather than to a wider one.
+   */
+  requiresClientApproval?: boolean;
   /** Current post status, for status-restricted grants. */
   status?: PostStatus;
   /**

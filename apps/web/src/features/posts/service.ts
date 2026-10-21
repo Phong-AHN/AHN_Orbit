@@ -4,6 +4,7 @@ import {
   NotFoundError,
   ValidationError,
   actorUserId,
+  clientApprovalRequired,
   clock,
   contentHash,
   isEditLocked,
@@ -13,7 +14,7 @@ import {
   type TenantContext,
 } from '@orbit/core';
 import { withTenant, type TenantDb } from '@orbit/db';
-import { assertTransitionAllowed } from '@orbit/rbac';
+import { assertCan, assertTransitionAllowed } from '@orbit/rbac';
 import { logger } from '@orbit/observability';
 import { enqueue } from '@orbit/queue';
 import type { NotificationType } from '@orbit/notifications';
@@ -304,7 +305,9 @@ export async function getPost(ctx: TenantContext, postId: string) {
         // The composer has to name the zone a chosen wall time will be read in,
         // and that is the client's zone — not the viewer's. Labelling the
         // picker with the wrong one is how a post goes out seven hours early.
-        workspace: { select: { timezone: true } },
+        // `requiresClientApproval` so the page offers the moves the server will
+        // allow — an author finishing their own internal post (D-106).
+        workspace: { select: { timezone: true, requiresClientApproval: true } },
         variants: { where: { deletedAt: null }, select: VARIANT_SELECT },
         media: {
           where: { postVariantId: null },
@@ -427,6 +430,28 @@ export async function updatePost(
   return withTenant(ctx, async (db) => {
     const post = await requirePost(db, postId);
     assertEditable(post.status);
+
+    /**
+     * Exempting a post from client approval is a reviewer's decision, not the
+     * author's.
+     *
+     * `post:update` alone used to be enough, and a Content Creator holds it for
+     * their own posts — so the author of a client post could switch off the
+     * client's review of it, and an internal approver would then send it
+     * straight out. The person being reviewed must not be able to turn the
+     * review off. D-018 called the gate one that "cannot be skipped"; this is
+     * the gap that sentence missed.
+     *
+     * Checked only when the value actually changes, so a client that echoes the
+     * current value back on save is not refused for it.
+     */
+    if (input.approvalRequired !== undefined && input.approvalRequired !== post.approvalRequired) {
+      assertCan(ctx, 'post:approve_internal', {
+        workspaceId: post.workspaceId,
+        brandId: post.brandId,
+        createdById: post.createdById,
+      });
+    }
 
     if (input.assignedToId) await requireAssignable(db, input.assignedToId);
 
@@ -642,17 +667,36 @@ export async function transitionPost(
   const { post, rule } = await withTenant(ctx, async (db) => {
     const found = await requirePost(db, postId);
 
+    // Whether this workspace has a client at all (**D-106**). A workspace that
+    // cannot be found keeps the client gate: the safe answer to "is there
+    // nobody to approve this?" is never yes by default.
+    const workspace = await db.workspace.findFirst({
+      where: { id: found.workspaceId },
+      select: { requiresClientApproval: true },
+    });
+    const requiresClientApproval = workspace?.requiresClientApproval ?? true;
+
     const transition = assertTransitionAllowed(ctx, found.status, to, {
       workspaceId: found.workspaceId,
       brandId: found.brandId,
       createdById: found.createdById,
+      // Lets the author finish their own post where there is no client; read
+      // by nothing else.
+      requiresClientApproval,
     });
 
-    // The client gate is a property of the post, not of the status pair, so the
-    // transition table cannot express it. Approving internally is only the end
-    // of review when the post does not also need the client's sign-off
-    // (docs/RBAC.md §5); otherwise the only way on is through CLIENT_REVIEW.
-    if (found.status === 'INTERNAL_REVIEW' && to === 'APPROVED' && found.approvalRequired) {
+    // The client gate depends on the post and its workspace, not on the status
+    // pair, so the transition table cannot express it. Approving internally is
+    // only the end of review when the post does not also need the client's
+    // sign-off (docs/RBAC.md §5); otherwise the only way on is CLIENT_REVIEW.
+    if (
+      found.status === 'INTERNAL_REVIEW' &&
+      to === 'APPROVED' &&
+      clientApprovalRequired({
+        workspaceRequiresClientApproval: requiresClientApproval,
+        postApprovalRequired: found.approvalRequired,
+      })
+    ) {
       throw new ConflictError('Client approval is required for this post', {
         userMessage:
           'This post needs the client to approve it. Send it to the client instead of approving it here.',

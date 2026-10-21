@@ -909,36 +909,38 @@ bình thường.
 
 ### 3. Chạy migration lên production
 
-**Thứ tự bắt buộc: migration → worker → web.**
+**Thứ tự bắt buộc: migration → worker → web.** Migration ở đây **chạy bằng tay**
+(chính mục này) — Vercel build không chạy. File nằm trong repo không có nghĩa là
+nó đã được áp dụng.
 
-Ba migration đang chờ:
+**Hiện không còn migration nào chờ** (kiểm tra 2026-10-20 bằng `prisma migrate status`).
 
-| Migration | Nội dung |
-|---|---|
-| `20260814000000_variant_provider_ref` | Thêm `PostVariant.providerRef` |
-| `20260814010000_report` | Bảng `Report` + 2 enum |
-| `20261013000000_social_comments` | Bảng `SocialComment` + 2 enum, RLS, 5 FK composite |
+Đã chạy (ghi lại để khỏi chạy lại): `20260814000000_variant_provider_ref`,
+`20260814010000_report`, `20261013000000_social_comments` (2026-10-20),
+`20261020000000_workspace_client_approval` (2026-10-20, **D-106**). Cột mới có
+mặc định `true`, nên cả 4 workspace hiện có vẫn duyệt như cũ cho tới khi anh đổi.
 
-**Migration thứ ba đang làm hỏng production ngay lúc này.** Khác hai cái trên —
-chúng chỉ "chờ" — commit `61e3cb9` đã deploy trang `/orgs/{slug}/community` và 4
-route API của nó lên một database chưa có bảng. Mọi lần mở trang đó đều lỗi.
-
-Lý do: **migration ở đây chạy bằng tay** (chính mục này), Vercel build không
-chạy. File migration nằm trong repo không có nghĩa là nó đã được áp dụng.
-
-Chạy nó xong trang hết lỗi, nhưng hàng chờ sẽ **rỗng** cho tới khi worker chạy
-bản có queue `engagement`, và cho tới khi các tài khoản Facebook được kết nối
-lại (xem mục 1).
+Khi có migration mới:
 
 ```bash
 pnpm db:migrate:deploy
 ```
 
-**Nếu deploy worker trước khi chạy migration:** mọi lần publish Instagram sẽ hỏng
-với lỗi thiếu cột, và mọi job render report sẽ hỏng.
-
 Grace period của worker **không được dưới 90 giây** — một publish có thể đang
 giữa chừng với timeout 60s.
+
+#### Sau khi chạy: đánh dấu workspace nội bộ của AHN
+
+Settings → **Clients & brands** → trong thẻ workspace của AHN, bỏ tick **"Client
+approves posts"** → xác nhận **Make internal**.
+
+Từ lúc đó, trong workspace đó, người viết bài tự duyệt và tự lên lịch bài của
+chính mình (nút **Approve & schedule**). Không ai khác phải duyệt. Họ vẫn
+**không** được bấm Publish now, không được duyệt bài của người khác.
+
+Chỉ **Owner và Admin** thấy ô này. Account Manager không đổi được, kể cả với
+workspace họ quản lý — vì tắt client là bỏ client khỏi mọi bài trong workspace
+cùng lúc. Đừng tắt cho workspace của khách hàng.
 
 ---
 
@@ -951,7 +953,7 @@ Ba URL Meta yêu cầu đều đã có và đều trả 200 khi chưa đăng nh�
 | Chỗ | Vấn đề |
 |---|---|
 | `GOVERNING_LAW` trong `/terms-of-service` | Đang là `'Viet Nam'` — em đặt tạm, không đoán. Trụ sở pháp lý của bên vận hành quyết định giá trị này |
-| Bảng nhà cung cấp trong `/privacy-policy` | Đang liệt kê **Supabase** và **Redis Cloud** — hai dịch vụ đã bị xoá — và **thiếu Railway**, nơi worker đang chạy |
+| Bảng nhà cung cấp trong `/privacy-policy` | **Thiếu Railway**, nơi worker đang chạy. *Sửa lại 20/10/2026:* trước đây mục này ghi Supabase và Redis Cloud “đã bị xoá” — **sai**, cả hai đang chạy (em đã migrate lên Supabase và đọc Redis Cloud trực tiếp). Bảng đúng về hai cái đó. |
 
 Bảng nhà cung cấp là một tuyên bố về việc dữ liệu khách hàng đang nằm ở đâu. Em
 không sửa bằng phỏng đoán: anh xác nhận hiện production đang dùng những dịch vụ

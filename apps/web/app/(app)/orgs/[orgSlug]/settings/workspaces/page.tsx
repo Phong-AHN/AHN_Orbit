@@ -16,6 +16,7 @@ import { pageCan, requirePageContext } from '@/server/page-context';
 import { getOrganization, listWorkspacesWithBrands } from '@/features/tenancy/service';
 import { CreateWorkspaceForm } from '@/features/tenancy/ui/create-workspace-form';
 import { CreateBrandForm } from '@/features/tenancy/ui/create-brand-form';
+import { ClientApprovalToggle } from '@/features/tenancy/ui/client-approval-toggle';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,6 +78,11 @@ export default async function WorkspacesPage({ params, searchParams }: PageProps
 
   const mayCreateWorkspace = pageCan(ctx, 'workspace:create');
   const mayConnect = pageCan(ctx, 'social_account:connect');
+  // Org-level only, asked with an empty resource on purpose: an Account
+  // Manager may edit the workspaces they run but not switch their client off
+  // (D-106). The API enforces the same rule; this only hides a control that
+  // would be refused.
+  const mayChangeClientGate = pageCan(ctx, 'workspace:update');
 
   return (
     <main id="main" className="px-4 py-10 sm:px-6">
@@ -124,6 +130,7 @@ export default async function WorkspacesPage({ params, searchParams }: PageProps
                     {workspace.status === 'ARCHIVED' ? (
                       <Badge tone="neutral">Archived</Badge>
                     ) : null}
+                    {!workspace.requiresClientApproval ? <Badge tone="info">Internal</Badge> : null}
 
                     {/* The queue had no entry point at all, so "add to queue"
                         resolved against slots nobody could see or create. */}
@@ -139,6 +146,15 @@ export default async function WorkspacesPage({ params, searchParams }: PageProps
                 </CardHeader>
 
                 <CardBody className="space-y-3">
+                  {mayChangeClientGate ? (
+                    <ClientApprovalToggle
+                      orgSlug={orgSlug}
+                      workspaceId={workspace.id}
+                      workspaceName={workspace.name}
+                      requiresClientApproval={workspace.requiresClientApproval}
+                    />
+                  ) : null}
+
                   {workspace.brands.length === 0 ? (
                     <p className="text-sm text-ink-muted">
                       No brands yet. A brand is what social accounts and posts belong to.

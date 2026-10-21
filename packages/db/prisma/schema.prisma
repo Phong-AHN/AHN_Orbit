@@ -347,6 +347,14 @@ model Workspace {
   status            WorkspaceStatus @default(ACTIVE)
   /// Per-workspace toggle for whether clients may upload assets (RBAC.md O2).
   clientUploadsEnabled Boolean      @default(false)
+  /// Whether this workspace has a client who approves posts (**D-106**).
+  ///
+  /// `true` for a client workspace, and the default, so a workspace is never
+  /// silently without its client gate. `false` for an agency's own accounts,
+  /// where there is no client to wait for: the gate is skipped and a post's
+  /// author may approve and schedule their own work. Combined with
+  /// `Post.approvalRequired` — client approval applies only when *both* hold.
+  requiresClientApproval Boolean    @default(true)
   createdAt         DateTime        @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime        @updatedAt @db.Timestamptz(3)
   deletedAt         DateTime?       @db.Timestamptz(3)

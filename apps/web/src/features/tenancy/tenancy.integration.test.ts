@@ -176,6 +176,55 @@ describe('workspaces', () => {
   });
 });
 
+describe('whether a workspace has a client (D-106)', () => {
+  it('defaults a new workspace to having a client', async () => {
+    expect((await getWorkspace(ctxAOwner, workspaceA)).requiresClientApproval).toBe(true);
+  });
+
+  /**
+   * The Account Manager holds `workspace:update` for this workspace and may
+   * rename it — but switching its client off lets every author approve their
+   * own posts, which is an organization's decision, not a workspace's.
+   */
+  it('refuses an Account Manager, even on a workspace they manage', async () => {
+    await expect(
+      updateWorkspace(ctxAManager, workspaceA, { requiresClientApproval: false }, fingerprint),
+    ).rejects.toThrow(ForbiddenError);
+
+    // Bundled with an edit they may make, the whole request is still refused.
+    await expect(
+      updateWorkspace(
+        ctxAManager,
+        workspaceA,
+        { name: 'Renamed by manager', requiresClientApproval: false },
+        fingerprint,
+      ),
+    ).rejects.toThrow(ForbiddenError);
+
+    const row = await platformDb.workspace.findUniqueOrThrow({ where: { id: workspaceA } });
+    expect(row.requiresClientApproval).toBe(true);
+    expect(row.name).toBe('Client Alpha');
+  });
+
+  it('still lets the Account Manager make an ordinary edit', async () => {
+    await updateWorkspace(ctxAManager, workspaceA, { name: 'Client Alpha' }, fingerprint);
+  });
+
+  it('lets the Owner change it, and records what it was', async () => {
+    await updateWorkspace(ctxAOwner, workspaceA, { requiresClientApproval: false }, fingerprint);
+    expect((await getWorkspace(ctxAOwner, workspaceA)).requiresClientApproval).toBe(false);
+
+    const entry = await platformDb.auditLog.findFirstOrThrow({
+      where: { organizationId: A.org, action: 'workspace.updated', resourceId: workspaceA },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(entry.before).toMatchObject({ requiresClientApproval: true });
+    expect(entry.after).toMatchObject({ requiresClientApproval: false });
+
+    await updateWorkspace(ctxAOwner, workspaceA, { requiresClientApproval: true }, fingerprint);
+  });
+});
+
 describe('brands', () => {
   it('refuses to create a brand under another tenant’s workspace', async () => {
     await expect(

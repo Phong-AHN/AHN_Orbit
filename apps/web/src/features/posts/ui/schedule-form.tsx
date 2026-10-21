@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Button, Field, Input } from '@orbit/ui';
+import { Button, Field, Input, useToast } from '@orbit/ui';
 import { ApiError, apiRequest } from './api';
 
 /**
@@ -27,6 +27,23 @@ export interface ScheduleFormProps {
   timezone: string;
   disabled?: boolean;
   onScheduled: () => void;
+  /**
+   * Approve this open internal review first, then schedule — one step for an
+   * internal workspace, where nobody else reviews (**D-106**).
+   *
+   * Two calls to the two endpoints that already exist, in order, rather than a
+   * third endpoint that does both. Each still asks the state machine on its
+   * own, so this is a shortcut through the UI and never one through the rules:
+   * whoever may not approve, or may not schedule, is refused exactly as they
+   * would be doing it in two clicks. The approval goes through the decision
+   * endpoint so it is recorded as a decision, with its decider, rather than
+   * voided as a generic transition would.
+   *
+   * The two are not atomic. If the approval lands and the schedule does not,
+   * the post stays approved — that is a real state, and the ordinary Schedule
+   * control is what the page then offers.
+   */
+  approvalId?: string;
 }
 
 export function ScheduleForm({
@@ -35,7 +52,9 @@ export function ScheduleForm({
   timezone,
   disabled,
   onScheduled,
+  approvalId,
 }: ScheduleFormProps) {
+  const toast = useToast();
   const [open, setOpen] = React.useState(false);
   const [date, setDate] = React.useState('');
   const [time, setTime] = React.useState('09:00');
@@ -44,8 +63,13 @@ export function ScheduleForm({
 
   if (!open) {
     return (
-      <Button className="w-full" disabled={disabled} onClick={() => setOpen(true)}>
-        Schedule
+      <Button
+        className="w-full"
+        variant={approvalId ? 'secondary' : 'primary'}
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+      >
+        {approvalId ? 'Approve & schedule' : 'Schedule'}
       </Button>
     );
   }
@@ -57,9 +81,26 @@ export function ScheduleForm({
 
     const [year, month, day] = date.split('-').map(Number);
     const [hour, minute] = time.split(':').map(Number);
+    const base = `/api/v1/orgs/${encodeURIComponent(orgSlug)}`;
+
+    if (approvalId) {
+      try {
+        await apiRequest(`${base}/approvals/${encodeURIComponent(approvalId)}/decide`, {
+          method: 'POST',
+          body: JSON.stringify({ decision: 'APPROVED' }),
+        });
+      } catch (e) {
+        // Nothing has changed yet, so the form stays open to try again.
+        setError(
+          e instanceof ApiError ? e.message : 'We could not approve this. Please try again.',
+        );
+        setBusy(false);
+        return;
+      }
+    }
 
     try {
-      await apiRequest(`/api/v1/orgs/${encodeURIComponent(orgSlug)}/posts/${postId}/schedule`, {
+      await apiRequest(`${base}/posts/${postId}/schedule`, {
         method: 'POST',
         body: JSON.stringify({
           localTime: { year, month, day, hour, minute },
@@ -70,11 +111,23 @@ export function ScheduleForm({
       setBusy(false);
       onScheduled();
     } catch (e) {
-      setError(
+      const message =
         e instanceof ApiError
           ? e.message
-          : 'We could not schedule this. Please try again in a moment.',
-      );
+          : 'We could not schedule this. Please try again in a moment.';
+
+      if (approvalId) {
+        // Half done, and said so: the approval stands, and the page is about
+        // to swap this form for the ordinary Schedule control. An error left
+        // in this form would vanish with it.
+        toast.show(`Approved, but not scheduled: ${message}`, 'danger');
+        setOpen(false);
+        setBusy(false);
+        onScheduled();
+        return;
+      }
+
+      setError(message);
       setBusy(false);
     }
   }
@@ -117,7 +170,7 @@ export function ScheduleForm({
 
       <div className="flex gap-2">
         <Button type="submit" size="sm" loading={busy} disabled={busy || !date || !time}>
-          Schedule
+          {approvalId ? 'Approve & schedule' : 'Schedule'}
         </Button>
         <Button
           type="button"

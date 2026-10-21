@@ -8,7 +8,12 @@ import {
   type UserPrincipal,
 } from '@orbit/core';
 import { isPermission } from './permissions.js';
-import { allowedTransitions, assertTransitionAllowed, canTransition } from './transitions.js';
+import {
+  allowedTransitions,
+  assertTransitionAllowed,
+  authorMayFinish,
+  canTransition,
+} from './transitions.js';
 
 const WS = '018f0000-0000-7000-8000-0000000000w1';
 const BRAND = '018f0000-0000-7000-8000-0000000000b1';
@@ -144,5 +149,102 @@ describe('allowedTransitions', () => {
     const owner = ctx({ organizationRole: 'OWNER' });
     expect(allowedTransitions(owner, 'PUBLISHED', resource)).toEqual([]);
     expect(allowedTransitions(owner, 'CANCELED', resource)).toEqual([]);
+  });
+});
+
+/**
+ * An author may finish their own post in a workspace with no client (D-106).
+ *
+ * Every test below except the first two is a refusal, on purpose. The rule
+ * widens what a Content Creator may do, so the cases that matter most are the
+ * ones where one of its four conditions is missing and it must not apply.
+ */
+describe('an author finishing their own post in an internal workspace', () => {
+  const creator = ctx({ organizationRole: 'CONTENT_CREATOR' });
+  const internal = { ...resource, requiresClientApproval: false };
+  const OTHER = '018f0000-0000-7000-8000-0000000000u2';
+
+  it('lets the author approve their own post', () => {
+    expect(canTransition(creator, 'INTERNAL_REVIEW', 'APPROVED', internal)).toBe(true);
+  });
+
+  /** Approval alone would leave the post waiting on someone who can schedule. */
+  it('lets the author schedule what they approved', () => {
+    expect(canTransition(creator, 'APPROVED', 'SCHEDULED', internal)).toBe(true);
+  });
+
+  it('offers the author the Approve button', () => {
+    expect(allowedTransitions(creator, 'INTERNAL_REVIEW', internal)).toContain('APPROVED');
+  });
+
+  /** A client workspace keeps its separation of duties exactly as before. */
+  it('does nothing in a workspace that has a client', () => {
+    const client = { ...resource, requiresClientApproval: true };
+    expect(canTransition(creator, 'INTERNAL_REVIEW', 'APPROVED', client)).toBe(false);
+    expect(canTransition(creator, 'APPROVED', 'SCHEDULED', client)).toBe(false);
+  });
+
+  /** A caller that forgets the flag must get the ordinary grants, never wider. */
+  it('does nothing when the flag is not passed at all', () => {
+    expect(canTransition(creator, 'INTERNAL_REVIEW', 'APPROVED', resource)).toBe(false);
+  });
+
+  it('does nothing for somebody else’s post', () => {
+    const theirs = { ...internal, createdById: OTHER };
+    expect(canTransition(creator, 'INTERNAL_REVIEW', 'APPROVED', theirs)).toBe(false);
+  });
+
+  /** Someone who has left the workspace cannot keep approving their old posts. */
+  it('does nothing for an author no longer in the workspace', () => {
+    const departed = ctx({ organizationRole: 'CONTENT_CREATOR', workspaces: [] });
+    expect(canTransition(departed, 'INTERNAL_REVIEW', 'APPROVED', internal)).toBe(false);
+  });
+
+  /**
+   * Exactly two moves. Not sending to a client who does not exist, and not
+   * anything that is not already in the table.
+   */
+  it('grants no move beyond approving and scheduling', () => {
+    expect(canTransition(creator, 'INTERNAL_REVIEW', 'CLIENT_REVIEW', internal)).toBe(false);
+    expect(canTransition(creator, 'CLIENT_REVIEW', 'APPROVED', internal)).toBe(false);
+  });
+
+  /** The machine still rules first: a move that does not exist stays a 409. */
+  it('cannot unlock a transition the machine does not have', () => {
+    expect(() => assertTransitionAllowed(creator, 'DRAFT', 'SCHEDULED', internal)).toThrow(
+      InvalidStateTransitionError,
+    );
+  });
+
+  it('refuses with the ordinary 403 when it does not apply', () => {
+    expect(() =>
+      assertTransitionAllowed(creator, 'INTERNAL_REVIEW', 'APPROVED', {
+        ...internal,
+        createdById: OTHER,
+      }),
+    ).toThrow(ForbiddenError);
+  });
+});
+
+/**
+ * The author check is load-bearing even though the OWN anchor overlaps it today.
+ *
+ * An Account Manager's submit grant is workspace-wide, so their anchor passes for
+ * any post in the workspace. Without the author check, the rule would let them
+ * "finish" a post they did not write. They hold `approve_internal` anyway, so the
+ * public API cannot show the difference — which is exactly why this asks the
+ * rule directly: it is the case a future grant change would expose.
+ */
+describe('authorMayFinish, asked directly', () => {
+  const manager = ctx({ organizationRole: 'ACCOUNT_MANAGER' });
+  const internal = { ...resource, requiresClientApproval: false };
+
+  it('holds for the author', () => {
+    expect(authorMayFinish(manager, 'INTERNAL_REVIEW', 'APPROVED', internal)).toBe(true);
+  });
+
+  it('refuses a broad submitter who did not write the post', () => {
+    const theirs = { ...internal, createdById: '018f0000-0000-7000-8000-0000000000u9' };
+    expect(authorMayFinish(manager, 'INTERNAL_REVIEW', 'APPROVED', theirs)).toBe(false);
   });
 });

@@ -4,6 +4,7 @@ import { POST_STATUSES } from './enums.js';
 import {
   APPROVAL_DECISIONS,
   assertAnswersCurrentGate,
+  clientApprovalRequired,
   stageForStatus,
   statusAfterDecision,
 } from './approvals.js';
@@ -92,5 +93,29 @@ describe('assertAnswersCurrentGate', () => {
         assertAnswersCurrentGate('INTERNAL_REVIEW', 'INTERNAL', state);
       }).toThrow(InvalidStateTransitionError);
     }
+  });
+});
+
+/**
+ * Client approval applies only when the workspace has a client *and* the post
+ * has not been exempted. An internal workspace must never wait on a client —
+ * reading the post's flag alone was how an internal post would stall at
+ * CLIENT_REVIEW for a client who does not exist.
+ */
+describe('clientApprovalRequired', () => {
+  it.each([
+    [true, true, true],
+    // A client workspace, this post on standing approval (D-018).
+    [true, false, false],
+    // An agency's own workspace: no client, whatever the post says (D-106).
+    [false, true, false],
+    [false, false, false],
+  ])('workspace %s · post %s → %s', (workspace, post, expected) => {
+    expect(
+      clientApprovalRequired({
+        workspaceRequiresClientApproval: workspace,
+        postApprovalRequired: post,
+      }),
+    ).toBe(expected);
   });
 });

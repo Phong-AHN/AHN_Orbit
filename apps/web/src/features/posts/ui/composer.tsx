@@ -74,6 +74,12 @@ export interface ComposerProps {
   workspaceTimezone: string;
   /** Owner, Admin and Account Manager only (docs/RBAC.md §4.4). */
   canPublishNow: boolean;
+  /**
+   * The open internal review, when this principal may both approve it and
+   * schedule the result — an internal workspace (**D-106**). Offers the
+   * one-step "Approve & schedule"; `null` everywhere else.
+   */
+  approveAndSchedule: { approvalId: string } | null;
   /** Team members who can own this post; empty when the viewer cannot see them. */
   members: Array<{ id: string; name: string | null; email: string }>;
   canAssign: boolean;
@@ -269,6 +275,23 @@ export function Composer(props: ComposerProps) {
     },
   );
 
+  /**
+   * Each target platform's attachment limit, for the panel's counter.
+   *
+   * Resolved the same way as `mediaRequirements` above, so the two can never
+   * disagree about which platforms a post targets. Display only: the counter
+   * says "8 / 10" and changes colour, and `/validate` still decides.
+   */
+  const attachmentLimits = [...new Set(post.variants.map((v) => v.platform))].flatMap(
+    (platform) => {
+      const cap =
+        props.capabilities[capabilityKey(platform, null)] ??
+        Object.values(props.capabilities).find((c) => c.platform === platform);
+
+      return cap ? [{ platform, max: cap.maxAttachments }] : [];
+    },
+  );
+
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
       <div className="space-y-6">
@@ -373,6 +396,7 @@ export function Composer(props: ComposerProps) {
           brandId={post.brandId}
           items={media}
           disabled={readOnly || busy}
+          limits={attachmentLimits}
           onChange={(next) => {
             void saveMedia(next);
           }}
@@ -381,11 +405,7 @@ export function Composer(props: ComposerProps) {
         {/* Directly under the files, because a requirement is only useful next
             to the thing it applies to. The server's media verdicts land here
             too — pinned to the attachment the engine named. */}
-        <MediaRequirements
-          media={media}
-          requirements={mediaRequirements}
-          validation={validation}
-        />
+        <MediaRequirements media={media} requirements={mediaRequirements} validation={validation} />
 
         <AccountPicker
           accounts={props.accounts}
@@ -454,6 +474,7 @@ export function Composer(props: ComposerProps) {
           postId={post.id}
           workspaceTimezone={props.workspaceTimezone}
           canPublishNow={props.canPublishNow}
+          approveAndSchedule={props.approveAndSchedule}
           accountCount={post.variants.length}
           onScheduled={() => {
             void refreshPost();
@@ -960,6 +981,7 @@ function TransitionPanel({
   postId,
   workspaceTimezone,
   canPublishNow,
+  approveAndSchedule,
   accountCount,
   onScheduled,
   transitions,
@@ -971,6 +993,7 @@ function TransitionPanel({
   postId: string;
   workspaceTimezone: string;
   canPublishNow: boolean;
+  approveAndSchedule: { approvalId: string } | null;
   accountCount: number;
   onScheduled: () => void;
   transitions: PostStatus[];
@@ -1033,17 +1056,30 @@ function TransitionPanel({
               ) : null}
             </div>
           ) : (
-            <Button
-              key={to}
-              className="w-full"
-              variant={index === 0 ? 'primary' : 'secondary'}
-              disabled={busy || (blocked && forward.has(to))}
-              onClick={() => {
-                onTransition(to);
-              }}
-            >
-              {transitionLabel(to)}
-            </Button>
+            <React.Fragment key={to}>
+              <Button
+                className="w-full"
+                variant={index === 0 ? 'primary' : 'secondary'}
+                disabled={busy || (blocked && forward.has(to))}
+                onClick={() => {
+                  onTransition(to);
+                }}
+              >
+                {transitionLabel(to)}
+              </Button>
+              {/* Beside "Approve", not instead of it: approving now and
+                  choosing a time later is still a reasonable thing to do. */}
+              {to === 'APPROVED' && approveAndSchedule ? (
+                <ScheduleForm
+                  orgSlug={orgSlug}
+                  postId={postId}
+                  timezone={workspaceTimezone}
+                  disabled={busy || blocked}
+                  onScheduled={onScheduled}
+                  approvalId={approveAndSchedule.approvalId}
+                />
+              ) : null}
+            </React.Fragment>
           ),
         )}
 

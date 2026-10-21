@@ -15,6 +15,7 @@ import { CreateBucketCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { ensureProvidersRegistered } from '@/server/providers';
 import { completeMediaUpload, presignMediaUpload } from '../media/service';
 import { createPost, getPost, transitionPost, updatePost } from '../posts/service';
+import { schedulePost } from '../scheduling/service';
 import {
   createComment,
   deleteComment,
@@ -234,6 +235,11 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  // Every test starts in a client workspace; the D-106 block opts out per test.
+  await platformDb.workspace.update({
+    where: { id: WS_A },
+    data: { requiresClientApproval: true },
+  });
   await platformDb.comment.deleteMany({ where: { organizationId: { in: [ORG_A, ORG_B] } } });
   await platformDb.approval.deleteMany({ where: { organizationId: { in: [ORG_A, ORG_B] } } });
   await platformDb.postMedia.deleteMany({ where: { organizationId: { in: [ORG_A, ORG_B] } } });
@@ -449,6 +455,142 @@ describe('the client gate', () => {
 
     const result = await transitionPost(ownerA, postId, 'APPROVED', fingerprint);
     expect(result.status).toBe('APPROVED');
+  });
+});
+
+// ── Internal workspaces (D-106) ─────────────────────────────────────────────
+
+/**
+ * A workspace with no client: the author may approve and schedule their own
+ * post. What these prove beyond the unit tests is that the flag is read from
+ * the database on every path that decides — the generic transition, the
+ * decision endpoint and scheduling — and that nothing else loosens with it.
+ */
+describe('an internal workspace', () => {
+  const internal = () =>
+    platformDb.workspace.update({ where: { id: WS_A }, data: { requiresClientApproval: false } });
+
+  // Comfortably in the future whatever the test clock says.
+  const later = { localTime: { year: 2030, month: 6, day: 1, hour: 9, minute: 0 } };
+
+  it('lets the author approve their own post through the decision, recorded as theirs', async () => {
+    await internal();
+    // Post-level flag left on: the workspace alone switches the client off.
+    const postId = await publishablePost({ ctx: creatorA, clientGate: true });
+    await transitionPost(creatorA, postId, 'INTERNAL_REVIEW', fingerprint);
+
+    const gate = await pendingGate(ownerA, postId);
+    const result = await decideApproval(creatorA, gate.id, { decision: 'APPROVED' }, fingerprint);
+
+    expect(result.post.status).toBe('APPROVED');
+    const approvals = await listApprovalsForPost(ownerA, postId);
+    expect(approvals[0]).toMatchObject({ state: 'APPROVED', decidedById: CREATOR_A });
+  });
+
+  it('lets the author schedule their own approved post', async () => {
+    await internal();
+    const postId = await publishablePost({ ctx: creatorA, clientGate: true });
+    await transitionPost(creatorA, postId, 'INTERNAL_REVIEW', fingerprint);
+    await transitionPost(creatorA, postId, 'APPROVED', fingerprint);
+
+    await schedulePost(creatorA, postId, later, fingerprint);
+
+    expect((await getPost(ownerA, postId)).status).toBe('SCHEDULED');
+  });
+
+  it('sends an Owner approval straight to APPROVED, not to a client', async () => {
+    await internal();
+    const postId = await publishablePost({ clientGate: true });
+    await transitionPost(ownerA, postId, 'INTERNAL_REVIEW', fingerprint);
+
+    const gate = await pendingGate(ownerA, postId);
+    const result = await decideApproval(ownerA, gate.id, { decision: 'APPROVED' }, fingerprint);
+
+    expect(result.post.status).toBe('APPROVED');
+  });
+
+  it('does not let the author approve somebody else’s post', async () => {
+    await internal();
+    const postId = await publishablePost({ clientGate: true });
+    await transitionPost(ownerA, postId, 'INTERNAL_REVIEW', fingerprint);
+
+    const gate = await pendingGate(ownerA, postId);
+    await expect(
+      decideApproval(creatorA, gate.id, { decision: 'APPROVED' }, fingerprint),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect((await getPost(ownerA, postId)).status).toBe('INTERNAL_REVIEW');
+  });
+
+  it('does not let the author schedule somebody else’s approved post', async () => {
+    await internal();
+    const postId = await publishablePost({ clientGate: true });
+    await transitionPost(ownerA, postId, 'INTERNAL_REVIEW', fingerprint);
+    await transitionPost(ownerA, postId, 'APPROVED', fingerprint);
+
+    await expect(schedulePost(creatorA, postId, later, fingerprint)).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    expect((await getPost(ownerA, postId)).status).toBe('APPROVED');
+  });
+});
+
+describe('a client workspace', () => {
+  /**
+   * The rule reads the workspace, not the post. A post that happens not to
+   * need the client still gives its author nothing: the shortcut exists for
+   * workspaces with no client at all, and nowhere else.
+   */
+  it('refuses the author their own approval even when the post skips the client', async () => {
+    const postId = await publishablePost({ ctx: creatorA, clientGate: false });
+    await transitionPost(creatorA, postId, 'INTERNAL_REVIEW', fingerprint);
+
+    const gate = await pendingGate(ownerA, postId);
+    await expect(
+      decideApproval(creatorA, gate.id, { decision: 'APPROVED' }, fingerprint),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(transitionPost(creatorA, postId, 'APPROVED', fingerprint)).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    expect((await getPost(ownerA, postId)).status).toBe('INTERNAL_REVIEW');
+  });
+
+  it('refuses the author scheduling their own approved post', async () => {
+    const postId = await publishablePost({ ctx: creatorA, clientGate: false });
+    await transitionPost(creatorA, postId, 'INTERNAL_REVIEW', fingerprint);
+    await transitionPost(ownerA, postId, 'APPROVED', fingerprint);
+
+    await expect(
+      schedulePost(
+        creatorA,
+        postId,
+        { localTime: { year: 2030, month: 6, day: 1, hour: 9, minute: 0 } },
+        fingerprint,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});
+
+describe('the per-post client flag', () => {
+  /**
+   * Turning it off is an approval decision, so it takes an approver. Before
+   * D-106 an author could PATCH it off on their own draft and then approve
+   * the post past the client the moment anyone with approve rights clicked.
+   */
+  it('refuses the author changing it on their own post', async () => {
+    const postId = await publishablePost({ ctx: creatorA, clientGate: true });
+
+    await expect(
+      updatePost(creatorA, postId, { approvalRequired: false }, fingerprint),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    expect((await getPost(ownerA, postId)).approvalRequired).toBe(true);
+  });
+
+  it('still lets the author edit the rest of the post', async () => {
+    const postId = await publishablePost({ ctx: creatorA, clientGate: true });
+
+    // Sending the value it already has is not a change, and is not refused.
+    await updatePost(creatorA, postId, { title: 'Renamed', approvalRequired: true }, fingerprint);
+    expect((await getPost(ownerA, postId)).title).toBe('Renamed');
   });
 });
 

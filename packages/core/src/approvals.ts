@@ -46,6 +46,29 @@ export function stageForStatus(status: PostStatus): ApprovalStage | null {
  * docs/RBAC.md §5 records the same rule: `INTERNAL_REVIEW → APPROVED` is for
  * Acct Mgr, Admin and Owner *when client approval is not required*.
  */
+/**
+ * Whether a post must be approved by its client — the one place this is decided.
+ *
+ * Two flags, and client approval applies only when **both** hold:
+ *
+ * - `Workspace.requiresClientApproval` — does this workspace *have* a client
+ *   who approves? `false` for an agency's own accounts (**D-106**).
+ * - `Post.approvalRequired` — within a client workspace, does *this* post need
+ *   the client? `false` for work on standing approval (**D-018**).
+ *
+ * An internal workspace therefore never waits on a client, whatever an
+ * individual post says; a client workspace waits unless that one post was
+ * deliberately exempted. Every caller asks here rather than reading either flag
+ * alone — reading only the post's was how an internal post would have stalled
+ * at CLIENT_REVIEW waiting for a client who does not exist.
+ */
+export function clientApprovalRequired(input: {
+  workspaceRequiresClientApproval: boolean;
+  postApprovalRequired: boolean;
+}): boolean {
+  return input.workspaceRequiresClientApproval && input.postApprovalRequired;
+}
+
 export function statusAfterDecision(
   stage: ApprovalStage,
   decision: ApprovalDecision,

@@ -1,7 +1,14 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { clock, isAppError, isEditLocked, isUserPrincipal } from '@orbit/core';
-import { allowedTransitions } from '@orbit/rbac';
+import {
+  clientApprovalRequired,
+  clock,
+  isAppError,
+  isEditLocked,
+  isUserPrincipal,
+  statusAfterDecision,
+} from '@orbit/core';
+import { allowedTransitions, canTransition } from '@orbit/rbac';
 import { Badge, Card, CardBody, PageHeader, PermissionDenied } from '@orbit/ui';
 import { pageCan, requirePageContext } from '@/server/page-context';
 import { ensureProvidersRegistered } from '@/server/providers';
@@ -67,7 +74,17 @@ export default async function ComposerPage({ params }: PageProps) {
     brandId: post.brandId,
     createdById: post.createdById,
     status: post.status,
+    // Read only by the author-may-finish rule (D-106), so the buttons below
+    // offer an author their own approve and schedule in an internal workspace.
+    requiresClientApproval: post.workspace.requiresClientApproval,
   };
+
+  // Whether this post must go to its client — the workspace and the post
+  // together, asked in the one place it is decided.
+  const clientGate = clientApprovalRequired({
+    workspaceRequiresClientApproval: post.workspace.requiresClientApproval,
+    postApprovalRequired: post.approvalRequired,
+  });
 
   if (!pageCan(ctx, 'post:read', scope)) {
     return (
@@ -105,17 +122,35 @@ export default async function ComposerPage({ params }: PageProps) {
   const history = serialiseApprovals(await listApprovalsForPost(ctx, post.id));
   const pending = history.find((a) => a.state === 'PENDING') ?? null;
 
-  const decisionPermission = pending
-    ? pending.stage === 'CLIENT'
-      ? 'post:approve_client'
-      : post.approvalRequired
-        ? 'post:submit_client_review'
-        : 'post:approve_internal'
+  /**
+   * Asked the way the decision endpoint asks it.
+   *
+   * The endpoint does not check a permission by name: it works out where an
+   * approval would move the post and asks the state machine whether this
+   * principal may make *that* move. This used to look a permission up by name
+   * instead, which agreed with the server only as long as nothing but the
+   * permission decided — and the author finishing their own internal post
+   * (D-106) is decided by more than that, so the button would have been missing
+   * for exactly the person the rule exists for.
+   */
+  const decisionTarget = pending
+    ? statusAfterDecision(pending.stage, 'APPROVED', clientGate)
     : null;
 
   const canDecide =
-    decisionPermission !== null &&
-    pageCan(ctx, decisionPermission, { ...scope, intent: 'TRANSITION' });
+    decisionTarget !== null && canTransition(ctx, post.status, decisionTarget, scope);
+
+  // One step for an internal workspace: approve the open internal review and
+  // schedule it (D-106). Both halves are asked here the way their endpoints
+  // will ask them, and both endpoints ask again.
+  const approveAndSchedule =
+    pending !== null &&
+    pending.stage === 'INTERNAL' &&
+    decisionTarget === 'APPROVED' &&
+    canDecide &&
+    canTransition(ctx, 'APPROVED', 'SCHEDULED', { ...scope, status: 'APPROVED' })
+      ? { approvalId: pending.id }
+      : null;
 
   // Relaying a client's decision is an internal-role act by definition.
   const canDecideOnBehalf =
@@ -186,12 +221,18 @@ export default async function ComposerPage({ params }: PageProps) {
             status: a.status,
           }))}
           capabilities={capabilities}
-          allowedTransitions={allowedTransitions(ctx, post.status, scope)}
+          allowedTransitions={allowedTransitions(ctx, post.status, scope).filter(
+            // Approving internally while the client gate applies is refused by
+            // the server with a 409. Offering the button anyway was a click
+            // that could only fail; the way on is "Send to client".
+            (to) => !(post.status === 'INTERNAL_REVIEW' && to === 'APPROVED' && clientGate),
+          )}
           canEdit={pageCan(ctx, 'post:update', scope)}
           canDelete={pageCan(ctx, 'post:delete', scope)}
           editLocked={isEditLocked(post.status)}
           workspaceTimezone={post.workspace.timezone}
           canPublishNow={pageCan(ctx, 'post:publish_now', scope)}
+          approveAndSchedule={approveAndSchedule}
           members={team}
           canAssign={pageCan(ctx, 'post:assign', scope)}
           canUseAI={pageCan(ctx, 'ai:generate', scope)}

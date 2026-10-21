@@ -6,6 +6,7 @@ import {
   type TenantContext,
 } from '@orbit/core';
 import { platformDb, withTenant, type TenantDb } from '@orbit/db';
+import { assertCan } from '@orbit/rbac';
 import { audit, type AuditInput } from '@/server/audit';
 import { uniqueSlug } from '@/server/slug';
 import type { CreateBrandInput, CreateOrganizationInput, CreateWorkspaceInput } from './contracts';
@@ -224,6 +225,7 @@ export async function listWorkspacesWithBrands(
         timezone: true,
         status: true,
         clientCompanyName: true,
+        requiresClientApproval: true,
         brands: {
           where: { deletedAt: null },
           select: {
@@ -308,6 +310,7 @@ export async function getWorkspace(ctx: TenantContext, workspaceId: string) {
         status: true,
         clientCompanyName: true,
         clientUploadsEnabled: true,
+        requiresClientApproval: true,
         brands: {
           where: { deletedAt: null },
           select: { id: true, name: true, slug: true, logoUrl: true },
@@ -321,16 +324,45 @@ export async function getWorkspace(ctx: TenantContext, workspaceId: string) {
   });
 }
 
+/**
+ * Changing whether a workspace has a client who approves is an **org-level**
+ * decision, not a workspace one (**D-106**).
+ *
+ * The route already requires `workspace:update` for *this* workspace, which an
+ * Account Manager holds for the workspaces they run. That is the right gate for
+ * a name or a timezone and the wrong one here: switching the client gate off
+ * lets every post's author approve and schedule their own work, with no client
+ * ever seeing it. An Account Manager may still approve on a client's behalf —
+ * one post at a time, with a reason, in the audit log — but turning the client
+ * off for a whole workspace is a different act, and it belongs to the people
+ * who answer for the organization.
+ *
+ * Checked with an empty resource on purpose: a workspace-scoped grant asked
+ * without a workspace answers no, so only an `ORG` grant (the Owner) or an
+ * org-wide role (Owner, Admin) passes.
+ */
+function assertMayChangeClientGate(ctx: TenantContext): void {
+  assertCan(ctx, 'workspace:update', {});
+}
+
 export async function updateWorkspace(
   ctx: TenantContext,
   workspaceId: string,
   patch: Record<string, unknown>,
   fingerprint: Pick<AuditInput, 'ip' | 'userAgent'>,
 ) {
+  if (patch.requiresClientApproval !== undefined) assertMayChangeClientGate(ctx);
+
   return withTenant(ctx, async (db) => {
     const before = await db.workspace.findFirst({
       where: { id: workspaceId, deletedAt: null },
-      select: { name: true, timezone: true, status: true, clientUploadsEnabled: true },
+      select: {
+        name: true,
+        timezone: true,
+        status: true,
+        clientUploadsEnabled: true,
+        requiresClientApproval: true,
+      },
     });
     if (!before) throw new NotFoundError('Workspace');
 

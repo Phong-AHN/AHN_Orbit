@@ -15,13 +15,21 @@ type Params = { orgSlug: string; postId: string };
 /**
  * Schedule an approved post.
  *
- * `post:schedule` is checked here *and* by the state machine inside
- * `transitionPost` — the route's check keeps the failure a clean 403 before any
- * scheduling work happens, and the machine's is the one that actually decides.
+ * No `permission` is declared here, for the reason `DELETE` below declares none:
+ * the state machine names the right that applies and enforces it inside
+ * `transitionPost`.
+ *
+ * This route used to also check `post:schedule` itself, as a cheaper early 403.
+ * That stopped being equivalent with **D-106**: an author may schedule their own
+ * post in a workspace with no client, and only the machine knows the workspace
+ * and the author — so the route's coarse check refused the very person the
+ * rule exists for, before the rule was ever reached. Nothing is weakened by
+ * removing it: `schedulePost` writes only inside the transition's transaction,
+ * after the machine has authorised it, and an unauthorised caller still gets a
+ * 403 from the same check, a moment later.
  */
 export const POST = withAuth<Params>(
   {
-    permission: 'post:schedule',
     resource: postResourceScope,
     name: 'POST /api/v1/orgs/{orgSlug}/posts/{postId}/schedule',
   },

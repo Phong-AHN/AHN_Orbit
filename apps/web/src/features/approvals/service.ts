@@ -5,6 +5,7 @@ import {
   ValidationError,
   accessibleWorkspaceIds,
   assertAnswersCurrentGate,
+  clientApprovalRequired,
   isUserPrincipal,
   statusAfterDecision,
   type ApprovalDecision,
@@ -37,6 +38,9 @@ const POST_FOR_DECISION = {
   createdById: true,
   approvalRequired: true,
   deletedAt: true,
+  // Whether there is a client at all (D-106). The post's own flag is not the
+  // answer by itself: an internal workspace never sends anything to a client.
+  workspace: { select: { requiresClientApproval: true } },
 } as const;
 
 export interface DecideApprovalInput {
@@ -100,7 +104,14 @@ export async function decideApproval(
     assertMayActOnBehalfOfClient(ctx, approval.stage);
   }
 
-  const to = statusAfterDecision(approval.stage, input.decision, post.approvalRequired);
+  const to = statusAfterDecision(
+    approval.stage,
+    input.decision,
+    clientApprovalRequired({
+      workspaceRequiresClientApproval: post.workspace.requiresClientApproval,
+      postApprovalRequired: post.approvalRequired,
+    }),
+  );
 
   // `transitionPost` enforces the machine, the permission and the validation,
   // and only then runs the callback — so the decision row is written in the

@@ -3927,6 +3927,87 @@ time ago (**the docstring says "full stop"**) and the test suite never noticed.
 
 ---
 
+## D-106 — A workspace with no client, and an author who may finish their own post
+
+Asked by the agency's own team: posts for AHN's own accounts have no client, so
+why do they wait in the same approval chain as a client's?
+
+### What was actually true before
+
+Worth recording, because the first answer given was wrong. The client gate
+(**D-018**) is per post, `Post.approvalRequired`, default `true`, and nothing in
+the UI ever offered to turn it off. So every post, internal or not, went
+internal review → client review → approved. The only escape was a `PATCH` to
+the API — and that escape was **open to the post's author**: `post:update`
+(OWN) was the only check on the field. A Content Creator could switch the client
+off on their own draft, and the next internal approval would skip the client.
+That hole is closed below, separately from the feature.
+
+### Decision
+
+- **`Workspace.requiresClientApproval`**, default `true`. The effective gate is
+  `clientApprovalRequired({ workspace, post })` — both must want the client —
+  and it is asked in exactly one place each by `transitionPost` (the D-018
+  guard) and `decideApproval` (`statusAfterDecision`).
+- **In a workspace with no client, the post's author may approve and schedule
+  it themselves** — `INTERNAL_REVIEW → APPROVED` and `APPROVED → SCHEDULED`,
+  nothing else. Not publish-now, not anybody else's post, not a workspace with a
+  client. The rule is `authorMayFinish` in `packages/rbac/src/transitions.ts`,
+  consulted by `assertTransitionAllowed` *before* the permission check, so it
+  is the same single enforcement point every transition already goes through
+  rather than a second state machine. All five of its conditions are
+  sabotage-tested; the "is the author" check needed a direct test with a
+  workspace-scoped principal, because a Creator's OWN-scoped grant masked it.
+- **Only an explicit `false` grants anything.** A resource scope that omits
+  `requiresClientApproval` gets the client workspace's rules.
+- **Turning the client off is org-level.** `PATCH /workspaces/{id}` already
+  requires `workspace:update` for that workspace, which an Account Manager has.
+  The flag additionally requires it with an *empty* resource, which only an
+  `ORG` grant or an org-wide role (Owner, Admin) satisfies. An Account Manager
+  may still record a client's decision on their behalf — one post, with a
+  reason, audited — but switching the client off for a whole workspace removes
+  the client from every post at once, and that belongs to the people who answer
+  for the organization.
+- **Changing `Post.approvalRequired` now requires `post:approve_internal`.**
+  The hole above. Sending the value it already has is not a change and is not
+  refused. No screen sends the field today; the check is for the API.
+
+### Smaller changes that came with it
+
+- **`POST /posts/{id}/schedule` no longer declares `post:schedule`.** The
+  machine decides, as it already did for `DELETE` on the same route. A
+  route-level permission would have refused the author before the machine was
+  asked. `schedulePost` writes only inside `transitionPost`'s `onTransition`,
+  so nothing changes before the machine has agreed.
+- **The post page asks the machine whether the viewer may decide**, rather than
+  looking a permission up by name. It previously agreed with the server only as
+  long as nothing but a permission decided.
+- **An "Approve" button that could only fail is gone.** At `INTERNAL_REVIEW`
+  with the client gate on, the generic transition list offered `APPROVED`, which
+  the server refuses with a 409. Pre-existing; found while working on this.
+- **"Approve & schedule"** in an internal workspace: two calls to the two
+  existing endpoints, in order — the decision (so the approval is *recorded*
+  with its decider, not voided as a generic transition would void it), then the
+  schedule. Not atomic, on purpose: if the schedule fails the post stays
+  approved, which is a real state, and the user is told where it stopped.
+
+### Correction to D-018
+
+D-018 says the client gate "cannot be skipped" and that agencies "will set
+`approvalRequired: false` per post". The first was true for approvers and false
+for authors until this decision; the second had no UI and now takes an approver.
+The workspace flag is the "workspace- or brand-level default" D-018 anticipated.
+
+### Rollout
+
+Migration `20261020000000_workspace_client_approval` adds the column with
+`DEFAULT true`, so every existing workspace keeps today's behaviour until an
+Owner or Admin marks it internal under Settings → Clients & brands.
+
+- **Date:** 2026-10-20 · **Status:** IMPLEMENTED (migration applied to production 2026-10-20)
+
+---
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`
