@@ -429,6 +429,8 @@ describe('safety', () => {
       postAnalytics: 0,
       snapshots: 0,
       reports: 0,
+      messages: 0,
+      conversations: 0,
       storageFailures: 0,
     });
   });

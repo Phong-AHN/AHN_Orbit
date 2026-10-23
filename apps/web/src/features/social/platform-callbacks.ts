@@ -138,6 +138,9 @@ export async function handleDataDeletion(input: {
 
     for (const account of accounts) {
       await platformDb.socialCredential.deleteMany({ where: { socialAccountId: account.id } });
+      // Private conversations are data the connection brought in, and go with
+      // it (D-107). Messages cascade.
+      await platformDb.socialConversation.deleteMany({ where: { socialAccountId: account.id } });
       await platformDb.socialAccount.update({
         where: { id: account.id },
         data: { status: 'REVOKED', deletedAt: clock.now(), healthError: null },

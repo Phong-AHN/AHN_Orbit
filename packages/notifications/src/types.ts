@@ -21,6 +21,8 @@ export const NOTIFICATION_TYPES = [
   // The client's side of the review conversation.
   'post.client_review_requested',
   'post.approved',
+  // Private messages (D-107).
+  'message.received',
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -71,11 +73,12 @@ export const NOTIFICATION_AUDIENCE: Record<NotificationType, NotificationAudienc
 
   // A decision landing back with the agency — whoever made it.
   'post.approved': 'AGENCY',
+
+  // Somebody is waiting for an answer in a private conversation.
+  'message.received': 'AGENCY',
 };
 
-export function notificationTypesFor(
-  audience: NotificationAudience,
-): readonly NotificationType[] {
+export function notificationTypesFor(audience: NotificationAudience): readonly NotificationType[] {
   return NOTIFICATION_TYPES.filter((type) => NOTIFICATION_AUDIENCE[type] === audience);
 }
 
@@ -150,11 +153,22 @@ export type NotificationEvent =
       postTitle: string;
       fromClient: boolean;
       by?: string | null | undefined;
-    };
+    }
+  /**
+   * A conversation needs somebody (D-107). Raised when one opens or reopens,
+   * not for every message in it — a person writing five lines is one thing to
+   * answer, not five.
+   *
+   * **No sender name and no message text.** Notification rows outlive the
+   * twelve months a message is kept, and a person's private words do not
+   * belong in a table built for "something happened". The conversation itself
+   * is one click away.
+   */
+  | { type: 'message.received'; accountName: string };
 
 /** Where a notification points when someone clicks it. */
 export interface NotificationResource {
-  resourceType: 'Post' | 'SocialAccount';
+  resourceType: 'Post' | 'SocialAccount' | 'SocialConversation';
   resourceId: string;
   /** Governs who may be told. Every notification belongs to a workspace. */
   workspaceId: string;

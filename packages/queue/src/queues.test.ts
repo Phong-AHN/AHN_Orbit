@@ -33,6 +33,10 @@ describe('the queue catalogue', () => {
         // `maintenance`, which runs at concurrency 1 — a slow retention pass
         // would delay the sweep, and a late sweep means posts publish late.
         'scheduler',
+        // D-107. Stored webhook events, platform-wide until each matching
+        // account is resolved; and the per-account conversation backfill.
+        'webhooks',
+        'messaging',
       ].sort(),
     );
   });
@@ -52,7 +56,7 @@ describe('the queue catalogue', () => {
   it('treats every queue but the platform-wide sweeps as tenant-scoped', () => {
     // `maintenance` and `scheduler` sweep the whole platform and carry no
     // tenant to assert. Everything they enqueue is tenant-scoped normally.
-    const platformWide = new Set(['maintenance', 'scheduler']);
+    const platformWide = new Set(['maintenance', 'scheduler', 'webhooks']);
 
     for (const name of QUEUE_NAMES) {
       expect(isTenantScopedQueue(name)).toBe(!platformWide.has(name));

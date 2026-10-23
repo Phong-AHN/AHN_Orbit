@@ -46,6 +46,8 @@ const PAIRS: ReadonlyArray<[string, readonly string[]]> = [
   ['SubscriptionStatus', core.SUBSCRIPTION_STATUSES],
   ['SocialCommentOrigin', core.SOCIAL_COMMENT_ORIGINS],
   ['SocialCommentState', core.SOCIAL_COMMENT_STATES],
+  ['SocialConversationState', core.SOCIAL_CONVERSATION_STATES],
+  ['SocialMessageDirection', core.SOCIAL_MESSAGE_DIRECTIONS],
   ['ContentIdeaState', core.CONTENT_IDEA_STATES],
   ['ReportStatus', core.REPORT_STATUSES],
   ['ReportFormat', core.REPORT_FORMATS],

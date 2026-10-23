@@ -1,4 +1,5 @@
 import { defineCapabilities, type PlatformCapabilities } from '../capabilities.js';
+import { messagingDescriptor, type MetaMessagingOptions } from './meta-webhooks.js';
 
 /**
  * Facebook Page capabilities.
@@ -50,6 +51,22 @@ export const FACEBOOK_ANALYTICS_SCOPES = ['read_insights', 'pages_read_user_cont
  * of failing when somebody presses Reply.
  */
 export const FACEBOOK_ENGAGEMENT_SCOPES = ['pages_manage_engagement'] as const;
+
+/**
+ * Scopes for a Page's private messages (**D-107**).
+ *
+ * `pages_messaging` reads conversations and sends replies through the Send
+ * API. `pages_manage_metadata` is what subscribes a Page to our webhooks —
+ * without it the Page never tells us a message arrived, and an inbox fed only
+ * by polling misses the reply window.
+ *
+ * **Requested only when the deployment turns messaging on**: asking Meta for a
+ * permission the app has not been given fails the whole dialog.
+ */
+export const FACEBOOK_MESSAGING_SCOPES = ['pages_messaging', 'pages_manage_metadata'] as const;
+
+/** Messenger's limit for a text message. */
+export const FACEBOOK_MESSAGE_MAX_LENGTH = 2_000;
 
 /** @deprecated Superseded by `FACEBOOK_ANALYTICS_SCOPES`, which is requested. */
 export const FACEBOOK_INSIGHTS_SCOPE = 'read_insights';
@@ -128,7 +145,10 @@ const DEPRECATED_METRICS = [
   'total_video_impressions_unique',
 ] as const;
 
-export function facebookPageCapabilities(apiVersion: string): PlatformCapabilities {
+export function facebookPageCapabilities(
+  apiVersion: string,
+  messaging?: MetaMessagingOptions,
+): PlatformCapabilities {
   return defineCapabilities({
     platform: 'FACEBOOK',
     accountType: 'PAGE',
@@ -256,6 +276,11 @@ export function facebookPageCapabilities(apiVersion: string): PlatformCapabiliti
       moderate: false,
       replyScopes: FACEBOOK_ENGAGEMENT_SCOPES,
     },
+
+    messaging: messagingDescriptor(messaging, {
+      scopes: FACEBOOK_MESSAGING_SCOPES,
+      maxMessageLength: FACEBOOK_MESSAGE_MAX_LENGTH,
+    }),
 
     webhooks: { supported: true },
   });

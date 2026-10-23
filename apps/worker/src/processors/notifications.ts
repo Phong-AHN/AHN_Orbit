@@ -219,6 +219,11 @@ async function describe(
     case 'social_account.reconnected':
       throw new NotFoundError('Account health notifications are written inline, not queued');
 
+    // Written inline by message ingestion, in the transaction that opened the
+    // conversation (D-107) — the same choice account health makes.
+    case 'message.received':
+      throw new NotFoundError('Message notifications are written inline, not queued');
+
     default: {
       const exhaustive: never = event;
       throw new Error(`Unhandled notification event: ${String(exhaustive)}`);
@@ -236,7 +241,11 @@ async function describe(
  * safe way to keep a name out of it is for there to be no field to put one in.
  */
 function buildReviewEvent(
-  event: 'post.approval_requested' | 'post.client_review_requested' | 'post.changes_requested' | 'post.approved',
+  event:
+    | 'post.approval_requested'
+    | 'post.client_review_requested'
+    | 'post.changes_requested'
+    | 'post.approved',
   postTitle: string,
   fromClient: boolean,
   by: string | null,
@@ -247,7 +256,11 @@ function buildReviewEvent(
       // Still both gates, and still only the wording that differs: this is the
       // agency's copy. The client's own prompt is a separate event, because it
       // goes to different people — which is what the old single type got wrong.
-      return { type: 'post.approval_requested', postTitle, stage: fromClient ? 'CLIENT' : 'INTERNAL' };
+      return {
+        type: 'post.approval_requested',
+        postTitle,
+        stage: fromClient ? 'CLIENT' : 'INTERNAL',
+      };
 
     case 'post.client_review_requested':
       return { type: 'post.client_review_requested', postTitle };

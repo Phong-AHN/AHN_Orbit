@@ -66,12 +66,18 @@ export interface NotificationBellProps {
    * a client's feed cannot contain one.
    */
   accountHref?: string | undefined;
+  /**
+   * Where a `SocialConversation` row points; the id is appended (D-107).
+   * Omitted on the portal, which shows no private messages.
+   */
+  conversationHrefBase?: string | undefined;
 }
 
 export function NotificationBell({
   endpoint,
   postHrefBase,
   accountHref,
+  conversationHrefBase,
 }: NotificationBellProps) {
   const [open, setOpen] = React.useState(false);
   const [feed, setFeed] = React.useState<FeedResponse | null>(null);
@@ -229,7 +235,7 @@ export function NotificationBell({
                   <li key={item.id}>
                     <NotificationRow
                       item={item}
-                      href={linkFor(item, postHrefBase, accountHref)}
+                      href={linkFor(item, postHrefBase, accountHref, conversationHrefBase)}
                       onRead={() => void markRead(item.id)}
                     />
                   </li>
@@ -303,6 +309,7 @@ function linkFor(
   item: NotificationItem,
   postHrefBase: string,
   accountHref: string | undefined,
+  conversationHrefBase?: string | undefined,
 ): string | null {
   if (!item.resourceId) return null;
 
@@ -311,6 +318,8 @@ function linkFor(
       return `${postHrefBase}/${item.resourceId}`;
     case 'SocialAccount':
       return accountHref ?? null;
+    case 'SocialConversation':
+      return conversationHrefBase ? `${conversationHrefBase}/${item.resourceId}` : null;
     default:
       return null;
   }

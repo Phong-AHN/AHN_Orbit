@@ -9,6 +9,14 @@ import type {
   CallbackInput,
   CommentPage,
   ConnectedAccounts,
+  ConversationPage,
+  ConversationParticipant,
+  DirectConversation,
+  DirectMessage,
+  FetchConversationsInput,
+  MessageAttachment,
+  SendMessageInput,
+  SendMessageResult,
   DateRange,
   FetchCommentsInput,
   ReplyInput,
@@ -28,15 +36,20 @@ import type {
   RefreshOutcome,
   SocialProvider,
 } from '../types.js';
-import { safeEquals } from '../credential-cipher.js';
-import { createHmac } from 'node:crypto';
 import { GraphClient, uploadReelSource, type GraphClientOptions } from './client.js';
 import {
   FACEBOOK_ENGAGEMENT_METRICS,
   FACEBOOK_DEFAULT_SCOPES,
+  FACEBOOK_MESSAGING_SCOPES,
   FACEBOOK_PUBLISH_SCOPES,
   facebookPageCapabilities,
 } from './capabilities.js';
+import {
+  metaWebhookChallenge,
+  parseMetaWebhook,
+  verifyMetaSignature,
+  type MetaMessagingOptions,
+} from './meta-webhooks.js';
 import { reauthorizationReason } from './errors.js';
 
 /**
@@ -85,6 +98,8 @@ function pageScopes(grantedScopes: readonly string[]): readonly string[] {
 export interface FacebookProviderOptions extends GraphClientOptions {
   /** Verify token for the webhook subscription handshake. */
   webhookVerifyToken?: string | undefined;
+  /** Whether this deployment offers private messages (D-107). */
+  messaging?: MetaMessagingOptions | undefined;
 }
 
 interface DebugTokenResponse {
@@ -155,7 +170,7 @@ export class FacebookProvider implements SocialProvider {
   constructor(private readonly options: FacebookProviderOptions) {
     this.client = new GraphClient(options);
     // Built once: the composer calls capabilities() on every keystroke.
-    this.capabilityCache = facebookPageCapabilities(options.apiVersion);
+    this.capabilityCache = facebookPageCapabilities(options.apiVersion, options.messaging);
   }
 
   capabilities(): PlatformCapabilities {
@@ -169,7 +184,14 @@ export class FacebookProvider implements SocialProvider {
   // ── OAuth ─────────────────────────────────────────────────────────────────
 
   getAuthorizationUrl(input: AuthorizationUrlInput): { url: string; scopes: readonly string[] } {
-    const scopes = [...new Set([...FACEBOOK_DEFAULT_SCOPES, ...(input.extraScopes ?? [])])];
+    const scopes = [
+      ...new Set([
+        ...FACEBOOK_DEFAULT_SCOPES,
+        // Only when switched on: an unknown scope fails the whole dialog (D-107).
+        ...(this.options.messaging?.enabled ? FACEBOOK_MESSAGING_SCOPES : []),
+        ...(input.extraScopes ?? []),
+      ]),
+    ];
 
     // The dialog lives on www.facebook.com, not the graph host.
     const url = new URL(`https://www.facebook.com/${this.options.apiVersion}/dialog/oauth`);
@@ -1052,39 +1074,239 @@ export class FacebookProvider implements SocialProvider {
     return { externalId: response.id, postedAt: clock.now() };
   }
 
+  // ── Private messages (D-107) ──────────────────────────────────────────────
+
+  /**
+   * A Page's Messenger conversations, newest first.
+   *
+   * The Conversations API serves each conversation with its participants —
+   * the Page and the person — and the most recent messages through field
+   * expansion. It is the backfill: webhooks deliver messages as they happen,
+   * and this catches whatever a delivery missed, including everything from
+   * before the Page was subscribed.
+   *
+   * `since` is applied here rather than by the API, which does not filter
+   * conversations by time. The listing is newest first, so paging stops at the
+   * first conversation older than it.
+   */
+  async fetchConversations(input: FetchConversationsInput): Promise<ConversationPage> {
+    const { credential, account, since, cursor, limit, signal } = input;
+
+    const response = await this.client.request<{
+      data?: Array<{
+        id?: string;
+        updated_time?: string;
+        participants?: { data?: Array<{ id?: string; name?: string }> };
+        messages?: { data?: MessengerMessageRow[] };
+      }>;
+      paging?: { cursors?: { after?: string }; next?: string };
+    }>({
+      path: `/${account.externalId}/conversations`,
+      params: {
+        platform: 'messenger',
+        fields:
+          'id,updated_time,participants,messages.limit(20){id,message,created_time,from,attachments}',
+        limit: limit ?? 25,
+        ...(cursor ? { after: cursor } : {}),
+      },
+      accessToken: credential.accessToken,
+      ...(signal ? { signal } : {}),
+    });
+
+    const conversations: DirectConversation[] = [];
+    let reachedSince = false;
+
+    for (const row of response.data ?? []) {
+      if (!row.id || !row.updated_time) continue;
+      const updatedAt = new Date(row.updated_time);
+      if (since && updatedAt < since) {
+        reachedSince = true;
+        break;
+      }
+
+      const person = (row.participants?.data ?? []).find(
+        (participant) => participant.id && participant.id !== account.externalId,
+      );
+      if (!person?.id) continue;
+      const personId = person.id;
+
+      const messages = (row.messages?.data ?? [])
+        .map((message) => messengerMessage(message, account.externalId, personId))
+        .filter((message): message is DirectMessage => message !== null)
+        // The API lists newest first; a conversation reads oldest first.
+        .sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime());
+
+      conversations.push({
+        externalId: row.id,
+        participant: { externalId: personId, ...(person.name ? { name: person.name } : {}) },
+        updatedAt,
+        messages,
+      });
+    }
+
+    const nextCursor =
+      !reachedSince && response.paging?.next ? response.paging.cursors?.after : undefined;
+
+    return { conversations, ...(nextCursor ? { nextCursor } : {}) };
+  }
+
+  /**
+   * Reply through the Send API.
+   *
+   * `RESPONSE` inside the standard window; `MESSAGE_TAG` with `HUMAN_AGENT`
+   * outside it, which Meta permits only to apps approved for it — the caller
+   * decides which from `replyWindow`, and this only spells it.
+   *
+   * Form-encoded with JSON values, which the Send API accepts, so the call goes
+   * through the same client and error translation as every other Graph call.
+   */
+  async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
+    const { credential, account, recipientExternalId, text, humanAgent, signal } = input;
+
+    const response = await this.client.request<{ message_id?: string; recipient_id?: string }>({
+      path: `/${account.externalId}/messages`,
+      method: 'POST',
+      form: {
+        recipient: JSON.stringify({ id: recipientExternalId }),
+        messaging_type: humanAgent ? 'MESSAGE_TAG' : 'RESPONSE',
+        ...(humanAgent ? { tag: 'HUMAN_AGENT' } : {}),
+        message: JSON.stringify({ text }),
+      },
+      accessToken: credential.accessToken,
+      ...(signal ? { signal } : {}),
+    });
+
+    if (!response.message_id) {
+      // The same posture as a reply to a comment: accepted without an id is a
+      // message that may exist and that we could not recognise, so it is
+      // reported as unconfirmed rather than recorded as sent.
+      throw toAppError('FACEBOOK', {
+        kind: 'VALIDATION',
+        message: 'Messenger accepted the message without returning an id',
+        userMessage:
+          'The message may have been sent, but Facebook did not confirm it. Check the conversation before sending it again.',
+      });
+    }
+
+    return { externalId: response.message_id, sentAt: clock.now() };
+  }
+
+  /** The person's name, through the User Profile API. Best effort. */
+  async fetchParticipant(input: {
+    credential: DecryptedCredential;
+    account: { externalId: string };
+    participantExternalId: string;
+  }): Promise<ConversationParticipant> {
+    const profile = await this.client.request<{ name?: string }>({
+      path: `/${input.participantExternalId}`,
+      params: { fields: 'name' },
+      accessToken: input.credential.accessToken,
+    });
+
+    return {
+      externalId: input.participantExternalId,
+      ...(profile.name ? { name: profile.name } : {}),
+    };
+  }
+
   // ── Webhooks ──────────────────────────────────────────────────────────────
+
+  webhookChallenge(query: Record<string, string | undefined>): string | null {
+    return metaWebhookChallenge(query, this.options.webhookVerifyToken);
+  }
 
   /** X-Hub-Signature-256 over the raw body, keyed by the app secret. */
   verifyWebhook(request: RawWebhookRequest): boolean {
-    const header = request.headers['x-hub-signature-256'];
-    if (!header?.startsWith('sha256=')) return false;
-
-    const expected = createHmac('sha256', this.options.appSecret)
-      .update(request.rawBody, 'utf8')
-      .digest('hex');
-
-    return safeEquals(header.slice('sha256='.length), expected);
+    return verifyMetaSignature(request.rawBody, request.headers['x-hub-signature-256'], [
+      this.options.appSecret,
+    ]);
   }
 
+  /**
+   * Messages, and a prompt to re-read a post's comments.
+   *
+   * A Page's `feed` field reports far more than comments — posts, likes,
+   * shares — and only a comment being added is a reason to look again.
+   */
   parseWebhook(request: RawWebhookRequest): ProviderEvent[] {
-    const body = JSON.parse(request.rawBody) as {
-      entry?: Array<{
-        id?: string;
-        time?: number;
-        changes?: Array<{ field?: string; value?: Record<string, unknown> }>;
-      }>;
-    };
-
-    return (body.entry ?? []).flatMap((entry) =>
-      (entry.changes ?? []).map((change, index) => ({
-        externalEventId: `${entry.id ?? 'unknown'}:${entry.time ?? 0}:${index}`,
-        type: `facebook.${change.field ?? 'unknown'}`,
-        ...(entry.id ? { accountExternalId: entry.id } : {}),
-        occurredAt: entry.time ? new Date(entry.time * 1000) : clock.now(),
-        payload: change.value ?? {},
-      })),
-    );
+    return parseMetaWebhook(request.rawBody, (change) => {
+      const value = change.value ?? {};
+      if (change.field !== 'feed' || value.item !== 'comment' || value.verb !== 'add') return null;
+      if (typeof value.post_id !== 'string' || typeof value.comment_id !== 'string') return null;
+      return { externalPostId: value.post_id, commentId: value.comment_id };
+    });
   }
+
+  /**
+   * Subscribe a Page to this app's webhooks.
+   *
+   * `feed` always, so comments arrive as they are written instead of at the
+   * next sweep. `messages` and `message_echoes` only with messaging switched
+   * on: subscribing to them needs `pages_messaging`, and the call fails as a
+   * whole if any one field is refused.
+   */
+  async subscribeWebhooks(input: {
+    credential: DecryptedCredential;
+    account: { externalId: string };
+  }): Promise<{ webhookExternalId?: string | undefined }> {
+    const fields = [
+      'feed',
+      ...(this.options.messaging?.enabled ? ['messages', 'message_echoes'] : []),
+    ];
+
+    await this.client.request<{ success?: boolean }>({
+      path: `/${input.account.externalId}/subscribed_apps`,
+      method: 'POST',
+      form: { subscribed_fields: fields.join(',') },
+      accessToken: input.credential.accessToken,
+    });
+
+    // A Page's webhooks name it by its own id, which is what is stored.
+    return {};
+  }
+}
+
+interface MessengerMessageRow {
+  id?: string;
+  message?: string;
+  created_time?: string;
+  from?: { id?: string };
+  attachments?: {
+    data?: Array<{
+      mime_type?: string;
+      image_data?: { url?: string };
+      video_data?: { url?: string };
+      file_url?: string;
+    }>;
+  };
+}
+
+/** One Messenger message from the Conversations API, or null if unusable. */
+function messengerMessage(
+  row: MessengerMessageRow,
+  pageId: string,
+  participantId: string,
+): DirectMessage | null {
+  if (!row.id || !row.created_time) return null;
+
+  const attachments: MessageAttachment[] = (row.attachments?.data ?? []).map((attachment) => {
+    const url = attachment.image_data?.url ?? attachment.video_data?.url ?? attachment.file_url;
+    const type = attachment.image_data
+      ? 'image'
+      : attachment.video_data
+        ? 'video'
+        : (attachment.mime_type?.split('/')[0] ?? 'file');
+    return { type, ...(url ? { url } : {}) };
+  });
+
+  return {
+    externalId: row.id,
+    participantExternalId: participantId,
+    direction: row.from?.id === pageId ? 'OUTBOUND' : 'INBOUND',
+    ...(row.message ? { text: row.message } : {}),
+    attachments,
+    sentAt: new Date(row.created_time),
+  };
 }
 
 /** Hashtags append to the body; Facebook has no separate field for them. */

@@ -34,9 +34,7 @@ export default async function OrgLayout({
 
   const base = `/orgs/${orgSlug}`;
 
-  const groups = shellGroups(base, NAV_GROUPS, (permission) =>
-    pageCanSomewhere(ctx, permission),
-  );
+  const groups = shellGroups(base, NAV_GROUPS, (permission) => pageCanSomewhere(ctx, permission));
 
   const primary = PRIMARY_ACTIONS.find((action) => pageCanSomewhere(ctx, action.permission));
 
@@ -50,6 +48,7 @@ export default async function OrgLayout({
         <NotificationBell
           endpoint={`/api/v1/orgs/${encodeURIComponent(orgSlug)}/notifications`}
           postHrefBase={`${base}/posts`}
+          conversationHrefBase={`${base}/community/messages`}
           accountHref={`${base}/settings/accounts`}
         />
       }

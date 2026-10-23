@@ -118,7 +118,38 @@ export const maintenancePayloadSchema = z.object({
     'reconcile-stuck-jobs',
     'sweep-account-health',
     'sweep-comments',
+    // D-107: stored webhook events nobody processed, and the conversation backfill.
+    'sweep-webhook-events',
+    'sweep-conversations',
   ]),
+});
+
+/**
+ * One stored webhook event, to be turned into rows (**D-107**).
+ *
+ * Platform-wide, like maintenance, and for a reason of its own: a delivery
+ * names an account by the platform's id, and which organizations have that
+ * account connected is something the processor finds out — not something the
+ * route could assert. So there is no `organizationId` to check here. The
+ * processor resolves each matching account and derives the tenant from *that*
+ * row, which is D-021 applied one step later rather than skipped.
+ *
+ * The payload is an id and nothing else. The message itself waits in the
+ * database, which keeps private messages out of Redis.
+ */
+export const webhooksPayloadSchema = z.object({
+  correlationId: z.string().min(1).max(200),
+  webhookEventId: z.string().uuid(),
+});
+
+/**
+ * Reading one account's private conversations: the backfill behind the
+ * webhooks, and the first import when an account is connected (**D-107**).
+ */
+export const messagingPayloadSchema = jobEnvelopeSchema.extend({
+  socialAccountId: z.string().uuid(),
+  /** Provider cursor, when one account has more conversations than one job reads. */
+  cursor: z.string().max(500).optional(),
 });
 
 /**
@@ -158,6 +189,10 @@ export const QUEUE_DEFINITIONS = {
   notifications: { schema: notificationPayloadSchema, concurrency: 10 },
   maintenance: { schema: maintenancePayloadSchema, concurrency: 1 },
   scheduler: { schema: schedulerPayloadSchema, concurrency: 1 },
+  // A message is somebody waiting; webhook events are small and many.
+  webhooks: { schema: webhooksPayloadSchema, concurrency: 5 },
+  // Low: the backfill reads a lot per job and nobody is blocked on it.
+  messaging: { schema: messagingPayloadSchema, concurrency: 2 },
 } as const;
 
 export type QueueName = keyof typeof QUEUE_DEFINITIONS;
@@ -186,7 +221,11 @@ export function parsePayload<Q extends QueueName>(queue: Q, raw: unknown): Paylo
  * `maintenance` and `scheduler` are the deliberate exceptions: both sweep the
  * whole platform, use the platform client directly, and carry no tenant to
  * assert. Everything they *enqueue* is tenant-scoped in the normal way.
+ *
+ * `webhooks` is the third (D-107): a delivery names a platform account, which
+ * any number of organizations may have connected, so the tenant is found by the
+ * processor per matching account rather than asserted by whoever enqueued it.
  */
 export function isTenantScopedQueue(queue: QueueName): boolean {
-  return queue !== 'maintenance' && queue !== 'scheduler';
+  return queue !== 'maintenance' && queue !== 'scheduler' && queue !== 'webhooks';
 }

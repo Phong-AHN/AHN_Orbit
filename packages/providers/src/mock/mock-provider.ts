@@ -498,20 +498,35 @@ export class MockProvider implements SocialProvider {
     return request.headers['x-mock-signature'] === 'valid';
   }
 
+  /**
+   * A private message, in a shape small enough to write by hand in a test:
+   * `{ id, accountId, participantId, text?, outbound? }`. Anything else is a
+   * delivery the mock does not understand, and yields nothing.
+   */
   parseWebhook(request: RawWebhookRequest): ProviderEvent[] {
     const parsed = JSON.parse(request.rawBody) as {
       id?: string;
-      type?: string;
       accountId?: string;
+      participantId?: string;
+      text?: string;
+      outbound?: boolean;
     };
+
+    if (!parsed.id || !parsed.accountId || !parsed.participantId) return [];
 
     return [
       {
-        externalEventId: parsed.id ?? 'mock-event',
-        type: parsed.type ?? 'mock.event',
+        kind: 'MESSAGE',
+        externalEventId: `message:${parsed.id}`,
         accountExternalId: parsed.accountId,
-        occurredAt: clock.now(),
-        payload: parsed as Record<string, unknown>,
+        message: {
+          externalId: parsed.id,
+          participantExternalId: parsed.participantId,
+          direction: parsed.outbound ? 'OUTBOUND' : 'INBOUND',
+          ...(parsed.text ? { text: parsed.text } : {}),
+          attachments: [],
+          sentAt: clock.now(),
+        },
       },
     ];
   }

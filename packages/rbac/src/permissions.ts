@@ -91,6 +91,19 @@ export const PERMISSIONS = [
    */
   'comment:reply',
 
+  // Private messages (D-107). Separate from the two above: a comment is public
+  // and answering one is answering in public; a message is correspondence with
+  // one person, and the brand may only answer it, never start it.
+  /** Read the private conversations of connected accounts. */
+  'message:read',
+  /**
+   * Answer a private message as the brand, and triage a conversation.
+   *
+   * Like `comment:reply`, assigning and marking handled ride on it — acting on
+   * a conversation rather than reading it.
+   */
+  'message:reply',
+
   // ── Media ─────────────────────────────────────────────────────────────────
   'media:upload',
   'media:read',

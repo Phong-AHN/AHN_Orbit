@@ -173,6 +173,10 @@ export function ensureProvidersRegistered(): void {
         appSecret: env.FACEBOOK_APP_SECRET,
         apiVersion: env.FACEBOOK_GRAPH_VERSION,
         webhookVerifyToken: env.FACEBOOK_WEBHOOK_VERIFY_TOKEN,
+        messaging: {
+          enabled: env.META_MESSAGING_ENABLED,
+          humanAgent: env.META_HUMAN_AGENT_ENABLED,
+        },
       }),
     );
 
@@ -181,6 +185,11 @@ export function ensureProvidersRegistered(): void {
         appId: env.FACEBOOK_APP_ID,
         appSecret: env.FACEBOOK_APP_SECRET,
         apiVersion: env.FACEBOOK_GRAPH_VERSION,
+        webhookVerifyToken: env.FACEBOOK_WEBHOOK_VERIFY_TOKEN,
+        messaging: {
+          enabled: env.META_MESSAGING_ENABLED,
+          humanAgent: env.META_HUMAN_AGENT_ENABLED,
+        },
         ...(env.INSTAGRAM_APP_ID && env.INSTAGRAM_APP_SECRET
           ? { login: { appId: env.INSTAGRAM_APP_ID, appSecret: env.INSTAGRAM_APP_SECRET } }
           : {}),

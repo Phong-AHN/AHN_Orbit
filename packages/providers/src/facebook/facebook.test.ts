@@ -807,19 +807,39 @@ describe('webhooks', () => {
     );
   });
 
-  it('parses entries into events with a stable id for idempotency', () => {
+  /**
+   * A `feed` change is a prompt to re-read comments only when it is a comment
+   * being added. Posts, likes and edits on the same field are not (D-107).
+   */
+  it('turns a new comment into a comment-activity event with a stable id', () => {
     const events = fb.parseWebhook({
       headers: {},
       rawBody: JSON.stringify({
         entry: [
-          { id: '100', time: 1_760_000_000, changes: [{ field: 'feed', value: { verb: 'add' } }] },
+          {
+            id: '100',
+            time: 1_760_000_000,
+            changes: [
+              {
+                field: 'feed',
+                value: { item: 'comment', verb: 'add', post_id: '100_7', comment_id: '7_9' },
+              },
+              { field: 'feed', value: { item: 'reaction', verb: 'add', post_id: '100_7' } },
+            ],
+          },
         ],
       }),
     });
 
-    expect(events).toHaveLength(1);
-    expect(events[0]!.externalEventId).toBe('100:1760000000:0');
-    expect(events[0]!.type).toBe('facebook.feed');
+    expect(events).toEqual([
+      {
+        kind: 'COMMENT_ACTIVITY',
+        externalEventId: 'comment:7_9',
+        accountExternalId: '100',
+        externalPostId: '100_7',
+        occurredAt: new Date(1_760_000_000 * 1_000),
+      },
+    ]);
   });
 });
 

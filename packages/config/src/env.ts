@@ -48,6 +48,17 @@ const optionalString = z
   .optional()
   .or(z.literal('').transform(() => undefined));
 
+/**
+ * An on/off switch read from the environment.
+ *
+ * Not `z.coerce.boolean()`: that is `Boolean(value)`, under which the string
+ * `"false"` is true — so a flag somebody switched off would stay on.
+ */
+const flag = z
+  .enum(['true', 'false', '1', '0', ''])
+  .optional()
+  .transform((value) => value === 'true' || value === '1');
+
 export const serverEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   APP_ENV: z.enum(['development', 'staging', 'production']).default('development'),
@@ -160,6 +171,28 @@ export const serverEnvSchema = z.object({
     .regex(/^v\d+\.\d+$/)
     .default('v25.0'),
   FACEBOOK_WEBHOOK_VERIFY_TOKEN: optionalString,
+
+  /**
+   * Private messages on Facebook Pages and Instagram (**D-107**). Off unless set.
+   *
+   * Switching it on does three things at once, which is why it is one switch:
+   * the connect flow asks for the messaging permissions, connected accounts are
+   * subscribed to message webhooks, and the inbox shows a Messages tab.
+   *
+   * **Off by default because asking for a permission the Meta app has not been
+   * given breaks connecting altogether.** Meta answers an unknown scope with
+   * "Invalid Scopes" and the whole dialog fails — publishing included. Turn it
+   * on after `pages_messaging`, `pages_manage_metadata` and
+   * `instagram_business_manage_messages` have been added to the app, and set it
+   * identically on the web app and the worker.
+   */
+  META_MESSAGING_ENABLED: flag,
+  /**
+   * Replies up to seven days after the person's last message, instead of one
+   * (**D-107**). Meta grants the Human Agent permission separately, through App
+   * Review; until it has, a tagged reply is refused, so leave this off.
+   */
+  META_HUMAN_AGENT_ENABLED: flag,
 
   /**
    * Facebook Login for Business configuration id.

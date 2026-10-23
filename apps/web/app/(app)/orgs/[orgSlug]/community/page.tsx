@@ -4,6 +4,9 @@ import { clock } from '@orbit/core';
 import { Card, CardBody, Empty, PageHeader, PermissionDenied, cn } from '@orbit/ui';
 import { pageCanSomewhere, requirePageContext } from '@/server/page-context';
 import { listCommentedPosts, unhandledCount } from '@/features/community/service';
+import { ensureProvidersRegistered } from '@/server/providers';
+import { messagingAvailable, waitingConversationCount } from '@/features/messaging/service';
+import { InboxTabs } from '@/features/messaging/ui/inbox-tabs';
 import { PostCard } from '@/features/community/ui/post-card';
 import { SyncButton } from '@/features/community/ui/sync-button';
 
@@ -66,6 +69,12 @@ export default async function CommunityPage({ params, searchParams }: PageProps)
   const canReply = pageCanSomewhere(ctx, 'comment:reply');
   const now = clock.now();
 
+  // The Messages tab, where this deployment has messaging and this person may
+  // read it (D-107). Otherwise the inbox is the comment inbox, unchanged.
+  ensureProvidersRegistered();
+  const showMessages = messagingAvailable() && pageCanSomewhere(ctx, 'message:read');
+  const waitingMessages = showMessages ? await waitingConversationCount(ctx) : 0;
+
   return (
     <main id="main" className="px-4 py-10 sm:px-6">
       <PageHeader
@@ -77,6 +86,10 @@ export default async function CommunityPage({ params, searchParams }: PageProps)
             : `${unhandled.toLocaleString()} ${unhandled === 1 ? 'comment' : 'comments'} waiting for a reply.`
         }
       />
+
+      {showMessages ? (
+        <InboxTabs orgSlug={orgSlug} active="comments" waitingMessages={waitingMessages} />
+      ) : null}
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
         <nav className="flex gap-1.5" aria-label="Filter posts">

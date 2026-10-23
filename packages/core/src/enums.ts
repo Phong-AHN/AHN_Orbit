@@ -168,6 +168,25 @@ export type SocialCommentOrigin = (typeof SOCIAL_COMMENT_ORIGINS)[number];
 export const SOCIAL_COMMENT_STATES = ['NEW', 'HANDLED'] as const;
 export type SocialCommentState = (typeof SOCIAL_COMMENT_STATES)[number];
 
+/**
+ * Whether somebody at the agency has dealt with a private conversation yet.
+ *
+ * The same two values as a comment, kept as a separate type because the two
+ * queues are separate: a conversation reopens when the person writes again,
+ * which a comment never does.
+ */
+export const SOCIAL_CONVERSATION_STATES = ['NEW', 'HANDLED'] as const;
+export type SocialConversationState = (typeof SOCIAL_CONVERSATION_STATES)[number];
+
+/**
+ * Which way a private message went.
+ *
+ * `OUTBOUND` covers every message the brand sent, whether from Orbit or from
+ * the platform's own app; the author column says which.
+ */
+export const SOCIAL_MESSAGE_DIRECTIONS = ['INBOUND', 'OUTBOUND'] as const;
+export type SocialMessageDirection = (typeof SOCIAL_MESSAGE_DIRECTIONS)[number];
+
 export const CONTENT_IDEA_STATES = ['SUGGESTED', 'ACCEPTED', 'DISMISSED', 'CONVERTED'] as const;
 export type ContentIdeaState = (typeof CONTENT_IDEA_STATES)[number];
 

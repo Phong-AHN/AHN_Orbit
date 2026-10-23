@@ -55,6 +55,17 @@ import { deleteObject } from '@orbit/storage';
 export const ANALYTICS_RETENTION_MONTHS = 13;
 
 /**
+ * How long a private message is kept (**D-107**).
+ *
+ * Twelve months, decided with the owner rather than derived. A conversation is
+ * correspondence with one person, and the reason to keep it — answering them,
+ * and the context for the next answer — fades long before a year. The rows also
+ * carry the one audience identifier Orbit stores, which is a second reason for
+ * a boundary that is not "forever".
+ */
+export const MESSAGE_RETENTION_MONTHS = 12;
+
+/**
  * Rows removed per statement, and organizations visited per run.
  *
  * Deleting a year of analytics for a large agency in one statement would hold
@@ -71,6 +82,10 @@ export interface RetentionResult {
   postAnalytics: number;
   snapshots: number;
   reports: number;
+  /** Private messages past their twelve months (D-107). */
+  messages: number;
+  /** Conversations with nothing left in them. */
+  conversations: number;
   /** Objects we could not reach. The rows stay for the next pass. */
   storageFailures: number;
 }
@@ -89,31 +104,47 @@ export function analyticsCutoff(now: Date): Date {
   );
 }
 
+/** The same first-of-the-month anchoring, at twelve months. */
+export function messageCutoff(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - MESSAGE_RETENTION_MONTHS, 1));
+}
+
 export async function sweepRetention(correlationId: string): Promise<RetentionResult> {
   const now = clock.now();
   const cutoff = analyticsCutoff(now);
+  const messagesBefore = messageCutoff(now);
 
   const result: RetentionResult = {
     organizations: 0,
     postAnalytics: 0,
     snapshots: 0,
     reports: 0,
+    messages: 0,
+    conversations: 0,
     storageFailures: 0,
   };
 
   // Ids only, and only for organizations that actually have something to
   // remove — there is no reason to open a tenant context for an agency with
   // nothing past its boundary.
-  const organizationIds = await organizationsWithExpiredData(cutoff, now);
+  const organizationIds = await organizationsWithExpiredData(cutoff, now, messagesBefore);
   result.organizations = organizationIds.length;
 
   for (const organizationId of organizationIds) {
     try {
-      const swept = await sweepOrganization(organizationId, cutoff, now, correlationId);
+      const swept = await sweepOrganization(
+        organizationId,
+        cutoff,
+        now,
+        messagesBefore,
+        correlationId,
+      );
 
       result.postAnalytics += swept.postAnalytics;
       result.snapshots += swept.snapshots;
       result.reports += swept.reports;
+      result.messages += swept.messages;
+      result.conversations += swept.conversations;
       result.storageFailures += swept.storageFailures;
     } catch (error) {
       // One organization's failure must not abandon the rest of the sweep, and
@@ -126,7 +157,13 @@ export async function sweepRetention(correlationId: string): Promise<RetentionRe
     }
   }
 
-  if (result.postAnalytics > 0 || result.snapshots > 0 || result.reports > 0) {
+  if (
+    result.postAnalytics > 0 ||
+    result.snapshots > 0 ||
+    result.reports > 0 ||
+    result.messages > 0 ||
+    result.conversations > 0
+  ) {
     logger.info('retention sweep complete', { ...result, cutoff: cutoff.toISOString() });
   }
 
@@ -140,8 +177,12 @@ export async function sweepRetention(correlationId: string): Promise<RetentionRe
  * organization: on a platform with hundreds of tenants and expired data in
  * three, this visits three.
  */
-async function organizationsWithExpiredData(cutoff: Date, now: Date): Promise<string[]> {
-  const [analytics, snapshots, reports] = await Promise.all([
+async function organizationsWithExpiredData(
+  cutoff: Date,
+  now: Date,
+  messagesBefore: Date,
+): Promise<string[]> {
+  const [analytics, snapshots, reports, messages, conversations] = await Promise.all([
     platformDb.postAnalytics.findMany({
       where: { capturedAt: { lt: cutoff } },
       select: { organizationId: true },
@@ -160,10 +201,26 @@ async function organizationsWithExpiredData(cutoff: Date, now: Date): Promise<st
       distinct: ['organizationId'],
       take: ORGANIZATIONS_PER_RUN,
     }),
+    platformDb.socialMessage.findMany({
+      where: { sentAt: { lt: messagesBefore } },
+      select: { organizationId: true },
+      distinct: ['organizationId'],
+      take: ORGANIZATIONS_PER_RUN,
+    }),
+    platformDb.socialConversation.findMany({
+      where: { lastMessageAt: { lt: messagesBefore } },
+      select: { organizationId: true },
+      distinct: ['organizationId'],
+      take: ORGANIZATIONS_PER_RUN,
+    }),
   ]);
 
   return [
-    ...new Set([...analytics, ...snapshots, ...reports].map((row) => row.organizationId)),
+    ...new Set(
+      [...analytics, ...snapshots, ...reports, ...messages, ...conversations].map(
+        (row) => row.organizationId,
+      ),
+    ),
   ].slice(0, ORGANIZATIONS_PER_RUN);
 }
 
@@ -171,6 +228,8 @@ interface OrganizationSweep {
   postAnalytics: number;
   snapshots: number;
   reports: number;
+  messages: number;
+  conversations: number;
   storageFailures: number;
 }
 
@@ -178,6 +237,7 @@ async function sweepOrganization(
   organizationId: string,
   cutoff: Date,
   now: Date,
+  messagesBefore: Date,
   correlationId: string,
 ): Promise<OrganizationSweep> {
   const ctx = systemContext({
@@ -194,6 +254,8 @@ async function sweepOrganization(
     postAnalytics: 0,
     snapshots: 0,
     reports: 0,
+    messages: 0,
+    conversations: 0,
     storageFailures: 0,
   };
 
@@ -237,7 +299,58 @@ async function sweepOrganization(
   swept.reports = reports.deleted;
   swept.storageFailures = reports.storageFailures;
 
-  if (swept.postAnalytics > 0 || swept.snapshots > 0 || swept.reports > 0) {
+  /**
+   * Private messages (D-107): whole conversations first, then the old end of
+   * the ones still going.
+   *
+   * A conversation whose latest message is past the boundary has nothing in it
+   * worth keeping, and deleting it takes its messages with it. One that is still
+   * active keeps its recent messages and loses only what is older than a year,
+   * so a long-running conversation is trimmed rather than erased.
+   */
+  swept.conversations = await deleteInBatches(async () => {
+    const rows = await withTenant(ctx, (db) =>
+      db.socialConversation.findMany({
+        where: { lastMessageAt: { lt: messagesBefore } },
+        select: { id: true },
+        take: DELETE_BATCH,
+      }),
+    );
+
+    if (rows.length === 0) return 0;
+
+    const { count } = await withTenant(ctx, (db) =>
+      db.socialConversation.deleteMany({ where: { id: { in: rows.map((row) => row.id) } } }),
+    );
+
+    return count;
+  });
+
+  swept.messages = await deleteInBatches(async () => {
+    const rows = await withTenant(ctx, (db) =>
+      db.socialMessage.findMany({
+        where: { sentAt: { lt: messagesBefore } },
+        select: { id: true },
+        take: DELETE_BATCH,
+      }),
+    );
+
+    if (rows.length === 0) return 0;
+
+    const { count } = await withTenant(ctx, (db) =>
+      db.socialMessage.deleteMany({ where: { id: { in: rows.map((row) => row.id) } } }),
+    );
+
+    return count;
+  });
+
+  if (
+    swept.postAnalytics > 0 ||
+    swept.snapshots > 0 ||
+    swept.reports > 0 ||
+    swept.messages > 0 ||
+    swept.conversations > 0
+  ) {
     // On the tenant's own trail, so an agency asked "where did last year's
     // numbers go" has an answer that names the run (**D-046**). Written
     // unscoped for the same reason the other worker audit rows are: the
@@ -254,7 +367,10 @@ async function sweepOrganization(
           postAnalytics: swept.postAnalytics,
           analyticsSnapshots: swept.snapshots,
           reports: swept.reports,
+          socialMessages: swept.messages,
+          socialConversations: swept.conversations,
           cutoff: cutoff.toISOString(),
+          messageCutoff: messagesBefore.toISOString(),
         },
         correlationId,
       },

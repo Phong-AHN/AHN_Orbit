@@ -11,8 +11,10 @@ import {
 } from '@orbit/core';
 import { withTenant, type TenantDb } from '@orbit/db';
 import { logger } from '@orbit/observability';
+import { enqueue } from '@orbit/queue';
 import {
   CredentialCipher,
+  capabilitiesFor,
   getProvider,
   type AccountHealth,
   type DecryptedCredential,
@@ -442,6 +444,8 @@ export async function connectAccounts(
     keepIds: input.socialAccountIds,
   });
 
+  await queueFirstSync(ctx, input.platform, results);
+
   logger.info('social accounts connected', {
     platform: input.platform,
     count: results.length,
@@ -449,6 +453,45 @@ export async function connectAccounts(
   });
 
   return results;
+}
+
+/**
+ * After a connection: subscribe the account to webhooks and read its recent
+ * conversations (**D-107**).
+ *
+ * Both happen in the worker's `messaging` job, which is the one place an
+ * account is subscribed — the same job the periodic sweep produces for
+ * accounts connected before webhooks existed. Queued rather than done here, so
+ * a slow platform call never holds up the person who just connected.
+ *
+ * Best effort. The connection has already succeeded; a job that fails to
+ * enqueue is picked up by the sweep within half an hour.
+ */
+async function queueFirstSync(
+  ctx: TenantContext,
+  platform: Platform,
+  connected: ReadonlyArray<{ id: string }>,
+): Promise<void> {
+  const provider = getProvider(platform);
+  const relevant =
+    Boolean(provider.subscribeWebhooks) || capabilitiesFor(platform).messaging.supported;
+  if (!relevant) return;
+
+  for (const account of connected) {
+    try {
+      await enqueue('messaging', {
+        organizationId: ctx.organizationId,
+        correlationId: ctx.correlationId,
+        socialAccountId: account.id,
+      });
+    } catch (error) {
+      logger.warn('could not queue the first sync for a new connection', {
+        socialAccountId: account.id,
+        platform,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 }
 
 // ── Health ──────────────────────────────────────────────────────────────────
@@ -662,6 +705,11 @@ export async function disconnectAccount(
     // The credential row goes; the account is soft-deleted so published history
     // and analytics keep their reference.
     await db.socialCredential.deleteMany({ where: { socialAccountId } });
+
+    // Private conversations go with the connection, outright (D-107). The
+    // reason to keep them — answering the person — ended with it, and they
+    // hold the one audience identifier Orbit stores. Messages cascade.
+    await db.socialConversation.deleteMany({ where: { socialAccountId } });
     await db.socialAccount.update({
       where: { id: socialAccountId },
       data: { status: 'REVOKED', deletedAt: clock.now() },

@@ -20,7 +20,7 @@ import Link from 'next/link';
 const OPERATOR = 'AHN Group';
 const CONTACT_EMAIL = 'phong@ahnmedia.com';
 
-const LAST_UPDATED = '13 October 2026';
+const LAST_UPDATED = '23 October 2026';
 
 export const metadata: Metadata = {
   title: 'Privacy policy',
@@ -64,9 +64,15 @@ export default function PrivacyPolicyPage() {
             <Strong>Comments from the public</Strong> below.
           </P>
           <P>
-            Beyond those comments we collect nothing about the audience who sees a published post.
-            Orbit sends a post to a social platform; what happens after that is governed by that
-            platform&rsquo;s own privacy policy.
+            A fourth group, where an agency has switched private messages on:{' '}
+            <Strong>people who send a private message</Strong> to a client&rsquo;s connected
+            Facebook Page or Instagram account. Orbit shows those conversations to the agency so it
+            can answer them; see <Strong>Private messages</Strong> below.
+          </P>
+          <P>
+            Beyond those comments and messages we collect nothing about the audience who sees a
+            published post. Orbit sends a post to a social platform; what happens after that is
+            governed by that platform&rsquo;s own privacy policy.
           </P>
         </Section>
 
@@ -94,10 +100,16 @@ export default function PrivacyPolicyPage() {
               exactly what was approved and by whom.
             </li>
             <li>
-              <Strong>Comments from the public</Strong> — the text of a comment left on a post
-              Orbit published, the public display name shown beside it, the platform&rsquo;s own id
-              for the comment and when it was posted. No identifier for the person is stored; see
-              the section below.
+              <Strong>Comments from the public</Strong> — the text of a comment left on a post Orbit
+              published, the public display name shown beside it, the platform&rsquo;s own id for
+              the comment and when it was posted. No identifier for the person is stored; see the
+              section below.
+            </li>
+            <li>
+              <Strong>Private messages</Strong> — where an agency has switched them on, the messages
+              people send to a connected Page or Instagram account and the replies sent back, with
+              the identifier the platform gives that person for that one account. See{' '}
+              <Strong>Private messages</Strong> below.
             </li>
             <li>
               <Strong>Operational logs</Strong> — request timing, error codes and a correlation id.
@@ -148,8 +160,16 @@ export default function PrivacyPolicyPage() {
           <P>
             From that authorization we store the Page id, the Page name and handle, the Page profile
             picture, and an access token for that Page. We store no personal Facebook profile
-            information, no friend lists, no messages and no data about people who interact with
-            your Pages.
+            information and no friend lists. The only data we hold about people who interact with
+            your Pages is the public comments and, where messages are switched on, the private
+            conversations described below.
+          </P>
+          <P>
+            Where an agency switches private messages on, connecting also asks for{' '}
+            <Code>pages_messaging</Code> (to read and answer a Page&rsquo;s conversations),{' '}
+            <Code>pages_manage_metadata</Code> (so Facebook tells us when a message arrives), and,
+            for an Instagram account connected with an Instagram login,{' '}
+            <Code>instagram_business_manage_messages</Code>.
           </P>
           <P>
             The access token is encrypted at rest with AES-256-GCM, bound cryptographically to the
@@ -190,14 +210,54 @@ export default function PrivacyPolicyPage() {
             </li>
           </List>
           <P>
-            This applies only to posts published through Orbit. A post made directly on the
-            platform is not read, and comments on it are never collected.
+            This applies only to posts published through Orbit. A post made directly on the platform
+            is not read, and comments on it are never collected.
           </P>
           <P>
             A comment is public at the moment it is written, and deleting it on the platform does
             not reach into our copy automatically. To have a comment removed from Orbit, or to ask
-            what is held, write to <Mail /> — the agency that published the post can also delete
-            it, and anyone may ask us directly.
+            what is held, write to <Mail /> — the agency that published the post can also delete it,
+            and anyone may ask us directly.
+          </P>
+        </Section>
+
+        <Section title="Private messages">
+          <P>
+            Many of a brand&rsquo;s customers ask their questions in a private message rather than a
+            comment. Where an agency has switched this on, Orbit shows the private conversations of
+            a client&rsquo;s connected Facebook Page or Instagram account in one inbox, and lets the
+            agency answer — the reply is sent under the client&rsquo;s own account, exactly as if it
+            had been written there.
+          </P>
+          <List>
+            <li>
+              <Strong>What is stored</Strong> — the messages in the conversation, in both
+              directions; links to any photo or file the platform attached (the files themselves are
+              not downloaded); the name and username the platform shows for the person; and the
+              identifier the platform gives that person for that one account.
+            </li>
+            <li>
+              <Strong>Why the identifier</Strong> — a reply to a private message is addressed to a
+              person, and without it nothing can be sent. Facebook and Instagram issue a different
+              identifier for each account a person writes to, so it identifies nobody outside that
+              one conversation, and Orbit cannot link the same person across different clients.
+            </li>
+            <li>
+              <Strong>What the brand can do</Strong> — only answer. The platforms allow a business
+              to reply for a limited time after the person last wrote, and never to message somebody
+              first; Orbit enforces the same rule.
+            </li>
+            <li>
+              <Strong>How long it is kept</Strong> — while the account stays connected, and never
+              more than twelve months. Disconnecting the account deletes its conversations. A
+              message the person unsends is erased from Orbit as soon as the platform tells us.
+            </li>
+          </List>
+          <P>
+            Messages are never used for advertising, profiling or training machine learning models,
+            and they are never shown in the client portal. They are visible only to the agency staff
+            working on that client. To ask what is held about you, or to have a conversation
+            deleted, write to <Mail />.
           </P>
         </Section>
 

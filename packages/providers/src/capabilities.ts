@@ -203,6 +203,47 @@ export const platformCapabilitiesSchema = z.object({
     })
     .default({}),
 
+  /**
+   * Private messages: reading a connected account's conversations and
+   * answering them (**D-107**).
+   *
+   * Defaulted to "no", like `engagement`, so every descriptor that predates
+   * messaging parses as a platform that cannot do it. It is also how the
+   * feature is switched off: the Meta adapters claim it only when the
+   * deployment has turned messaging on, so a deployment without the
+   * permissions never offers an inbox it cannot fill.
+   */
+  messaging: z
+    .object({
+      supported: z.boolean().default(false),
+      /**
+       * Hours after the person's latest message during which a reply may be
+       * sent. The platform's rule, not a product choice — see `replyWindow`.
+       */
+      replyWindowHours: z.number().int().positive().optional(),
+      /**
+       * The extended window for a reply typed by a person, where the app is
+       * approved for it. Absent means the standard window is the only one.
+       */
+      humanAgentWindowHours: z.number().int().positive().optional(),
+      /** Longest reply the platform accepts, in characters. */
+      maxMessageLength: z.number().int().positive().optional(),
+      /**
+       * Longest reply in UTF-8 bytes, where the platform counts bytes rather
+       * than characters. Instagram does, and a Vietnamese reply is two or three
+       * bytes a letter — so a character limit alone would let through replies
+       * the platform refuses.
+       */
+      maxMessageBytes: z.number().int().positive().optional(),
+      /**
+       * Scopes required to read and answer messages. Requested at connect
+       * time; an account connected before messaging was switched on lacks
+       * them and has to be reconnected, which the product says plainly.
+       */
+      scopes: z.array(z.string()).readonly().default([]),
+    })
+    .default({}),
+
   webhooks: z.object({ supported: z.boolean() }),
 });
 
@@ -239,6 +280,20 @@ export function defineCapabilities(input: unknown): PlatformCapabilities {
   }
   if (parsed.engagement.threadedReply && !parsed.engagement.reply) {
     throw new Error(`${parsed.platform}: engagement.threadedReply is set without reply.`);
+  }
+  if (parsed.messaging.supported && parsed.messaging.replyWindowHours === undefined) {
+    // A reply's legality depends on the window; claiming messaging without one
+    // would make every reply a guess.
+    throw new Error(`${parsed.platform}: messaging.supported is set without replyWindowHours.`);
+  }
+  if (
+    parsed.messaging.humanAgentWindowHours !== undefined &&
+    (parsed.messaging.replyWindowHours === undefined ||
+      parsed.messaging.humanAgentWindowHours <= parsed.messaging.replyWindowHours)
+  ) {
+    throw new Error(
+      `${parsed.platform}: messaging.humanAgentWindowHours must be longer than replyWindowHours.`,
+    );
   }
   if (parsed.lifecycle.editOwnPostsOnly && !parsed.lifecycle.edit) {
     throw new Error(`${parsed.platform}: editOwnPostsOnly set while editing is unsupported.`);

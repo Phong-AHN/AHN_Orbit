@@ -129,6 +129,36 @@ function skip(permission: string, reason: string): void {
 
 const first = (json: Json): Json | undefined => (json.data as Json[] | undefined)?.[0];
 
+/**
+ * A media item that actually has comments, falling back to the latest.
+ *
+ * Reading the comments of a post that has none returns an empty list, and Meta
+ * did not count that call against either comment permission: both stayed at
+ * 0/1 while every other permission went to 1/1. So read a thread that exists.
+ */
+async function commentedMedia(host: string, igUser: string, token: string): Promise<string | null> {
+  const media = await call('GET', `${host}/${igUser}/media`, token, {
+    fields: 'id,comments_count',
+    limit: '50',
+  });
+  const items = (media.data as Json[] | undefined) ?? [];
+  const withComments = items.find((m) => Number(m.comments_count ?? 0) > 0);
+  return ((withComments ?? items[0])?.id as string | undefined) ?? null;
+}
+
+/** Read a media item's comments, then one comment on its own. */
+async function readComments(host: string, mediaId: string, token: string): Promise<string> {
+  const comments = await call('GET', `${host}/${mediaId}/comments`, token, {
+    fields: 'id,text,username,timestamp',
+  });
+  const list = (comments.data as Json[] | undefined) ?? [];
+  if (list.length === 0) throw new Error('no comments on any media — add one, then rerun');
+  await call('GET', `${host}/${String(list[0]!.id)}`, token, {
+    fields: 'id,text,username,timestamp',
+  });
+  return `${list.length} comment(s) read`;
+}
+
 // ── Facebook Login (pages_*, instagram_* on the Page-linked surface) ────────
 
 async function facebook(token: string): Promise<void> {
@@ -263,13 +293,9 @@ async function facebook(token: string): Promise<void> {
   });
 
   await exercise('instagram_manage_comments', async () => {
-    const media = await call('GET', `${FB}/${ig}/media`, p.token, { fields: 'id', limit: '1' });
-    const mediaId = first(media)?.id as string | undefined;
+    const mediaId = await commentedMedia(FB, ig, p.token);
     if (!mediaId) throw new Error('the Instagram account has no media to read comments from');
-    const comments = await call('GET', `${FB}/${mediaId}/comments`, p.token, {
-      fields: 'id,text,username',
-    });
-    return `${((comments.data as Json[] | undefined) ?? []).length} comment(s) on the latest media`;
+    return readComments(FB, mediaId, p.token);
   });
 }
 
@@ -282,8 +308,7 @@ async function instagram(token: string): Promise<void> {
   await exercise('instagram_business_basic', async () => {
     const me = await call('GET', `${IG}/me`, token, { fields: 'user_id,username' });
     userId = String(me.user_id);
-    const media = await call('GET', `${IG}/me/media`, token, { fields: 'id', limit: '1' });
-    mediaId = (first(media)?.id as string | undefined) ?? null;
+    mediaId = await commentedMedia(IG, 'me', token);
     return `@${String(me.username)}`;
   });
 
@@ -307,10 +332,7 @@ async function instagram(token: string): Promise<void> {
 
   await exercise('instagram_business_manage_comments', async () => {
     if (!mediaId) throw new Error('the account has no media to read comments from');
-    const comments = await call('GET', `${IG}/${mediaId}/comments`, token, {
-      fields: 'id,text,username',
-    });
-    return `${((comments.data as Json[] | undefined) ?? []).length} comment(s) on the latest media`;
+    return readComments(IG, mediaId, token);
   });
 
   await exercise('instagram_business_manage_insights', async () => {

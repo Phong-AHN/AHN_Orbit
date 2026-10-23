@@ -140,6 +140,10 @@ export function ensureProvidersRegistered(): void {
         appSecret: env.FACEBOOK_APP_SECRET,
         apiVersion: env.FACEBOOK_GRAPH_VERSION,
         webhookVerifyToken: env.FACEBOOK_WEBHOOK_VERIFY_TOKEN,
+        messaging: {
+          enabled: env.META_MESSAGING_ENABLED,
+          humanAgent: env.META_HUMAN_AGENT_ENABLED,
+        },
       }),
     );
     registerProvider(
@@ -147,6 +151,11 @@ export function ensureProvidersRegistered(): void {
         appId: env.FACEBOOK_APP_ID,
         appSecret: env.FACEBOOK_APP_SECRET,
         apiVersion: env.FACEBOOK_GRAPH_VERSION,
+        webhookVerifyToken: env.FACEBOOK_WEBHOOK_VERIFY_TOKEN,
+        messaging: {
+          enabled: env.META_MESSAGING_ENABLED,
+          humanAgent: env.META_HUMAN_AGENT_ENABLED,
+        },
         // The second Meta app, if there is one. Business Login for Instagram
         // cannot share the Facebook app — Meta allows one API setup per app —
         // so this is either configured separately or the surface is not offered.

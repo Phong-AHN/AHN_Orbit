@@ -913,12 +913,12 @@ bình thường.
 (chính mục này) — Vercel build không chạy. File nằm trong repo không có nghĩa là
 nó đã được áp dụng.
 
-**Hiện không còn migration nào chờ** (kiểm tra 2026-10-20 bằng `prisma migrate status`).
+**Hiện không còn migration nào chờ** (kiểm tra 2026-10-23 bằng `prisma migrate status`).
 
 Đã chạy (ghi lại để khỏi chạy lại): `20260814000000_variant_provider_ref`,
 `20260814010000_report`, `20261013000000_social_comments` (2026-10-20),
-`20261020000000_workspace_client_approval` (2026-10-20, **D-106**). Cột mới có
-mặc định `true`, nên cả 4 workspace hiện có vẫn duyệt như cũ cho tới khi anh đổi.
+`20261020000000_workspace_client_approval` (2026-10-20, **D-106**),
+`20261023000000_social_messages` (2026-10-23, **D-107**).
 
 Khi có migration mới:
 
@@ -1039,99 +1039,85 @@ cần X không trước khi em bỏ 1–1.5 tuần vào nó.
 > `instagram_manage_comments` **không** nằm ở đây nữa — tính năng đã làm xong nên
 > nó nộp cùng đợt App Review này luôn. Xem mục **1b**.
 
-### 7. Instagram Direct — `instagram_manage_messages`
+### 7. Tin nhắn riêng — Messenger và Instagram Direct (**D-107**)
 
-> **Đúng tên là cái này**, không phải `instagram_business_manage_messages`. Cái
-> thứ hai thuộc luồng Business Login (đăng nhập bằng username Instagram, cần
-> một Meta app riêng) — Orbit dùng Facebook Login, xem mục 8.
+**Hiện trạng: code đã xong, đang TẮT** sau cờ `META_MESSAGING_ENABLED`. Tắt vì
+Meta trả "Invalid Scopes" và làm hỏng **toàn bộ** luồng kết nối (kể cả đăng bài)
+nếu Orbit xin một quyền mà app chưa có. Chỉ bật sau bước 3 dưới đây.
 
-**Hiện trạng: Orbit chưa có chức năng tin nhắn.** Community inbox chỉ có bình
-luận (`SocialComment`, Facebook và Instagram). Không có dòng code nào đọc hay
-gửi Instagram Direct, nên **chưa nộp được**: Meta đòi một video quay màn hình
-cho thấy quyền đang được dùng, kèm cả luồng OAuth — không có màn hình nào
-để quay. Bình luận và tin nhắn là hai quyền khác nhau: làm xong bình luận
-(**D-103**) không giúp được gì thêm cho mục này.
+> **Sửa ghi chú cũ:** mục này trước đây ghi tên quyền là
+> `instagram_manage_messages` vì "Orbit dùng Facebook Login". Sai — production
+> kết nối Instagram bằng **Instagram login** (D-105), nên quyền đúng là
+> **`instagram_business_manage_messages`**.
 
-**Vì sao nên làm:** quản lý community ở agency là bình luận **và** tin nhắn.
-Community của Buffer chỉ có bình luận và review Google Business — **không có
-Instagram DM**. Đây là một trong vài chỗ mà làm vượt Buffer dễ hơn là đuổi theo.
-Trên Instagram, phần lớn câu hỏi của khách hàng nằm trong DM.
+Làm theo đúng thứ tự:
 
-**Chọn đúng nhóm khi nộp.** Màn hình App Review cho hai lựa chọn. Orbit là công
-cụ đa tenant, đọc DM **thay cho tài khoản của doanh nghiệp khác** — tức lựa chọn
-**thứ nhất**, kéo theo yêu cầu nặng hơn (Tech Provider verification). Chọn
-"cho tài khoản của chính tôi" sẽ bị từ chối vì không khớp với app thật.
+1. ~~Chạy migration `20261023000000_social_messages`~~ — **đã chạy 2026-10-23**.
+2. **Tạo verify token:** một chuỗi ngẫu nhiên dài bất kỳ. Đặt vào
+   `FACEBOOK_WEBHOOK_VERIFY_TOKEN` trên **cả Vercel và Railway**, rồi deploy.
+3. **Meta App Dashboard:**
+   - **Thêm quyền:** `pages_messaging`, `pages_manage_metadata`,
+     `instagram_business_manage_messages`. Nếu connect dùng *Facebook Login for
+     Business* (`NEXT_PUBLIC_FACEBOOK_CONFIG_ID`), thêm cả vào configuration đó.
+   - **Webhook Facebook** (Facebook Login → Webhooks, đối tượng *Page*):
+     - Callback URL: `https://www.anhoi.co/api/v1/webhooks/facebook`
+     - Verify token: chuỗi ở bước 2
+     - Subscribe fields: `feed`, `messages`, `message_echoes`
+   - **Webhook Instagram** (Instagram → API setup with Instagram login →
+     Configure webhooks):
+     - Callback URL: `https://www.anhoi.co/api/v1/webhooks/instagram`
+     - Verify token: cùng chuỗi đó
+     - Fields: `comments`, `messages`
+4. **Bật cờ** `META_MESSAGING_ENABLED=true` trên **cả Vercel và Railway**, deploy.
+5. **Kết nối lại** các Page và tài khoản Instagram — quyền mới không tự thêm vào
+   kết nối cũ. Màn hình tin nhắn sẽ báo "cần kết nối lại" cho tài khoản chưa làm.
+6. Trên app Instagram của mỗi tài khoản: **Cài đặt → Tin nhắn → Công cụ kết nối →
+   bật "Allow access to messages"**. Không bật thì Meta không gửi tin nhắn cho app.
+7. **Thử:** dùng một tài khoản có vai trò trên app nhắn vào Page → vài giây sau
+   tin hiện ở **Community → Messages**. Trả lời thử từ Orbit.
+8. **Quay video + nộp App Review** cho ba quyền trên (Advanced Access — cần
+   Business Verification). Chọn nhóm "cho doanh nghiệp khác", vì Orbit đọc tin
+   nhắn thay cho tài khoản của khách.
+9. *(Tuỳ chọn)* Xin thêm **Human Agent** để trả lời được tới 7 ngày thay vì 24 giờ.
+   Được duyệt rồi mới đặt `META_HUMAN_AGENT_ENABLED=true`.
 
-**Thứ tự làm:**
+**Không cần bật tin nhắn vẫn được lợi:** chỉ với bước 2–3 (webhook, không thêm
+quyền), bình luận mới sẽ hiện **ngay lập tức** thay vì đợi vòng quét 5 phút.
 
-1. **Webhook endpoint** — chưa có. Model `WebhookEvent` đã có, `verifyWebhook`
-   và `parseWebhook` đã viết cho Facebook, nhưng **không route nào nhận
-   webhook**; `parseWebhook` hiện không có ai gọi. DM **không thể poll** như
-   bình luận: Meta push message event, và có quy tắc cửa sổ 24 giờ để trả lời.
-   Việc này đáng làm dù DM có tới hay không — nó cũng làm bình luận trở thành
-   real-time và đẩy sweep 5 phút xuống thành lớp dự phòng.
-2. **Hai quyết định bên dưới** — em cần trước khi viết schema.
-3. **Đọc + trả lời DM**, trong provider adapter, sau một cờ trong capability
-   descriptor, cùng hình dạng như `engagement`.
-4. **Quay video** trên tính năng thật, rồi nộp.
+**Những gì đã cam kết với người nhắn tin** (đã ghi vào trang chính sách quyền
+riêng tư): chỉ lưu khi tài khoản còn kết nối; ngắt kết nối là xoá; tối đa 12
+tháng; người gửi thu hồi tin nhắn thì Orbit xoá nội dung; không hiện trong
+portal của khách; không dùng cho quảng cáo hay huấn luyện AI.
 
-**Hai quyết định em đang chờ:**
+**Chưa kiểm chứng được** (vì app chưa có quyền) — xem D-107 §"Still unverified".
+Nếu sau khi bật mà phần đọc lại hội thoại Instagram báo lỗi, gửi em log: webhook
+vẫn chạy độc lập.
 
-Với bình luận, em **cố ý không lưu mã định danh nào** của người bình luận —
-bảng không có cột cho nó, và chính sách quyền riêng tư đã ghi điều đó thành văn.
-
-**DM không thể làm như vậy.** Một cuộc trò chuyện là *với một người*; không lưu
-Instagram-scoped ID của họ thì không trả lời được. Và nội dung DM là thư từ
-riêng tư, nặng hơn một bình luận đã công khai.
-
-| Cần anh quyết | Lựa chọn |
-|---|---|
-| Lưu mã định danh người gửi + quy tắc giữ dữ liệu | Bắt buộc, nếu muốn tính năng chạy. Giữ bao lâu thì anh chọn |
-| Khách hàng có thấy hộp DM của họ trong portal không? | Hiện portal không có bất kỳ dữ liệu khán giả nào |
-
-Trả lời hai câu đó là em làm được. Và chính sách quyền riêng tư sẽ phải sửa
-thêm một lần nữa — như lần làm bình luận, trang pháp lý là một phần của tính
-năng, không phải việc làm sau.
-
-**Bản nháp mô tả để nộp** (giữ lại, chỉ dùng **sau khi** tính năng đã có — nộp
-sớm hơn là khai một chức năng không tồn tại). Tiếng Anh, vì review bằng tiếng Anh:
+**Bản mô tả để nộp** (tiếng Anh). Chỉ dùng sau khi đã quay video tính năng thật:
 
 > AHN Orbit is a social media management platform used by agencies to operate
 > accounts on behalf of their client businesses. Each client is an isolated
 > workspace; agency staff are granted access per client, and every action is
-> recorded in an audit log the client can be shown.
+> recorded in an audit log.
 >
-> We request `instagram_manage_messages` to provide a unified inbox for the
-> Instagram Direct conversations of client business accounts that have
-> explicitly connected their account to Orbit through Business Login for
-> Instagram.
+> We request `pages_messaging` and `instagram_business_manage_messages` to
+> provide a unified inbox for the Messenger and Instagram Direct conversations
+> of business accounts that have explicitly connected to Orbit, and
+> `pages_manage_metadata` to subscribe those Pages to message webhooks so new
+> messages arrive in real time.
 >
-> **The problem it solves.** An agency managing ten client brands currently has
-> to sign into ten separate Instagram accounts to answer customer messages — in
-> practice by sharing client credentials, which is both a security risk and
-> something clients are rightly reluctant to do. Connecting an account through
-> our app replaces credential sharing with a scoped, revocable authorization
-> the client controls and can withdraw at any time.
+> **How the permissions are used.** When a person messages a connected
+> account, Orbit receives the message by webhook and shows it in the inbox.
+> Staff can assign the conversation to a colleague, mark it handled, and reply
+> as the brand. Replies are sent only in response to the person's own message
+> and only within the platform's messaging window; Orbit never initiates a
+> conversation.
 >
-> **How the permission is used.** We retrieve conversations and messages for
-> connected accounts and display them in one queue, alongside the public
-> comments we already handle. Staff can assign a conversation to a colleague,
-> mark it handled, and send a reply as the brand. Replies are sent only in
-> response to a person's own message, within the platform's messaging window.
->
-> **Why it is necessary.** There is no alternative route: Instagram Direct
-> conversations cannot be read or answered without this permission, so without
-> it the inbox cannot exist at all.
->
-> **Data handling.** Messages are stored only to render the inbox and are
-> scoped to the workspace of the client who authorized the connection, enforced
-> at both the application and database layers. We do not profile message
-> senders, do not use message content for advertising or model training, and
-> delete stored conversations on request or when a client disconnects their
-> account.
-
-Đoạn cuối mô tả thiết kế em *sẽ* làm — anh đọc lại xem có đúng ý định cam kết
-của mình trước khi nộp.
+> **Data handling.** Messages are stored only to render the inbox, scoped to
+> the workspace of the client who authorized the connection and enforced at
+> both the application and database layers. They are deleted when the account
+> is disconnected and after twelve months at most. We do not profile message
+> senders and do not use message content for advertising or model training.
 
 ---
 

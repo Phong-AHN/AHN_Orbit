@@ -171,6 +171,8 @@ provider layer, in the worker, in memory. This row exists to make that explicit 
 | `comment:resolve` | ❌ | ✅ | ✅ | ✅ | 🟡 own threads | ✅ | ❌ |
 | `comment:read_public` ⁶ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | **❌** |
 | `comment:reply` ⁶ | ❌ | ✅ | ✅ | ✅ | ✅ | **❌** | **❌** |
+| `message:read` ⁷ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | **❌** |
+| `message:reply` ⁷ | ❌ | ✅ | ✅ | ✅ | ✅ | **❌** | **❌** |
 
 ⁶ Community management, and the two rows above are the only ones about the
 **public** rather than about the agency and its client. Two absences are
@@ -183,6 +185,13 @@ privacy decision rather than an inherited grant; see the note in `matrix.ts`.
 Triage — assigning a comment, marking one handled — rides on `comment:reply`
 rather than having a permission of its own: both are *acting on* a comment
 rather than reading it.
+
+⁷ Private messages on Facebook Pages and Instagram (**D-107**). They follow
+the two community rows exactly, for the same reasons: an **Approver** reads and
+does not answer, and a **Client** sees none of it — a conversation is between
+the brand and one person, which is further from the portal's "your own content
+and nothing else" than a public comment is. Assigning and marking handled ride
+on `message:reply`.
 
 ⁵ Internal roles may record a client approval **on the client's behalf** (a common agency reality:
 approval arrives by phone or email). Every such action is audited as `approved_on_behalf_of` with a

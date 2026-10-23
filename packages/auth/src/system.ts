@@ -54,6 +54,19 @@ export const ENGAGEMENT_WORKER_CAPABILITIES = [
 ] as const satisfies readonly Permission[];
 
 /**
+ * Message ingestion: webhook events and the conversation backfill (D-107).
+ *
+ * **No `message:reply`**, for the reason the engagement set has no
+ * `comment:reply`: a background job that could write to a person as the brand
+ * is one wrong payload away from doing it. A reply goes out from the request a
+ * person made.
+ */
+export const MESSAGING_WORKER_CAPABILITIES = [
+  'social_account:read',
+  'message:read',
+] as const satisfies readonly Permission[];
+
+/**
  * The report renderer reads published posts and their stored analytics.
  *
  * `analytics:read` and `post:read` and nothing else. It writes only to the

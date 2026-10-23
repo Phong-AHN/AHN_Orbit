@@ -9,6 +9,13 @@ import type {
   CallbackInput,
   CommentPage,
   ConnectedAccounts,
+  ConversationPage,
+  ConversationParticipant,
+  DirectConversation,
+  DirectMessage,
+  FetchConversationsInput,
+  SendMessageInput,
+  SendMessageResult,
   DateRange,
   DecryptedCredential,
   ExternalPostRef,
@@ -30,8 +37,15 @@ import type {
 import { GraphClient, type GraphClientOptions } from '../facebook/client.js';
 import { reauthorizationReason } from '../facebook/errors.js';
 import {
+  metaWebhookChallenge,
+  parseMetaWebhook,
+  verifyMetaSignature,
+  type MetaMessagingOptions,
+} from '../facebook/meta-webhooks.js';
+import {
   INSTAGRAM_ACCOUNT_METRICS,
   INSTAGRAM_DEFAULT_SCOPES,
+  INSTAGRAM_LOGIN_MESSAGING_SCOPES,
   INSTAGRAM_LOGIN_SCOPES,
   INSTAGRAM_PUBLISH_SCOPES,
   instagramCapabilities,
@@ -65,6 +79,10 @@ import {
  * Meta requires to live in its own app; absent, that surface is not offered.
  */
 export interface InstagramProviderOptions extends GraphClientOptions {
+  /** Verify token for the webhook subscription handshake (D-107). */
+  webhookVerifyToken?: string | undefined;
+  /** Whether this deployment offers private messages (D-107). */
+  messaging?: MetaMessagingOptions | undefined;
   login?:
     | {
         appId: string;
@@ -173,7 +191,11 @@ export class InstagramProvider implements SocialProvider {
   constructor(private readonly options: InstagramProviderOptions) {
     this.client = new GraphClient(options);
     this.capabilityCache = instagramCapabilities(options.apiVersion, 'INSTAGRAM_BUSINESS');
-    this.loginCapabilityCache = instagramCapabilities(options.apiVersion, 'INSTAGRAM_LOGIN');
+    this.loginCapabilityCache = instagramCapabilities(
+      options.apiVersion,
+      'INSTAGRAM_LOGIN',
+      options.messaging,
+    );
   }
 
   /**
@@ -245,7 +267,7 @@ export class InstagramProvider implements SocialProvider {
     scopes: readonly string[];
   } {
     const login = this.requireLoginApp();
-    const scopes = [...new Set([...INSTAGRAM_LOGIN_SCOPES, ...(input.extraScopes ?? [])])];
+    const scopes = [...new Set([...this.loginScopes(), ...(input.extraScopes ?? [])])];
 
     const url = new URL(INSTAGRAM_LOGIN_DIALOG);
     url.searchParams.set('client_id', login.appId);
@@ -312,6 +334,8 @@ export class InstagramProvider implements SocialProvider {
     const shortLived = await this.instagramLoginFetch<{
       access_token: string;
       user_id: number | string;
+      /** What the person approved; a comma-separated string or a list. */
+      permissions?: string | string[];
     }>(INSTAGRAM_LOGIN_TOKEN, { method: 'POST', body: form });
 
     const longLived = await this.instagramLoginFetch<{
@@ -342,7 +366,11 @@ export class InstagramProvider implements SocialProvider {
       ...(longLived.expires_in
         ? { expiresAt: new Date(clock.nowMs() + longLived.expires_in * 1000) }
         : {}),
-      scopes: INSTAGRAM_LOGIN_SCOPES,
+      // What was granted, not what we hoped for — the mistake D-104 fixed for
+      // Facebook. A constant here meant a scope added later (messaging) could
+      // never appear on a credential, so every reply needing it was refused as
+      // "reconnect", and reconnecting stored the same constant again.
+      scopes: grantedLoginScopes(shortLived.permissions, this.loginScopes()),
     };
 
     return {
@@ -1491,23 +1519,280 @@ export class InstagramProvider implements SocialProvider {
     return { externalId: response.id, postedAt: clock.now() };
   }
 
-  // ── Webhooks ──────────────────────────────────────────────────────────────
+  // ── Private messages (D-107) ──────────────────────────────────────────────
+
+  /** Scopes the username-login dialog asks for, with messaging when it is on. */
+  private loginScopes(): readonly string[] {
+    return [
+      ...INSTAGRAM_LOGIN_SCOPES,
+      ...(this.options.messaging?.enabled ? INSTAGRAM_LOGIN_MESSAGING_SCOPES : []),
+    ];
+  }
 
   /**
-   * Not subscribed.
-   *
-   * Instagram webhooks need their own subscription and a published app. The
-   * capability descriptor says `webhooks.supported: false`, so nothing routes
-   * here; returning an empty list is the honest answer if anything does.
+   * Messaging runs on the username-login surface only. A Page-linked
+   * credential reaching here is a caller that skipped the descriptor.
    */
-  verifyWebhook(): boolean {
-    return false;
+  private requireMessagingSurface(credential: DecryptedCredential): void {
+    if (!this.isLoginSurface(credential)) {
+      throw toAppError('INSTAGRAM', {
+        kind: 'VALIDATION',
+        message: 'Instagram messaging needs a username-login connection',
+        userMessage:
+          'Instagram messages are available for accounts connected with an Instagram login.',
+      });
+    }
   }
 
-  parseWebhook(request: RawWebhookRequest): ProviderEvent[] {
-    void request;
-    return [];
+  /**
+   * This account's professional id — what webhooks and conversations call it.
+   *
+   * Username login gives an account two ids. `/me` answers `id` with an
+   * app-scoped one, which is what the connect flow stored, and `user_id` with
+   * the professional account id, which is the one Meta puts in a webhook's
+   * `entry.id` and in a conversation's participant list. Verified against a
+   * real account on 2026-10-23: the two differ.
+   */
+  private async professionalId(credential: DecryptedCredential): Promise<string> {
+    const me = await this.call<{ user_id?: string | number; id?: string }>(credential, {
+      path: '/me',
+      params: { fields: 'user_id' },
+    });
+    if (!me.user_id) {
+      throw toAppError('INSTAGRAM', {
+        kind: 'VALIDATION',
+        message: 'Instagram did not return the professional account id',
+      });
+    }
+    return String(me.user_id);
   }
+
+  /**
+   * Instagram Direct conversations, newest first — the backfill behind the
+   * webhooks.
+   *
+   * UNVERIFIED in one respect: the messages are read through field expansion
+   * on the conversation (`messages.limit(20){…}`), where Meta's guide lists the
+   * message ids first and fetches each one separately. Expansion is how every
+   * other Graph edge here behaves; if Instagram refuses it, this call fails as
+   * a whole and the webhooks — which carry the full message — are unaffected.
+   * Instagram serves only the twenty most recent messages of a conversation
+   * either way, and no attachments on this edge.
+   */
+  async fetchConversations(input: FetchConversationsInput): Promise<ConversationPage> {
+    const { credential, since, cursor, limit, signal } = input;
+    this.requireMessagingSurface(credential);
+
+    const ownId = await this.professionalId(credential);
+
+    const response = await this.call<{
+      data?: Array<{
+        id?: string;
+        updated_time?: string | number;
+        participants?: { data?: Array<{ id?: string; username?: string }> };
+        messages?: {
+          data?: Array<{
+            id?: string;
+            created_time?: string;
+            from?: { id?: string; username?: string };
+            message?: string;
+          }>;
+        };
+      }>;
+      paging?: { cursors?: { after?: string }; next?: string };
+    }>(credential, {
+      path: '/me/conversations',
+      params: {
+        platform: 'instagram',
+        fields: 'id,updated_time,participants,messages.limit(20){id,created_time,from,message}',
+        limit: limit ?? 25,
+        ...(cursor ? { after: cursor } : {}),
+      },
+      ...(signal ? { signal } : {}),
+    });
+
+    const conversations: DirectConversation[] = [];
+    let reachedSince = false;
+
+    for (const row of response.data ?? []) {
+      if (!row.id || row.updated_time === undefined) continue;
+      const updatedAt =
+        typeof row.updated_time === 'number'
+          ? new Date(row.updated_time * 1_000)
+          : new Date(row.updated_time);
+      if (since && updatedAt < since) {
+        reachedSince = true;
+        break;
+      }
+
+      const person = (row.participants?.data ?? []).find(
+        (participant) => participant.id && participant.id !== ownId,
+      );
+      if (!person?.id) continue;
+      const personId = person.id;
+
+      const messages: DirectMessage[] = (row.messages?.data ?? [])
+        .filter((message) => Boolean(message.id && message.created_time))
+        .map((message) => ({
+          externalId: message.id as string,
+          participantExternalId: personId,
+          direction: message.from?.id === ownId ? ('OUTBOUND' as const) : ('INBOUND' as const),
+          ...(message.message ? { text: message.message } : {}),
+          attachments: [],
+          sentAt: new Date(message.created_time as string),
+        }))
+        .sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime());
+
+      conversations.push({
+        externalId: row.id,
+        participant: {
+          externalId: personId,
+          ...(person.username ? { username: person.username } : {}),
+        },
+        updatedAt,
+        messages,
+      });
+    }
+
+    const nextCursor =
+      !reachedSince && response.paging?.next ? response.paging.cursors?.after : undefined;
+
+    return { conversations, ...(nextCursor ? { nextCursor } : {}) };
+  }
+
+  /**
+   * Reply in Instagram Direct.
+   *
+   * `/me/messages` on graph.instagram.com, addressed to the person's
+   * Instagram-scoped id. Outside the standard window the Human Agent tag is
+   * added — only when the caller has decided the window allows it.
+   */
+  async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
+    const { credential, recipientExternalId, text, humanAgent, signal } = input;
+    this.requireMessagingSurface(credential);
+
+    const response = await this.call<{ message_id?: string; recipient_id?: string }>(credential, {
+      path: '/me/messages',
+      method: 'POST',
+      form: {
+        recipient: JSON.stringify({ id: recipientExternalId }),
+        message: JSON.stringify({ text }),
+        ...(humanAgent ? { messaging_type: 'MESSAGE_TAG', tag: 'HUMAN_AGENT' } : {}),
+      },
+      ...(signal ? { signal } : {}),
+    });
+
+    if (!response.message_id) {
+      throw toAppError('INSTAGRAM', {
+        kind: 'VALIDATION',
+        message: 'Instagram accepted the message without returning an id',
+        userMessage:
+          'The message may have been sent, but Instagram did not confirm it. Check the conversation before sending it again.',
+      });
+    }
+
+    return { externalId: response.message_id, sentAt: clock.now() };
+  }
+
+  /** The person's name and username, through the User Profile API. */
+  async fetchParticipant(input: {
+    credential: DecryptedCredential;
+    account: { externalId: string };
+    participantExternalId: string;
+  }): Promise<ConversationParticipant> {
+    this.requireMessagingSurface(input.credential);
+
+    const profile = await this.call<{ name?: string; username?: string }>(input.credential, {
+      path: `/${input.participantExternalId}`,
+      params: { fields: 'name,username' },
+    });
+
+    return {
+      externalId: input.participantExternalId,
+      ...(profile.name ? { name: profile.name } : {}),
+      ...(profile.username ? { username: profile.username } : {}),
+    };
+  }
+
+  // ── Webhooks ──────────────────────────────────────────────────────────────
+
+  webhookChallenge(query: Record<string, string | undefined>): string | null {
+    return metaWebhookChallenge(query, this.options.webhookVerifyToken);
+  }
+
+  /**
+   * Either app secret may have signed it.
+   *
+   * Username-login webhooks are configured in the Instagram app, and those
+   * reaching us for a Page-linked account come through the Facebook one.
+   */
+  verifyWebhook(request: RawWebhookRequest): boolean {
+    return verifyMetaSignature(request.rawBody, request.headers['x-hub-signature-256'], [
+      this.options.login?.appSecret,
+      this.options.appSecret,
+    ]);
+  }
+
+  /** Messages, and a prompt to re-read a media object's comments. */
+  parseWebhook(request: RawWebhookRequest): ProviderEvent[] {
+    return parseMetaWebhook(request.rawBody, (change) => {
+      if (change.field !== 'comments') return null;
+      const value = change.value ?? {};
+      const media = value.media as { id?: unknown } | undefined;
+      if (typeof value.id !== 'string' || typeof media?.id !== 'string') return null;
+      return { externalPostId: media.id, commentId: value.id };
+    });
+  }
+
+  /**
+   * Subscribe a username-login account to this app's webhooks.
+   *
+   * `comments` always; `messages` only with messaging switched on, since the
+   * call fails as a whole on a field the token cannot subscribe to.
+   *
+   * A Page-linked account is subscribed through its Page and the Facebook
+   * app's own webhook settings, so there is nothing to do for one here.
+   *
+   * Returns the professional account id, which is what webhooks will name the
+   * account by — not the id the connect flow stored.
+   */
+  async subscribeWebhooks(input: {
+    credential: DecryptedCredential;
+    account: { externalId: string };
+  }): Promise<{ webhookExternalId?: string | undefined }> {
+    if (!this.isLoginSurface(input.credential)) return {};
+
+    const fields = ['comments', ...(this.options.messaging?.enabled ? ['messages'] : [])];
+
+    await this.call<{ success?: boolean }>(input.credential, {
+      path: '/me/subscribed_apps',
+      method: 'POST',
+      form: { subscribed_fields: fields.join(',') },
+    });
+
+    return { webhookExternalId: await this.professionalId(input.credential) };
+  }
+}
+
+/**
+ * The scopes a username-login credential records.
+ *
+ * Read from the token exchange's `permissions` when Meta includes it — a
+ * comma-separated string or a list, depending on the response version — and
+ * otherwise the scopes requested, which the dialog does not let a person
+ * partially decline on this surface.
+ */
+function grantedLoginScopes(
+  permissions: string | string[] | undefined,
+  requested: readonly string[],
+): readonly string[] {
+  const granted = Array.isArray(permissions)
+    ? permissions
+    : typeof permissions === 'string'
+      ? permissions.split(',')
+      : [];
+  const cleaned = granted.map((scope) => scope.trim()).filter((scope) => scope.length > 0);
+  return cleaned.length > 0 ? cleaned : requested;
 }
 
 /**

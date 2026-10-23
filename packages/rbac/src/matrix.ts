@@ -110,6 +110,8 @@ const OWNER: RoleGrants = {
   'comment:resolve': ORG,
   'comment:read_public': ORG,
   'comment:reply': ORG,
+  'message:read': ORG,
+  'message:reply': ORG,
 
   'media:upload': ORG,
   'media:read': ORG,
@@ -186,6 +188,8 @@ const ACCOUNT_MANAGER: RoleGrants = {
   // Community management is the account manager's job as much as the creator's.
   'comment:read_public': WS,
   'comment:reply': WS,
+  'message:read': WS,
+  'message:reply': WS,
 
   'media:upload': WS,
   'media:read': WS,
@@ -225,6 +229,10 @@ const CONTENT_CREATOR: RoleGrants = {
   // Whoever wrote the post answers the comments on it.
   'comment:read_public': BRAND,
   'comment:reply': BRAND,
+  // Private messages follow comments: whoever answers the brand's public
+  // comments answers its inbox too (D-107).
+  'message:read': BRAND,
+  'message:reply': BRAND,
 
   'media:upload': BRAND,
   'media:read': BRAND,
@@ -264,6 +272,8 @@ const APPROVER: RoleGrants = {
    * `post:create` and `post:schedule` already draw, drawn once more.
    */
   'comment:read_public': BRAND,
+  // Reads private messages and cannot answer them, for the same reason (D-107).
+  'message:read': BRAND,
 
   'media:read': BRAND,
   'analytics:read': WS,
@@ -295,6 +305,10 @@ const CLIENT: RoleGrants = {
    * team may read, not an inherited grant.
    *
    * Community management stays agency-side until somebody decides otherwise.
+   *
+   * The same holds, more strongly, for private messages (`message:*`): they
+   * are correspondence between the brand and one person, and the portal shows
+   * none of it (D-107).
    */
 
   'media:read': BRAND,

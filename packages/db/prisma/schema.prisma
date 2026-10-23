@@ -209,6 +209,18 @@ enum SocialCommentState {
   HANDLED
 }
 
+/// Whether somebody at the agency has dealt with a private conversation (**D-107**).
+enum SocialConversationState {
+  NEW
+  HANDLED
+}
+
+/// Which way a private message went (**D-107**).
+enum SocialMessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
 enum ContentIdeaState {
   SUGGESTED
   ACCEPTED
@@ -255,6 +267,9 @@ model User {
   assignedSocialComments  SocialComment[]          @relation("SocialCommentAssignee")
   handledSocialComments   SocialComment[]          @relation("SocialCommentHandler")
   authoredSocialReplies   SocialComment[]          @relation("SocialCommentAuthor")
+  assignedConversations   SocialConversation[]     @relation("SocialConversationAssignee")
+  handledConversations    SocialConversation[]     @relation("SocialConversationHandler")
+  sentSocialMessages      SocialMessage[]          @relation("SocialMessageAuthor")
   uploadedMedia           MediaAsset[]
   connectedAccounts       SocialAccount[]
   notifications           Notification[]
@@ -296,6 +311,8 @@ model Organization {
   productionTasks    ProductionTask[]
   comments           Comment[]
   socialComments     SocialComment[]
+  socialConversations SocialConversation[]
+  socialMessages     SocialMessage[]
   queueSlots         QueueSlot[]
   publishingJobs     PublishingJob[]
   publishingAttempts PublishingAttempt[]
@@ -370,6 +387,7 @@ model Workspace {
   contentIdeas ContentIdea[]
   reports      Report[]
   socialComments SocialComment[]
+  socialConversations SocialConversation[]
 
   @@unique([organizationId, slug])
   /// Target for composite foreign keys from tenant-scoped children. Every
@@ -420,6 +438,7 @@ model Brand {
   voice          BrandVoice?
   contentIdeas   ContentIdea[]
   socialComments SocialComment[]
+  socialConversations SocialConversation[]
   aiUsage        AIUsage[]
 
   @@unique([workspaceId, slug])
@@ -459,6 +478,11 @@ model SocialAccount {
   platform        Platform
   /// The Page/account id at the provider.
   externalId      String
+  /// The id the platform's webhooks name this account by, where it is not
+  /// `externalId` (**D-107**). Instagram's username login stores an app-scoped
+  /// id but delivers webhooks under the professional account id; null means
+  /// the two are the same.
+  webhookExternalId String?
   handle          String?
   displayName     String
   avatarUrl       String?
@@ -483,6 +507,8 @@ model SocialAccount {
   credential   SocialCredential?
   variants     PostVariant[]
   socialComments SocialComment[]
+  socialConversations SocialConversation[]
+  socialMessages SocialMessage[]
   queueSlots   QueueSlot[]
   snapshots    AnalyticsSnapshot[]
 
@@ -493,6 +519,10 @@ model SocialAccount {
   @@index([organizationId, status])
   @@index([brandId, deletedAt])
   @@index([workspaceId])
+  /// A webhook names an account by the platform's id and nothing else, and the
+  /// same account may be connected by more than one organization (**D-107**).
+  @@index([platform, externalId])
+  @@index([platform, webhookExternalId])
 }
 
 /// Split from SocialAccount so credentials are never selected by accident.
@@ -1225,6 +1255,91 @@ model Invitation {
 
 /// Webhook idempotency (SRS §7). Not tenant-scoped: the tenant is resolved
 /// through our own account mapping, never from the payload.
+/// A private conversation between a connected account and one person (**D-107**).
+///
+/// The one place Orbit keeps an identifier for somebody in the audience, and
+/// only because a reply cannot be addressed without it. Kept while the account
+/// stays connected; deleted with it, and aged out after twelve months.
+model SocialConversation {
+  id                    String                  @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId        String                  @db.Uuid
+  workspaceId           String                  @db.Uuid
+  brandId               String                  @db.Uuid
+  socialAccountId       String                  @db.Uuid
+
+  /// The person's id as this account sees it (Messenger PSID, Instagram IGSID).
+  /// Scoped by the platform to this one account: it identifies nobody elsewhere.
+  participantExternalId String
+  participantName       String?
+  participantUsername   String?
+  /// The platform's own conversation id, when the Conversations API supplied one.
+  externalThreadId      String?
+
+  lastMessageAt         DateTime                @db.Timestamptz(3)
+  /// The person's latest message. The reply window is counted from this.
+  lastInboundAt         DateTime?               @db.Timestamptz(3)
+
+  state                 SocialConversationState @default(NEW)
+  assignedToId          String?                 @db.Uuid
+  handledAt             DateTime?               @db.Timestamptz(3)
+  handledById           String?                 @db.Uuid
+
+  createdAt             DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime                @updatedAt @db.Timestamptz(3)
+
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace     Workspace       @relation(fields: [organizationId, workspaceId], references: [organizationId, id], onDelete: Cascade)
+  brand         Brand           @relation(fields: [organizationId, brandId], references: [organizationId, id], onDelete: Cascade)
+  socialAccount SocialAccount   @relation(fields: [organizationId, socialAccountId], references: [organizationId, id], onDelete: Cascade)
+  assignedTo    User?           @relation("SocialConversationAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  handledBy     User?           @relation("SocialConversationHandler", fields: [handledById], references: [id], onDelete: SetNull)
+  messages      SocialMessage[]
+
+  /// One conversation per person per account.
+  @@unique([organizationId, socialAccountId, participantExternalId], map: "SocialConversation_account_participant_key")
+  @@unique([organizationId, id])
+  /// The inbox: what needs attention, most recent first.
+  @@index([organizationId, state, lastMessageAt])
+  @@index([organizationId, workspaceId, state])
+}
+
+/// One private message, in either direction (**D-107**).
+model SocialMessage {
+  id              String                 @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId  String                 @db.Uuid
+  conversationId  String                 @db.Uuid
+  /// Denormalized for the dedupe key: a platform's message ids are unique per account.
+  socialAccountId String                 @db.Uuid
+
+  /// The platform's message id (`mid`). Dedupes webhook retries and backfill.
+  externalId      String
+  direction       SocialMessageDirection
+  /// Absent for a message that is only an attachment, and erased on unsend.
+  text            String?
+  /// `[{ type, url }]` as the platform served them. Links only; nothing is downloaded.
+  attachments     Json                   @default("[]")
+  sentAt          DateTime               @db.Timestamptz(3)
+  /// The person unsent it. Its content is erased when this is set.
+  deletedAt       DateTime?              @db.Timestamptz(3)
+  /// Who sent it from Orbit. Null for the person's messages, and for the
+  /// brand's own sent from the platform's app.
+  createdById     String?                @db.Uuid
+
+  createdAt       DateTime               @default(now()) @db.Timestamptz(3)
+
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation  SocialConversation @relation(fields: [organizationId, conversationId], references: [organizationId, id], onDelete: Cascade)
+  socialAccount SocialAccount      @relation(fields: [organizationId, socialAccountId], references: [organizationId, id], onDelete: Cascade)
+  createdBy     User?              @relation("SocialMessageAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, socialAccountId, externalId])
+  @@unique([organizationId, id])
+  /// One conversation, in order.
+  @@index([organizationId, conversationId, sentAt])
+  /// Retention.
+  @@index([organizationId, sentAt])
+}
+
 model WebhookEvent {
   id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   provider        String

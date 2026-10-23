@@ -12,6 +12,8 @@ import { startHealthServer } from './health.js';
 import { processAccountHealth } from './processors/account-health.js';
 import { processAnalytics } from './processors/analytics.js';
 import { processEngagement } from './processors/engagement.js';
+import { processMessaging } from './processors/messaging.js';
+import { processWebhooks } from './processors/webhooks.js';
 import { processReport } from './processors/reports.js';
 import { processMaintenance } from './processors/maintenance.js';
 import { processNotification } from './processors/notifications.js';
@@ -57,6 +59,8 @@ async function main(): Promise<void> {
     startWorker('notifications', processNotification),
     startWorker('maintenance', processMaintenance),
     startWorker('scheduler', processScheduler),
+    startWorker('webhooks', processWebhooks),
+    startWorker('messaging', processMessaging),
   ];
 
   await scheduleRepeatableJobs();
@@ -184,6 +188,28 @@ async function scheduleRepeatableJobs(): Promise<void> {
    * value if it arrives hours late. A pass with nothing owed is one indexed
    * query, so the frequency costs effectively nothing.
    */
+  /**
+   * Webhook events nobody processed, every two minutes (D-107).
+   *
+   * Cheap when there is nothing to do — one indexed query — and a message that
+   * missed its first enqueue is somebody waiting, so this runs often.
+   */
+  await queue.add(
+    'maintenance',
+    { correlationId: 'cron:sweep-webhook-events', task: 'sweep-webhook-events' },
+    { repeat: { pattern: '*/2 * * * *' }, jobId: 'cron:sweep-webhook-events' },
+  );
+
+  /**
+   * The conversation backfill, every half hour (D-107). Off the hour and the
+   * half hour, which the other sweeps already crowd.
+   */
+  await queue.add(
+    'maintenance',
+    { correlationId: 'cron:sweep-conversations', task: 'sweep-conversations' },
+    { repeat: { pattern: '10,40 * * * *' }, jobId: 'cron:sweep-conversations' },
+  );
+
   await queue.add(
     'maintenance',
     { correlationId: 'cron:drain-email-outbox', task: 'drain-email-outbox' },

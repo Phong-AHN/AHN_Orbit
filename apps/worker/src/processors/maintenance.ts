@@ -5,6 +5,8 @@ import type { JobContext } from '@orbit/queue';
 import { sweepAccountHealth } from '../health/sweep.js';
 import { sweepAnalytics } from '../analytics/sweep.js';
 import { sweepComments } from '../engagement/sweep.js';
+import { sweepConversations } from '../messaging/sweep.js';
+import { sweepWebhookEvents } from '../messaging/webhooks.js';
 import { sweepRetention } from '../maintenance/retention.js';
 import { drainEmailOutbox } from '../notifications/outbox.js';
 import { mailer } from '../notifications/mailer.js';
@@ -66,6 +68,16 @@ export async function processMaintenance({ payload }: JobContext<'maintenance'>)
       // one — a stale metric is an old number, a stale comment is a customer
       // who has been waiting.
       await sweepComments(payload.correlationId);
+      return;
+    case 'sweep-webhook-events':
+      // Webhook events are stored before they are queued, so one whose enqueue
+      // failed waits in the database rather than being lost (D-107).
+      await sweepWebhookEvents(payload.correlationId);
+      return;
+    case 'sweep-conversations':
+      // Queues the backfill reads; the provider calls run on `messaging`, the
+      // same split as every other sweep here (D-107).
+      await sweepConversations(payload.correlationId);
       return;
     case 'retention':
       // The one task that deletes data nobody asked to delete. It is scoped per

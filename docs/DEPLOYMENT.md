@@ -110,6 +110,24 @@ character for character against what is registered in the portal. The code
 default is `http://localhost:3000`, so an unset `APP_URL` in production
 produces a localhost callback that TikTok refuses.
 
+### Private messages and webhooks (D-107) go on **both** surfaces
+
+| Variable | Where | Notes |
+|---|---|---|
+| `FACEBOOK_WEBHOOK_VERIFY_TOKEN` | **Vercel** and **Railway** | Any long random string, also entered in the Meta App Dashboard. Web answers Meta's handshake with it; the worker subscribes accounts to webhooks only when it is set. |
+| `META_MESSAGING_ENABLED` | **Vercel** and **Railway**, identically | `true` only after `pages_messaging`, `pages_manage_metadata` and `instagram_business_manage_messages` are on the Meta app — an unknown scope fails the whole connect dialog, publishing included. |
+| `META_HUMAN_AGENT_ENABLED` | **Vercel** and **Railway**, identically | `true` only once Meta has approved Human Agent. Extends the reply window from 24 hours to 7 days. |
+
+Webhook callback URLs, registered in the Meta App Dashboard:
+`${APP_URL}/api/v1/webhooks/facebook` (Page: `feed`, `messages`, `message_echoes`) and
+`${APP_URL}/api/v1/webhooks/instagram` (`comments`, `messages`).
+
+The two flags must match between web and worker: web decides what the connect
+dialog asks for and whether the inbox shows Messages; the worker decides what
+it subscribes to and ingests. A mismatch shows an inbox nothing fills, or fills
+one nobody can see. These flags are read as `true`/`false`/`1`/`0` — unlike
+`z.coerce.boolean()`, the string `false` means off.
+
 The code default is already `v25.0`, so an unset variable is not broken. It is set explicitly
 anyway because the *previous* value is what is dangerous: an environment still carrying `v21.0`
 from before 2026-08-14 silently pins that surface to an old version, and the web app and the worker

@@ -4008,6 +4008,153 @@ Owner or Admin marks it internal under Settings → Clients & brands.
 
 ---
 
+## D-107 — Private messages on Facebook and Instagram, and webhooks at last
+
+The community inbox answered comments and nothing else. On Instagram most
+customer questions arrive as a private message, so the inbox was missing the
+half of community management an agency spends most time on.
+
+### Which platforms
+
+Researched before building, because the answer decides the design:
+
+| Platform | API to answer a private message | Built |
+|---|---|---|
+| Facebook Pages | Messenger Send API + Conversations API; 24 h window, 7 days with Human Agent | ✅ |
+| Instagram (username login) | Instagram Messaging API; same windows | ✅ |
+| TikTok | Business Messaging API, partner approval only, region-limited, 48 h | Later, if approved |
+| LinkedIn | Page messaging through a handful of named partners only | ❌ |
+| Threads, YouTube, Pinterest | No messaging API | ❌ |
+
+The Page-linked Instagram surface (`instagram_manage_messages`) is not built:
+production connects Instagram by username login (D-105), and a second
+messaging path nobody connects through is one more thing to keep correct
+untested.
+
+### Decisions taken with the owner
+
+1. **The person's platform id is stored.** Comments deliberately store none
+   (D-102); a private message cannot work that way, because a reply is
+   addressed to a person. It is the per-account id (Messenger PSID, Instagram
+   IGSID), which identifies nobody outside that one account.
+2. **Kept while connected, deleted on disconnect, never longer than twelve
+   months.** Disconnecting deletes the account's conversations outright, as
+   does a Meta data-deletion request. Retention ages out messages past twelve
+   months and conversations left empty.
+3. **Not in the client portal.** No `message:*` grant for `CLIENT`.
+4. **Same roles as comments.** `message:read` and `message:reply` mirror
+   `comment:read_public` and `comment:reply`: an Approver reads and does not
+   answer; assigning and marking handled ride on `message:reply`.
+5. **No approval gate on a reply**, as with comments.
+6. **Human Agent supported, off until Meta approves it**
+   (`META_HUMAN_AGENT_ENABLED`).
+
+### The switch, and why it is off
+
+`META_MESSAGING_ENABLED`, default off, set identically on web and worker. It
+makes the connect flow ask for `pages_messaging`, `pages_manage_metadata` and
+`instagram_business_manage_messages`, subscribes accounts to message webhooks,
+and shows the Messages tab.
+
+**Off by default because Meta answers an unknown scope with "Invalid Scopes"
+and fails the whole dialog** — publishing included. Turning it on before the
+permissions are added to the app would break connecting for everyone.
+
+### Webhooks, finally
+
+`WebhookEvent`, `verifyWebhook` and `parseWebhook` had existed since T1.6 with
+nothing calling them. A message cannot be polled the way comments are — the
+reply window starts when the person writes — so this is now built:
+
+- **`/api/v1/webhooks/{platform}`.** `GET` answers the handshake with
+  `FACEBOOK_WEBHOOK_VERIFY_TOKEN`; `POST` verifies `X-Hub-Signature-256` over
+  the **raw** body (Meta signs its escaped bytes; hashing re-serialised JSON
+  fails for any accented message), stores each event under the platform's own
+  id, enqueues it, and answers. Nothing from the body is logged.
+- **Stored before it is queued**, so Redis or the worker being down delays the
+  inbox instead of losing messages. `sweep-webhook-events` (every 2 minutes)
+  requeues anything unprocessed, under a bucketed job id — BullMQ silently
+  drops an add whose id matches a job it still holds, and a job that failed
+  every attempt is still held. Events still failing after 48 hours are closed
+  with an error.
+- **The stored copy is scrubbed once processed.** `WebhookEvent` is
+  platform-wide without row-level security, so after the message reaches its
+  tenant's tables the row is reduced to its kind. Processed rows are deleted
+  after 7 days.
+- **Message bodies never enter Redis.** The `webhooks` job carries an event id.
+- **One delivery, several tenants.** A Page may be connected by more than one
+  organization; each matching account is resolved to its own tenant from its
+  own row. `webhooks` is therefore platform-wide like `maintenance`, and
+  D-021 is applied per account rather than to the payload.
+- **Comments became real-time as a side effect.** A Page's `feed` webhook (new
+  comment) and Instagram's `comments` field enqueue the existing comment
+  ingestion for that post, so there is still exactly one way a comment is
+  written. The 5-minute sweep is now the backstop.
+
+### Instagram has two ids
+
+Verified against a real account on 2026-10-23: Instagram's username login
+returns `id` (app-scoped, which the connect flow stored as `externalId`) and
+`user_id` (the professional account id), and they differ. Webhooks and
+conversation participants use `user_id`. Rather than change `externalId` —
+which publishing depends on — `SocialAccount.webhookExternalId` stores the
+second id, filled when the account is subscribed. A non-null value also records
+that the subscription was made.
+
+### Subscribing accounts
+
+One place: the worker's `messaging` job. A new connection enqueues it; the
+30-minute `sweep-conversations` enqueues it for every account that can message
+or is not yet subscribed. It subscribes (feed/comments always; messages when
+on), then backfills conversations through the Conversations API since the
+newest stored message (30 days on the first run). Subscription runs only when
+`FACEBOOK_WEBHOOK_VERIFY_TOKEN` is set, since an app with no callback delivers
+nothing.
+
+### A bug fixed on the way
+
+Business Login stored `scopes: INSTAGRAM_LOGIN_SCOPES` — a constant — on every
+credential: the same mistake D-104 fixed for Facebook. Any scope added later
+(messaging) could never appear on a credential, so every reply needing it
+would have been refused as "reconnect", and reconnecting stored the constant
+again. The token exchange's `permissions` is now read, falling back to the
+scopes requested.
+
+### Replying
+
+Checked in this order before anything is sent: the conversation's own brand
+(`message:reply`), the descriptor, the length (Instagram counts **bytes** —
+1,000 — and a Vietnamese letter is two or three), the window (`replyWindow`,
+pure and tested), the connection's scopes. Then the Send API, then the row,
+marked handled in the same transaction and audited without the text. The echo
+webhook that follows is recognised by the platform's message id and changes
+nothing.
+
+Ingestion rules: idempotent on the message id; a message from the person
+reopens a handled conversation; the brand answering from the platform's own
+app closes it only if the answer is newer than the person's last message
+(deliveries arrive out of order); an unsend erases the words and keeps the
+row. A notification (`message.received`, in-app only) is raised when a
+conversation opens or reopens — not per message — and carries neither the
+sender's name nor the text, because notification rows outlive messages.
+
+### Still unverified
+
+No app has these permissions yet, so nothing below has met Meta's real
+responses; each is isolated so a wrong guess fails one call, not the inbox.
+
+- Instagram Conversations API through field expansion
+  (`messages.limit(20){…}`), where Meta's guide fetches message ids first.
+- Which secret signs username-login webhooks. Both app secrets are accepted.
+- Subscribing Instagram's `comments` field may need Advanced Access; a refusal
+  is logged and retried by the sweep, and publishing is unaffected.
+- `HUMAN_AGENT` uses the standard Messenger `MESSAGE_TAG` syntax on both.
+
+- **Date:** 2026-10-23 · **Status:** IMPLEMENTED, behind `META_MESSAGING_ENABLED`
+  (migration `20261023000000_social_messages` applied to production 2026-10-23)
+
+---
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

@@ -314,23 +314,118 @@ export interface ReplyResult {
   postedAt?: Date | undefined;
 }
 
+// ── Private messages (D-107) ────────────────────────────────────────────────
+
+/** An attachment as the platform served it: a link, never the bytes. */
+export interface MessageAttachment {
+  type: string;
+  url?: string | undefined;
+}
+
+/**
+ * One private message, as the adapter hands it over.
+ *
+ * Unlike a comment this carries the other person's id, because a reply to a
+ * private message is addressed to a *person*. It is the platform's per-account
+ * id (Messenger PSID, Instagram IGSID), which identifies nobody outside this
+ * one connected account.
+ */
+export interface DirectMessage {
+  externalId: string;
+  /** The person on the other side, whichever way the message went. */
+  participantExternalId: string;
+  direction: 'INBOUND' | 'OUTBOUND';
+  text?: string | undefined;
+  attachments: readonly MessageAttachment[];
+  sentAt: Date;
+}
+
+export interface ConversationParticipant {
+  externalId: string;
+  name?: string | undefined;
+  username?: string | undefined;
+}
+
+export interface DirectConversation {
+  /** The platform's conversation id. */
+  externalId: string;
+  participant: ConversationParticipant;
+  updatedAt: Date;
+  /** The most recent messages the platform will serve, oldest first. */
+  messages: readonly DirectMessage[];
+}
+
+export interface ConversationPage {
+  conversations: readonly DirectConversation[];
+  nextCursor?: string | undefined;
+}
+
+export interface FetchConversationsInput {
+  credential: DecryptedCredential;
+  account: { externalId: string };
+  /** Only conversations updated at or after this. */
+  since?: Date | undefined;
+  cursor?: string | undefined;
+  limit?: number | undefined;
+  signal?: AbortSignal | undefined;
+}
+
+export interface SendMessageInput {
+  credential: DecryptedCredential;
+  account: { externalId: string };
+  recipientExternalId: string;
+  text: string;
+  /**
+   * Send under the human-agent extension rather than the standard window.
+   * Decided by the caller from `replyWindow`, never guessed by the adapter.
+   */
+  humanAgent?: boolean | undefined;
+  signal?: AbortSignal | undefined;
+}
+
+export interface SendMessageResult {
+  externalId: string;
+  sentAt: Date;
+}
+
 // ── Webhooks ────────────────────────────────────────────────────────────────
+
+/**
+ * What a webhook delivery means, in the core's vocabulary (D-107).
+ *
+ * An adapter turns the platform's payload into these and nothing else crosses
+ * the boundary — the webhook route and the worker never read a Meta field
+ * name. A delivery can carry several, and kinds the product has no use for are
+ * dropped inside the adapter rather than passed on as noise.
+ */
+export type ProviderEvent =
+  | {
+      kind: 'MESSAGE';
+      /** Unique per platform, for deduplicating retries. */
+      externalEventId: string;
+      accountExternalId: string;
+      message: DirectMessage;
+      /** The person unsent it; whatever was stored for it is erased. */
+      deleted?: boolean | undefined;
+    }
+  | {
+      /**
+       * Somebody commented on a post. Carries no comment content: it is a
+       * prompt to read the post's comments through the normal ingestion path,
+       * so there remains exactly one way a comment gets written.
+       */
+      kind: 'COMMENT_ACTIVITY';
+      externalEventId: string;
+      accountExternalId: string;
+      externalPostId: string;
+      occurredAt: Date;
+    };
 
 export interface RawWebhookRequest {
   headers: Record<string, string | undefined>;
   /** Raw body. Signature verification must run against bytes, not parsed JSON. */
   rawBody: string;
   query?: Record<string, string | undefined> | undefined;
-}
-
-export interface ProviderEvent {
-  /** Provider-side event id, for webhook idempotency. */
-  externalEventId: string;
-  type: string;
-  accountExternalId?: string | undefined;
-  externalPostId?: string | undefined;
-  occurredAt: Date;
-  payload: Record<string, unknown>;
 }
 
 // ── The interface ───────────────────────────────────────────────────────────
@@ -379,7 +474,33 @@ export interface SocialProvider {
   fetchComments?(input: FetchCommentsInput): Promise<CommentPage>;
   replyToComment?(input: ReplyInput): Promise<ReplyResult>;
 
+  // Private messages — gated by capabilities.messaging.supported (D-107)
+  fetchConversations?(input: FetchConversationsInput): Promise<ConversationPage>;
+  sendMessage?(input: SendMessageInput): Promise<SendMessageResult>;
+  /** Best effort: a name to show beside a conversation a webhook opened. */
+  fetchParticipant?(input: {
+    credential: DecryptedCredential;
+    account: { externalId: string };
+    participantExternalId: string;
+  }): Promise<ConversationParticipant>;
+
   // Webhooks — gated by capabilities.webhooks.supported
+  /**
+   * Answer the platform's subscription handshake, or `null` to refuse it.
+   * The query is the platform's; only the adapter knows its parameter names.
+   */
+  webhookChallenge?(query: Record<string, string | undefined>): string | null;
   verifyWebhook?(request: RawWebhookRequest): boolean;
   parseWebhook?(request: RawWebhookRequest): ProviderEvent[];
+  /**
+   * Ask the platform to deliver this account's events to us. Called after a
+   * connection; safe to repeat. Which events is the adapter's decision.
+   *
+   * Returns the id webhooks will name this account by when it is not the
+   * stored `externalId` — Instagram's username login is the case.
+   */
+  subscribeWebhooks?(input: {
+    credential: DecryptedCredential;
+    account: { externalId: string };
+  }): Promise<{ webhookExternalId?: string | undefined }>;
 }

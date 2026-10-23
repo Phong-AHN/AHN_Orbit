@@ -1,4 +1,5 @@
 import { defineCapabilities, type PlatformCapabilities } from '../capabilities.js';
+import { messagingDescriptor, type MetaMessagingOptions } from '../facebook/meta-webhooks.js';
 
 /**
  * Instagram professional-account capabilities.
@@ -136,6 +137,23 @@ export type InstagramAccountType = (typeof INSTAGRAM_ACCOUNT_TYPES)[number];
  * string type-checks, passes every test here, and is judged only by Meta's
  * dialog. Confirm each against the Permissions Reference before submitting.
  */
+/**
+ * Scopes for Instagram Direct, on the username-login surface (**D-107**).
+ *
+ * `instagram_business_manage_messages` reads conversations, receives message
+ * webhooks and sends replies. Requested only when the deployment turns
+ * messaging on — an unknown scope fails the whole dialog.
+ *
+ * The Facebook-Login surface's equivalent, `instagram_manage_messages`, is not
+ * offered: production connects Instagram through username login (D-105), and a
+ * second messaging path nobody connects through would be one more thing to keep
+ * correct untested.
+ */
+export const INSTAGRAM_LOGIN_MESSAGING_SCOPES = ['instagram_business_manage_messages'] as const;
+
+/** Instagram's limit for a text message: 1,000 bytes of UTF-8. */
+export const INSTAGRAM_MESSAGE_MAX_BYTES = 1_000;
+
 export const INSTAGRAM_LOGIN_SCOPES = [
   'instagram_business_basic',
   'instagram_business_content_publish',
@@ -230,6 +248,7 @@ const DEPRECATED_METRICS = [
 export function instagramCapabilities(
   apiVersion: string,
   accountType: 'INSTAGRAM_BUSINESS' | 'INSTAGRAM_LOGIN' = 'INSTAGRAM_BUSINESS',
+  messaging?: MetaMessagingOptions,
 ): PlatformCapabilities {
   const isLogin = accountType === 'INSTAGRAM_LOGIN';
 
@@ -405,6 +424,16 @@ export function instagramCapabilities(
       replyScopes: isLogin ? INSTAGRAM_LOGIN_COMMENT_SCOPES : INSTAGRAM_COMMENT_SCOPES,
     },
 
-    webhooks: { supported: false },
+    // Username login only; see INSTAGRAM_LOGIN_MESSAGING_SCOPES.
+    messaging: messagingDescriptor(isLogin ? messaging : undefined, {
+      scopes: INSTAGRAM_LOGIN_MESSAGING_SCOPES,
+      // Characters as well as bytes: an ASCII reply reaches the byte limit at
+      // the same length, and the composer counts characters.
+      maxMessageLength: INSTAGRAM_MESSAGE_MAX_BYTES,
+      maxMessageBytes: INSTAGRAM_MESSAGE_MAX_BYTES,
+    }),
+
+    // Comments and messages arrive under `object: "instagram"` (D-107).
+    webhooks: { supported: true },
   });
 }

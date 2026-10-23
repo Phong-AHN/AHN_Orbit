@@ -97,6 +97,12 @@ export function notificationContent(event: NotificationEvent): NotificationConte
           : `${decider(false, event.by)} approved it.`,
       };
 
+    case 'message.received':
+      return {
+        title: `New message for ${event.accountName}`,
+        body: 'Someone is waiting for a reply. Open the conversation to answer it.',
+      };
+
     default: {
       const exhaustive: never = event;
       throw new Error(`Unhandled notification event: ${JSON.stringify(exhaustive)}`);

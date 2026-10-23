@@ -133,6 +133,12 @@ export const RECIPIENT_RULES: Record<NotificationType, RecipientRule> = {
     interestedIn: 'post:schedule',
     visibilityRequires: 'post:read',
   },
+
+  // Whoever may answer it, among those who may read it (D-107).
+  'message.received': {
+    interestedIn: 'message:reply',
+    visibilityRequires: 'message:read',
+  },
 };
 
 export interface RecipientScope {
