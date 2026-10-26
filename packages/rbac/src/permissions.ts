@@ -103,6 +103,15 @@ export const PERMISSIONS = [
    * a conversation rather than reading it.
    */
   'message:reply',
+  /**
+   * Send a reply written by the AI assistant, with no person in the loop
+   * (D-108). Granted to **no role** — only to the assistant's system principal,
+   * so there is no way for a signed-in user to borrow it, and a background job
+   * that holds it can do nothing else to a conversation.
+   */
+  'message:reply_ai',
+  /** Write a brand's assistant documents and decide how the assistant behaves (D-108). */
+  'ai_assistant:manage',
 
   // ── Media ─────────────────────────────────────────────────────────────────
   'media:upload',

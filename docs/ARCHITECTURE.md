@@ -233,6 +233,7 @@ Full schema in `DATABASE.md`. Architectural stance:
 | `engagement` | repeatable (every 5 min sweep) | 3 | Read audience comments back on published posts |
 | `webhooks` | the webhook route, per stored event; requeued by a 2 min sweep | 5 | Turn a stored platform webhook event into rows, per matching account (D-107). Platform-wide: the tenant is resolved per account, not asserted |
 | `messaging` | a new connection; 30 min sweep | 2 | Subscribe one account to webhooks, then backfill its private conversations (D-107) |
+| `assistant` | an incoming message, delayed by the brand's grace period | 2 | The AI assistant decides whether to answer a conversation, and answers or hands it to a person (D-108) |
 | `account-health` | repeatable (hourly) | 2 | Token validity & permission probe |
 | `notifications` | domain events | 10 | In-app + email fan-out |
 | `reports` | a person asking for one | 2 | Render a client report and store it |

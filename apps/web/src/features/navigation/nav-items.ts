@@ -142,7 +142,12 @@ export function shellGroups(
   base: string,
   declaration: readonly NavGroup[],
   allowed: (permission: Permission) => boolean = () => true,
-): Array<{ label: string; items: Array<{ label: string; href: string; exact?: boolean }> }> {
+  /** Counts keyed by an item's `path`, for the things waiting there. */
+  counts: Readonly<Record<string, number>> = {},
+): Array<{
+  label: string;
+  items: Array<{ label: string; href: string; exact?: boolean; count?: number }>;
+}> {
   return declaration
     .map((group) => ({
       label: group.label,
@@ -155,6 +160,7 @@ export function shellGroups(
           // not become a trailing slash, which would never match the pathname.
           href: `${base}${item.path}`,
           ...(item.exact ? { exact: true as const } : {}),
+          ...(counts[item.path] ? { count: counts[item.path] } : {}),
         })),
     }))
     .filter((group) => group.items.length > 0);

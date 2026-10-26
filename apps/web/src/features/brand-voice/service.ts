@@ -1,5 +1,6 @@
 import { NotFoundError, isUserPrincipal, type TenantContext } from '@orbit/core';
 import { withTenant } from '@orbit/db';
+import { toBrandContext } from '@orbit/ai';
 import { audit, type AuditInput } from '@/server/audit';
 import type { BrandContext, UpdateBrandVoiceInput } from './contracts';
 
@@ -144,27 +145,7 @@ export async function loadBrandContext(
   );
 
   if (!brand) throw new NotFoundError('Brand');
-  if (!brand.voice) return null;
 
-  const voice = brand.voice;
-
-  return {
-    brandName: brand.name,
-    ...(voice.companyDescription ? { companyDescription: voice.companyDescription } : {}),
-    ...(voice.productsServices ? { productsServices: voice.productsServices } : {}),
-    ...(voice.targetAudience ? { targetAudience: voice.targetAudience } : {}),
-    ...(voice.brandVoice ? { brandVoice: voice.brandVoice } : {}),
-    ...(voice.tone ? { tone: voice.tone } : {}),
-    ...(voice.website ? { website: voice.website } : {}),
-    preferredTerms: voice.preferredTerms,
-    bannedTerms: voice.bannedTerms,
-    ctas: voice.ctas,
-    exampleContent: asStringList(voice.exampleContent),
-  };
-}
-
-/** `exampleContent` is a Json column; anything unexpected in it is discarded. */
-function asStringList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((entry): entry is string => typeof entry === 'string');
+  // Shared with the worker's assistant (D-108), so both read a brand the same way.
+  return toBrandContext(brand.name, brand.voice);
 }

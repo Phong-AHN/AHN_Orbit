@@ -8,6 +8,7 @@ import {
   type ConversationParticipant,
   type DirectMessage,
 } from '@orbit/providers';
+import { scheduleAssistant } from '../assistant/run.js';
 import { loadAccountCredential } from '../credentials.js';
 
 /**
@@ -112,7 +113,13 @@ export async function recordMessage(
 
   let conversation = await db.socialConversation.findFirst({
     where: { socialAccountId: account.id, participantExternalId: message.participantExternalId },
-    select: { id: true, state: true, lastMessageAt: true, lastInboundAt: true },
+    select: {
+      id: true,
+      state: true,
+      lastMessageAt: true,
+      lastInboundAt: true,
+      lastHumanReplyAt: true,
+    },
   });
 
   const isNew = !conversation;
@@ -131,12 +138,18 @@ export async function recordMessage(
           : {}),
         ...(options.externalThreadId ? { externalThreadId: options.externalThreadId } : {}),
         lastMessageAt: message.sentAt,
-        ...(inbound ? { lastInboundAt: message.sentAt } : {}),
+        ...(inbound ? { lastInboundAt: message.sentAt } : { lastHumanReplyAt: message.sentAt }),
         // A conversation the brand started from its own app is not waiting on
         // anybody here; one the person started is.
         ...(inbound ? { state: 'NEW' as const } : { state: 'HANDLED' as const, handledAt: now }),
       },
-      select: { id: true, state: true, lastMessageAt: true, lastInboundAt: true },
+      select: {
+        id: true,
+        state: true,
+        lastMessageAt: true,
+        lastInboundAt: true,
+        lastHumanReplyAt: true,
+      },
     });
   } else if (
     options.participant?.name ||
@@ -219,10 +232,17 @@ export async function recordMessage(
   // The brand's own message, sent outside Orbit. It answers the person only if
   // it came after what they last said.
   const answers = !lastInboundAt || message.sentAt >= lastInboundAt;
+  const lastHumanReplyAt = conversation.lastHumanReplyAt;
   await db.socialConversation.update({
     where: { id: conversation.id },
     data: {
       ...(newer ? { lastMessageAt: message.sentAt } : {}),
+      // Somebody typed it in the platform's app, so the assistant stays out
+      // (D-108). The assistant's own echo lands here too, and is put right by
+      // the assistant when it records what it sent.
+      ...(!lastHumanReplyAt || message.sentAt > lastHumanReplyAt
+        ? { lastHumanReplyAt: message.sentAt }
+        : {}),
       ...(answers && conversation.state === 'NEW'
         ? { state: 'HANDLED' as const, handledAt: now }
         : {}),
@@ -293,6 +313,25 @@ export async function ingestMessageEvent(input: {
 
     return result;
   });
+
+  // A new message from the customer: the assistant may answer it, if the
+  // brand has it on. Best effort — a failure here leaves the conversation to
+  // people, which is where it was anyway.
+  if (recorded.created && message.direction === 'INBOUND' && !input.deleted) {
+    try {
+      await scheduleAssistant({
+        ctx,
+        conversationId: recorded.conversationId,
+        messageExternalId: message.externalId,
+        correlationId: ctx.correlationId,
+      });
+    } catch (error) {
+      logger.warn('could not schedule the assistant', {
+        conversationId: recorded.conversationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 
   return { kind: 'RECORDED', recorded };
 }

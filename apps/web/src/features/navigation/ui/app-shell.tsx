@@ -63,6 +63,8 @@ export interface ShellNavItem {
   href: string;
   /** Match the href exactly rather than as a prefix. */
   exact?: boolean | undefined;
+  /** Things waiting there, shown as a count. Zero or absent shows nothing. */
+  count?: number | undefined;
 }
 
 export interface ShellNavGroup {
@@ -280,13 +282,13 @@ function RailContent({
   );
 }
 
-function NavLink({ label, href, active }: ShellNavItem & { active: boolean }) {
+function NavLink({ label, href, active, count }: ShellNavItem & { active: boolean }) {
   return (
     <Link
       href={href}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'block rounded px-2 py-1.5 text-sm transition-colors',
+        'flex items-center justify-between gap-2 rounded px-2 py-1.5 text-sm transition-colors',
         'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
         active
           ? // Weight as well as colour: the current page has to be identifiable
@@ -295,7 +297,15 @@ function NavLink({ label, href, active }: ShellNavItem & { active: boolean }) {
           : 'text-ink-secondary hover:bg-surface-sunken hover:text-ink',
       )}
     >
-      {label}
+      <span className="truncate">{label}</span>
+      {count && count > 0 ? (
+        <span
+          className="shrink-0 rounded-full bg-warning-soft px-1.5 text-[11px] font-semibold tabular-nums text-warning"
+          aria-label={`${count} waiting`}
+        >
+          {count > 99 ? '99+' : count}
+        </span>
+      ) : null}
     </Link>
   );
 }

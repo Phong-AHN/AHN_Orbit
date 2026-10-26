@@ -112,6 +112,7 @@ const OWNER: RoleGrants = {
   'comment:reply': ORG,
   'message:read': ORG,
   'message:reply': ORG,
+  'ai_assistant:manage': ORG,
 
   'media:upload': ORG,
   'media:read': ORG,
@@ -190,6 +191,9 @@ const ACCOUNT_MANAGER: RoleGrants = {
   'comment:reply': WS,
   'message:read': WS,
   'message:reply': WS,
+  // The documents the assistant answers from are the account's knowledge of
+  // the client; whoever runs the account writes them (D-108).
+  'ai_assistant:manage': WS,
 
   'media:upload': WS,
   'media:read': WS,

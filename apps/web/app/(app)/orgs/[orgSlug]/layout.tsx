@@ -2,6 +2,9 @@ import { pageCanSomewhere, requirePageContext } from '@/server/page-context';
 import { NotificationBell } from '@/features/notifications/ui/notification-bell';
 import { NAV_GROUPS, PRIMARY_ACTIONS, shellGroups } from '@/features/navigation/nav-items';
 import { AppShell } from '@/features/navigation/ui/app-shell';
+import { unhandledCount } from '@/features/community/service';
+import { messagingAvailable, waitingConversationCount } from '@/features/messaging/service';
+import { ensureProvidersRegistered } from '@/server/providers';
 
 /**
  * The organization shell.
@@ -34,7 +37,9 @@ export default async function OrgLayout({
 
   const base = `/orgs/${orgSlug}`;
 
-  const groups = shellGroups(base, NAV_GROUPS, (permission) => pageCanSomewhere(ctx, permission));
+  const groups = shellGroups(base, NAV_GROUPS, (permission) => pageCanSomewhere(ctx, permission), {
+    '/community': await waitingInCommunity(ctx),
+  });
 
   const primary = PRIMARY_ACTIONS.find((action) => pageCanSomewhere(ctx, action.permission));
 
@@ -56,4 +61,22 @@ export default async function OrgLayout({
       {children}
     </AppShell>
   );
+}
+
+/**
+ * Comments and conversations waiting for somebody, for the count beside
+ * Community. Two indexed counts per page load, each skipped for a person who
+ * could not open what it counts — so the number never promises work the inbox
+ * will not show them.
+ */
+async function waitingInCommunity(ctx: Parameters<typeof unhandledCount>[0]): Promise<number> {
+  const comments = pageCanSomewhere(ctx, 'comment:read_public') ? await unhandledCount(ctx) : 0;
+
+  ensureProvidersRegistered();
+  const messages =
+    messagingAvailable() && pageCanSomewhere(ctx, 'message:read')
+      ? await waitingConversationCount(ctx)
+      : 0;
+
+  return comments + messages;
 }

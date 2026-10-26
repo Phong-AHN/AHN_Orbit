@@ -298,6 +298,17 @@ export const serverEnvSchema = z.object({
    * with an expiry date, not one to set once and forget.
    */
   GEMINI_MODEL: z.string().default('gemini-3.6-flash'),
+  /**
+   * Which Gemini terms the key is under (D-108). `free` until somebody says
+   * otherwise, because that is the cautious reading.
+   *
+   * It matters for one feature. On the free tier Google may use what is sent to
+   * improve its products, and people at Google may read it — so the AI
+   * assistant, which sends customers' private messages, warns whoever switches
+   * it on, and the privacy policy says so. Set `paid` once the key's project
+   * has billing enabled.
+   */
+  GEMINI_TIER: z.enum(['free', 'paid']).default('free'),
 
   // ── Billing (SRS §38) ─────────────────────────────────────────────────────
   STRIPE_SECRET_KEY: optionalString,

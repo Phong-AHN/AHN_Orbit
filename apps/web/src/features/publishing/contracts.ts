@@ -64,7 +64,15 @@ export const resolveParkedSchema = z
     reason: z.string().trim().min(1).max(1000),
     /** Only meaningful for `PUBLISHED`, where the person found the post. */
     externalPostId: z.string().trim().max(255).optional(),
-    externalPermalink: z.string().trim().url().max(2048).optional(),
+    // `url()` alone accepts `javascript:`; this link is rendered as an href,
+    // including in the client portal, so only a web address is accepted.
+    externalPermalink: z
+      .string()
+      .trim()
+      .url()
+      .max(2048)
+      .refine((value) => /^https?:\/\//i.test(value), 'Must be an http or https link')
+      .optional(),
   })
   .refine((value) => value.resolution === 'PUBLISHED' || !value.externalPostId, {
     message: 'An external post id only applies when confirming it published',

@@ -35,6 +35,8 @@ import { serialiseApprovals } from '@/features/approvals/ui/serialise';
 import { getPublishingStatus } from '@/features/publishing/service';
 import { AttemptTimeline } from '@/features/publishing/ui/attempt-timeline';
 import { ResolvePanel } from '@/features/publishing/ui/resolve-panel';
+import { VariantOutcome } from '@/features/publishing/ui/variant-outcome';
+import type { VariantPublishState } from '@/features/publishing/ui/status';
 
 export const dynamic = 'force-dynamic';
 
@@ -304,26 +306,41 @@ export default async function ComposerPage({ params }: PageProps) {
                 ))
             : null}
 
-          {publishing.variants.map((variant) =>
-            variant.jobs[0] ? (
-              <AttemptTimeline
-                key={variant.id}
-                attempts={variant.jobs[0].attempts.map((attempt) => ({
-                  id: `${variant.id}-${attempt.attemptNumber}`,
-                  attemptNumber: attempt.attemptNumber,
-                  state: attempt.state,
-                  startedAt: attempt.startedAt.toISOString(),
-                  finishedAt: attempt.finishedAt?.toISOString() ?? null,
-                  durationMs: attempt.durationMs,
-                  externalPostId: null,
-                  errorCode: attempt.errorCode,
-                  errorMessage: attempt.errorMessage,
-                  errorRetryable: attempt.errorRetryable,
-                  correlationId: '',
-                }))}
-              />
-            ) : null,
-          )}
+          {publishing.variants
+            .filter((variant) => variant.status !== 'DRAFT')
+            .map((variant) => (
+              <div key={variant.id} className="space-y-3">
+                {/* Which account, where it went, and the link to it. */}
+                <VariantOutcome
+                  variant={{
+                    platform: variant.platform,
+                    status: variant.status as VariantPublishState,
+                    externalPostId: variant.externalPostId,
+                    externalPermalink: variant.externalPermalink,
+                    publishedAt: variant.publishedAt,
+                    socialAccount: variant.socialAccount,
+                  }}
+                  timezone={post.workspace.timezone}
+                />
+                {variant.jobs[0] ? (
+                  <AttemptTimeline
+                    attempts={variant.jobs[0].attempts.map((attempt) => ({
+                      id: `${variant.id}-${attempt.attemptNumber}`,
+                      attemptNumber: attempt.attemptNumber,
+                      state: attempt.state,
+                      startedAt: attempt.startedAt.toISOString(),
+                      finishedAt: attempt.finishedAt?.toISOString() ?? null,
+                      durationMs: attempt.durationMs,
+                      externalPostId: null,
+                      errorCode: attempt.errorCode,
+                      errorMessage: attempt.errorMessage,
+                      errorRetryable: attempt.errorRetryable,
+                      correlationId: '',
+                    }))}
+                  />
+                ) : null}
+              </div>
+            ))}
         </section>
       ) : null}
 

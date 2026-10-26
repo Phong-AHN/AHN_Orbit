@@ -146,6 +146,18 @@ export const webhooksPayloadSchema = z.object({
  * Reading one account's private conversations: the backfill behind the
  * webhooks, and the first import when an account is connected (**D-107**).
  */
+/**
+ * The AI assistant considering one conversation (**D-108**).
+ *
+ * Usually delayed: during staffed hours by the brand's grace period, so a
+ * colleague can answer first, and otherwise by a few seconds, so a customer who
+ * sends three short lines is answered once. The job decides afresh when it
+ * runs — the payload says which conversation, never what to do.
+ */
+export const assistantPayloadSchema = jobEnvelopeSchema.extend({
+  conversationId: z.string().uuid(),
+});
+
 export const messagingPayloadSchema = jobEnvelopeSchema.extend({
   socialAccountId: z.string().uuid(),
   /** Provider cursor, when one account has more conversations than one job reads. */
@@ -193,6 +205,9 @@ export const QUEUE_DEFINITIONS = {
   webhooks: { schema: webhooksPayloadSchema, concurrency: 5 },
   // Low: the backfill reads a lot per job and nobody is blocked on it.
   messaging: { schema: messagingPayloadSchema, concurrency: 2 },
+  // Bounded by the model's rate limit, not by us: Gemini's free tier allows a
+  // handful of calls a minute, and more workers would only queue at Google.
+  assistant: { schema: assistantPayloadSchema, concurrency: 2 },
 } as const;
 
 export type QueueName = keyof typeof QUEUE_DEFINITIONS;

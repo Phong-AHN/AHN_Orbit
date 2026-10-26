@@ -86,6 +86,8 @@ export interface RetentionResult {
   messages: number;
   /** Conversations with nothing left in them. */
   conversations: number;
+  /** What the AI assistant decided, past the same twelve months (D-108). */
+  decisions: number;
   /** Objects we could not reach. The rows stay for the next pass. */
   storageFailures: number;
 }
@@ -121,6 +123,7 @@ export async function sweepRetention(correlationId: string): Promise<RetentionRe
     reports: 0,
     messages: 0,
     conversations: 0,
+    decisions: 0,
     storageFailures: 0,
   };
 
@@ -145,6 +148,7 @@ export async function sweepRetention(correlationId: string): Promise<RetentionRe
       result.reports += swept.reports;
       result.messages += swept.messages;
       result.conversations += swept.conversations;
+      result.decisions += swept.decisions;
       result.storageFailures += swept.storageFailures;
     } catch (error) {
       // One organization's failure must not abandon the rest of the sweep, and
@@ -162,7 +166,8 @@ export async function sweepRetention(correlationId: string): Promise<RetentionRe
     result.snapshots > 0 ||
     result.reports > 0 ||
     result.messages > 0 ||
-    result.conversations > 0
+    result.conversations > 0 ||
+    result.decisions > 0
   ) {
     logger.info('retention sweep complete', { ...result, cutoff: cutoff.toISOString() });
   }
@@ -182,7 +187,7 @@ async function organizationsWithExpiredData(
   now: Date,
   messagesBefore: Date,
 ): Promise<string[]> {
-  const [analytics, snapshots, reports, messages, conversations] = await Promise.all([
+  const [analytics, snapshots, reports, messages, conversations, decisions] = await Promise.all([
     platformDb.postAnalytics.findMany({
       where: { capturedAt: { lt: cutoff } },
       select: { organizationId: true },
@@ -213,11 +218,17 @@ async function organizationsWithExpiredData(
       distinct: ['organizationId'],
       take: ORGANIZATIONS_PER_RUN,
     }),
+    platformDb.assistantDecision.findMany({
+      where: { createdAt: { lt: messagesBefore } },
+      select: { organizationId: true },
+      distinct: ['organizationId'],
+      take: ORGANIZATIONS_PER_RUN,
+    }),
   ]);
 
   return [
     ...new Set(
-      [...analytics, ...snapshots, ...reports, ...messages, ...conversations].map(
+      [...analytics, ...snapshots, ...reports, ...messages, ...conversations, ...decisions].map(
         (row) => row.organizationId,
       ),
     ),
@@ -230,6 +241,7 @@ interface OrganizationSweep {
   reports: number;
   messages: number;
   conversations: number;
+  decisions: number;
   storageFailures: number;
 }
 
@@ -256,6 +268,7 @@ async function sweepOrganization(
     reports: 0,
     messages: 0,
     conversations: 0,
+    decisions: 0,
     storageFailures: 0,
   };
 
@@ -344,12 +357,33 @@ async function sweepOrganization(
     return count;
   });
 
+  // What the assistant said goes with the messages it answered. A decision in
+  // a conversation still running ages out on its own date.
+  swept.decisions = await deleteInBatches(async () => {
+    const rows = await withTenant(ctx, (db) =>
+      db.assistantDecision.findMany({
+        where: { createdAt: { lt: messagesBefore } },
+        select: { id: true },
+        take: DELETE_BATCH,
+      }),
+    );
+
+    if (rows.length === 0) return 0;
+
+    const { count } = await withTenant(ctx, (db) =>
+      db.assistantDecision.deleteMany({ where: { id: { in: rows.map((row) => row.id) } } }),
+    );
+
+    return count;
+  });
+
   if (
     swept.postAnalytics > 0 ||
     swept.snapshots > 0 ||
     swept.reports > 0 ||
     swept.messages > 0 ||
-    swept.conversations > 0
+    swept.conversations > 0 ||
+    swept.decisions > 0
   ) {
     // On the tenant's own trail, so an agency asked "where did last year's
     // numbers go" has an answer that names the run (**D-046**). Written
@@ -369,6 +403,7 @@ async function sweepOrganization(
           reports: swept.reports,
           socialMessages: swept.messages,
           socialConversations: swept.conversations,
+          assistantDecisions: swept.decisions,
           cutoff: cutoff.toISOString(),
           messageCutoff: messagesBefore.toISOString(),
         },

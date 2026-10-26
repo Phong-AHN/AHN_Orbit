@@ -4155,6 +4155,135 @@ responses; each is isolated so a wrong guess fails one call, not the inbox.
 
 ---
 
+## D-108 — An AI assistant that answers private messages when nobody is on
+
+The owner asked for Gemini to answer customers' private messages from
+documents the agency provides, when nobody is staffing the page, under three
+conditions: sensitive and internal information stays protected, the answers
+are ethical, and **anything beyond what the agency has allowed goes to a
+person, who answers it**. The assistant may not decide anything itself.
+
+### What this overrides
+
+**D-067 ("AI suggests; a person acts") is relaxed for private messages only**,
+at the owner's explicit request. Posts, comments and every other AI feature
+are unchanged: they still suggest and a person still acts. For a private
+message the assistant may send on its own, inside every guardrail below, and
+only where an organization owner or admin has switched that on for the brand.
+
+### Decisions taken with the owner
+
+1. **Off by default, per brand.** Three modes: `OFF`; `SUGGEST` (a "Suggest a
+   reply" button drafts an answer a colleague reads, edits and sends as
+   themselves); `AUTO` (answers on its own when nobody is on).
+2. **When it answers.** Outside the brand's staffed hours, at once (after a
+   30-second pause so a burst of messages is read together). Inside them,
+   after a grace period (default 10 minutes) in which a colleague may answer
+   first. The schedule is per weekday in the workspace's time zone.
+3. **Always disclosed.** Every message it sends ends with
+   "— Phản hồi tự động từ AI Assistant". There is no setting to remove it.
+4. **A holding message on hand-over**, sent once ("Cảm ơn bạn đã nhắn tin. Nhân
+   viên của chúng tôi sẽ phản hồi bạn sớm nhất có thể." unless the brand
+   writes its own), also disclosed.
+5. **Text and FAQs first.** Knowledge is pasted text — FAQ entries and longer
+   documents. File upload and retrieval over large corpora are later.
+6. **The free Gemini tier for now**, upgraded later. `GEMINI_TIER=free` makes
+   the settings page say, beside every switch, that Google may use what is
+   sent to improve its products and that requests are limited.
+7. **Seven days of SUGGEST before AUTO.** AUTO can be chosen only after
+   suggestions have been on for seven days, so the agency has seen what the
+   assistant would say.
+8. **Who manages it.** `ai_assistant:manage`: Owner and Admin organization-wide,
+   Account Manager in their workspaces. **Switching AUTO on needs the grant
+   organization-wide** (Owner or Admin), checked with an empty resource the
+   same way D-106's org-level-only rule is.
+
+### Three gates, two of them deterministic
+
+`decideReply` in `@orbit/ai`, pure apart from the model call, used by the
+worker (AUTO), the conversation page (SUGGEST) and the settings page's tester:
+
+1. **Before the model.** What the customer wrote since the brand last spoke
+   is matched, with and without diacritics, against fixed categories that
+   always go to a person: asking for a person, complaints, refunds and
+   payments, legal threats, safety (self-harm mentions), orders and accounts,
+   credentials and personal data — plus the brand's own phrases. A message
+   that is only a stop request ("dừng", "stop", "không cần bot") pauses the
+   assistant in that conversation and sends nothing. No documents means no
+   model call. Short words that collide without diacritics ("tự tử" and "từ
+   từ", "kiện" and "ý kiến") are matched only with their marks.
+2. **The model.** Gemini in JSON mode with a response schema, temperature 0.2,
+   asked to answer only from the documents, cite the ids it used, and choose
+   `ESCALATE` otherwise. The customer's text is redacted (phone, card and ID
+   numbers, codes, email addresses) and fenced, and a closing fence inside it
+   is stripped, so it cannot escape into the instructions. Documents are
+   capped at 50,000 characters in total — refused at save time rather than
+   silently cut.
+3. **After the model.** The answer must cite at least one real document, and
+   every number, link and email address in it must appear in what it cited
+   (a price nobody wrote is the commonest invented fact and the cheapest to
+   catch). It may not ask for credentials and may not use the brand's banned
+   terms. It must fit the platform with the disclosure appended — in bytes,
+   on Instagram. Any failure hands over.
+
+### What the worker does
+
+The `assistant` queue (concurrency 2, **one attempt**: a late or doubled
+automatic reply is worse than none). A customer's message arriving by webhook
+schedules a job keyed by that message, only when the brand is in AUTO.
+`autoReplyGate` (core, pure) is asked when the job runs and **again after the
+model has answered**, and a reply is sent only if every condition still holds:
+mode AUTO, the standard 24-hour window open (**never the Human Agent tag**),
+not paused, not already handed over, under the per-conversation cap (default
+3), no person has replied in the last 12 hours, and outside staffed hours or
+past the grace period. A colleague who answered while the model was thinking
+wins: the assistant's answer is discarded and nothing they did is undone.
+
+On a reply: the message is written with `sentByAssistant`, the conversation
+marked handled by nobody, and an `AssistantDecision` row records what was
+said and which documents it came from. Meta's echo of the message is
+recognised and does not count as a person replying (`lastHumanReplyAt`,
+which a reply from Orbit or from the platform's own app does set).
+
+On a hand-over: `needsHuman` with the reason, back to "needs a reply", the
+holding message once, a decision row, and a `message.needs_human`
+notification (in-app and email) that names the kind of matter but never the
+customer's words. The assistant stays out until a person replies or marks it
+handled. A model that is down, a month's AI credits used up, or a send the
+platform refuses all hand over too.
+
+### Least privilege
+
+The worker acts with `ASSISTANT_WORKER_CAPABILITIES`: `social_account:read`,
+`message:read` and `message:reply_ai` — a permission no role holds, so no
+person's grant can be used to send as the assistant, and nothing it holds can
+publish, approve or touch another feature. The job's tenant is resolved from
+the conversation row (D-021).
+
+### Supervision
+
+The conversation page shows what the assistant did there, the documents it
+answered from, a "was this right?" rating, and a switch to keep it out of that
+conversation. The inbox marks conversations that need a person. The brand's
+assistant page shows thirty days of drafts, replies, hand-overs and ratings,
+and a tester that shows exactly what a customer would receive without sending
+anything. Every model call is metered against the organization's AI credits
+(`AIUsage`, operations `message.assistant`, `message.suggest`,
+`message.assistant_test`). Decisions age out with messages, at twelve months.
+
+### Not done
+
+- File upload (PDF, DOCX) for knowledge, and retrieval for corpora larger than
+  the prompt budget.
+- Answering comments automatically. Comments are public; this stays D-067.
+- A per-brand daily cap on automatic replies, beyond the per-conversation cap
+  and the organization's monthly credits.
+
+- **Date:** 2026-10-26 · **Status:** IMPLEMENTED (migration
+  `20261026000000_ai_assistant` written, **not applied**)
+
+---
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

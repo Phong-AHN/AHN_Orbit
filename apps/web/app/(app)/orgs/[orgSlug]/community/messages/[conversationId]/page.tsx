@@ -9,6 +9,9 @@ import { listMembers } from '@/features/tenancy/members';
 import { participantLabel } from '@/features/messaging/inbox';
 import { getConversation, messagingAvailable } from '@/features/messaging/service';
 import { ConversationThread } from '@/features/messaging/ui/conversation-thread';
+import { AutoRefresh } from '@/features/messaging/ui/auto-refresh';
+import { assistantModeFor, listDecisions } from '@/features/assistant/service';
+import { AssistantActivity } from '@/features/assistant/ui/assistant-activity';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,12 +53,22 @@ export default async function ConversationPage({ params }: PageProps) {
 
   const { conversation, messages, window } = loaded;
 
+  const [mode, decisions] = await Promise.all([
+    assistantModeFor(ctx, conversation.brandId),
+    listDecisions(ctx, conversation.id),
+  ]);
+  const canReply = pageCan(ctx, 'message:reply', {
+    workspaceId: conversation.workspaceId,
+    brandId: conversation.brandId,
+  });
+
   const members = (await listMembers(ctx))
     .filter((member) => member.role !== 'CLIENT' && member.status === 'ACTIVE')
     .map((member) => ({ id: member.user.id, name: member.user.name, email: member.user.email }));
 
   return (
     <main id="main" className="px-4 py-10 sm:px-6">
+      <AutoRefresh />
       <nav aria-label="Breadcrumb" className="mb-4 text-sm">
         <Link
           href={`/orgs/${orgSlug}/community/messages`}
@@ -77,10 +90,7 @@ export default async function ConversationPage({ params }: PageProps) {
           renderedAt={clock.now().toISOString()}
           // Against this conversation's own brand: `message:reply` is
           // brand-scoped for a Content Creator. The server checks again.
-          canReply={pageCan(ctx, 'message:reply', {
-            workspaceId: conversation.workspaceId,
-            brandId: conversation.brandId,
-          })}
+          canReply={canReply}
           members={members}
           conversation={{
             id: conversation.id,
@@ -101,11 +111,37 @@ export default async function ConversationPage({ params }: PageProps) {
             attachments: message.attachments,
             sentAt: message.sentAt.toISOString(),
             deletedAt: message.deletedAt?.toISOString() ?? null,
+            sentByAssistant: message.sentByAssistant,
             createdBy: message.createdBy,
           }))}
           window={{ state: window.state, closesAt: window.closesAt?.toISOString() ?? null }}
           needsReconnect={loaded.needsReconnect}
           maxMessageLength={loaded.maxMessageLength}
+          assistant={{
+            mode,
+            needsHuman: conversation.needsHuman,
+            escalationReason: conversation.escalationReason,
+            paused: conversation.assistantPaused,
+          }}
+        />
+
+        <AssistantActivity
+          orgSlug={orgSlug}
+          conversationId={conversation.id}
+          renderedAt={clock.now().toISOString()}
+          canReply={canReply}
+          mode={mode}
+          paused={conversation.assistantPaused}
+          decisions={decisions.map((decision) => ({
+            id: decision.id,
+            action: decision.action,
+            category: decision.category,
+            reason: decision.reason,
+            text: decision.text,
+            rating: decision.rating,
+            createdAt: decision.createdAt.toISOString(),
+            cited: decision.cited,
+          }))}
         />
       </div>
     </main>

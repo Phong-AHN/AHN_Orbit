@@ -70,6 +70,8 @@ const EMAIL_WORTHY: ReadonlySet<NotificationType> = new Set([
   'publishing.needs_review',
   'post.approval_requested',
   'post.client_review_requested',
+  // A customer the assistant could not help is waiting on a person (D-108).
+  'message.needs_human',
 ]);
 
 export function channelsFor(

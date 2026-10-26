@@ -13,6 +13,8 @@ import {
   waitingConversationCount,
 } from '@/features/messaging/service';
 import { InboxTabs } from '@/features/messaging/ui/inbox-tabs';
+import { AutoRefresh } from '@/features/messaging/ui/auto-refresh';
+import { SyncButton } from '@/features/community/ui/sync-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,6 +63,7 @@ export default async function MessagesPage({ params, searchParams }: PageProps) 
 
   return (
     <main id="main" className="px-4 py-10 sm:px-6">
+      <AutoRefresh />
       <PageHeader
         eyebrow={organization.name}
         title="Community"
@@ -73,32 +76,37 @@ export default async function MessagesPage({ params, searchParams }: PageProps) 
 
       <InboxTabs orgSlug={orgSlug} active="messages" waitingMessages={waiting} />
 
-      <nav className="mt-4 flex gap-1.5" aria-label="Filter conversations">
-        {(
-          [
-            ['waiting', 'Needs a reply'],
-            ['all', 'All conversations'],
-          ] as const
-        ).map(([value, label]) => {
-          const active = (value === 'all') === !waitingOnly;
-          return (
-            <Link
-              key={value}
-              href={`/orgs/${orgSlug}/community/messages${value === 'all' ? '?view=all' : ''}`}
-              aria-current={active ? 'page' : undefined}
-              className={cn(
-                'rounded px-2.5 py-1.5 text-sm transition-colors',
-                'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
-                active
-                  ? 'bg-accent-soft font-semibold text-accent'
-                  : 'text-ink-secondary hover:bg-surface-sunken hover:text-ink',
-              )}
-            >
-              {label}
-            </Link>
-          );
-        })}
-      </nav>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <nav className="flex gap-1.5" aria-label="Filter conversations">
+          {(
+            [
+              ['waiting', 'Needs a reply'],
+              ['all', 'All conversations'],
+            ] as const
+          ).map(([value, label]) => {
+            const active = (value === 'all') === !waitingOnly;
+            return (
+              <Link
+                key={value}
+                href={`/orgs/${orgSlug}/community/messages${value === 'all' ? '?view=all' : ''}`}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'rounded px-2.5 py-1.5 text-sm transition-colors',
+                  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
+                  active
+                    ? 'bg-accent-soft font-semibold text-accent'
+                    : 'text-ink-secondary hover:bg-surface-sunken hover:text-ink',
+                )}
+              >
+                {label}
+              </Link>
+            );
+          })}
+        </nav>
+        {/* The same refresh the comment inbox has, which reads messages too.
+            Offered to people who may answer: it spends the app's shared quota. */}
+        {pageCanSomewhere(ctx, 'message:reply') ? <SyncButton orgSlug={orgSlug} /> : null}
+      </div>
 
       {conversations.length === 0 ? (
         <Card className="mt-6">
@@ -153,6 +161,13 @@ export default async function MessagesPage({ params, searchParams }: PageProps) 
                     </p>
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
                       <span>{conversation.socialAccount.displayName}</span>
+                      {conversation.needsHuman ? (
+                        // Handed over by the AI assistant (D-108).
+                        <Badge tone="danger">Needs a person</Badge>
+                      ) : null}
+                      {conversation.assistantReplyCount > 0 && !waitingOnUs ? (
+                        <Badge tone="neutral">AI replied</Badge>
+                      ) : null}
                       {waitingOnUs ? (
                         <Badge tone={deadline.tone === 'neutral' ? 'warning' : deadline.tone}>
                           {deadline.text}

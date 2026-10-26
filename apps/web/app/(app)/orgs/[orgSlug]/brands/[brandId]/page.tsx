@@ -53,6 +53,17 @@ export default async function BrandPage({ params }: PageProps) {
         canEdit={pageCan(ctx, 'brand_voice:update', { brandId })}
       />
 
+      {pageCan(ctx, 'ai_assistant:manage', { workspaceId: brand.workspaceId, brandId }) ? (
+        <p className="mt-6 text-sm">
+          <Link
+            href={`/orgs/${orgSlug}/brands/${brandId}/assistant`}
+            className="font-medium text-accent underline-offset-2 hover:underline"
+          >
+            AI assistant for messages →
+          </Link>
+        </p>
+      ) : null}
+
       <p className="mt-6 text-sm text-ink-muted">
         <Link href={`/orgs/${orgSlug}/settings/workspaces`} className="hover:underline">
           Back to clients

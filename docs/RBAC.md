@@ -173,6 +173,8 @@ provider layer, in the worker, in memory. This row exists to make that explicit 
 | `comment:reply` ⁶ | ❌ | ✅ | ✅ | ✅ | ✅ | **❌** | **❌** |
 | `message:read` ⁷ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | **❌** |
 | `message:reply` ⁷ | ❌ | ✅ | ✅ | ✅ | ✅ | **❌** | **❌** |
+| `ai_assistant:manage` ⁸ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| `message:reply_ai` ⁸ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ⁶ Community management, and the two rows above are the only ones about the
 **public** rather than about the agency and its client. Two absences are
@@ -185,6 +187,13 @@ privacy decision rather than an inherited grant; see the note in `matrix.ts`.
 Triage — assigning a comment, marking one handled — rides on `comment:reply`
 rather than having a permission of its own: both are *acting on* a comment
 rather than reading it.
+
+⁸ The AI assistant (**D-108**). `ai_assistant:manage` writes a brand's
+documents and its assistant settings; switching a brand to **automatic** replies
+additionally requires it org-wide (Owner, Admin), the same shape as D-106.
+`message:reply_ai` belongs to no role — only the assistant's system principal
+holds it, so no person can send as the assistant and the assistant can do
+nothing but send.
 
 ⁷ Private messages on Facebook Pages and Instagram (**D-107**). They follow
 the two community rows exactly, for the same reasons: an **Approver** reads and

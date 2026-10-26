@@ -11,8 +11,10 @@ import {
   hashtagPrompt,
   rewritePrompt,
 } from './prompt.js';
+import { assistantPrompt } from './assistant.js';
 import type {
   AdaptInput,
+  AnswerMessageInput,
   AIProvider,
   AIResult,
   CaptionInput,
@@ -130,6 +132,33 @@ export class GeminiProvider implements AIProvider {
     return this.finish(clean(result.text), result, input.brand?.bannedTerms ?? []);
   }
 
+  /**
+   * A private message, answered in JSON (D-108).
+   *
+   * Two settings differ from a caption, and both are about not inventing
+   * things. The temperature is low — an answer drawn from a policy document
+   * should be the same answer every time — and the response is constrained to
+   * a schema, so the model cannot wrap a reply in prose that the parser would
+   * have to guess about.
+   */
+  async answerMessage(input: AnswerMessageInput): Promise<AIResult<string>> {
+    const result = await this.generate(assistantPrompt(input), input.signal, {
+      temperature: 0.2,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          action: { type: 'STRING', enum: ['REPLY', 'ESCALATE'] },
+          reply: { type: 'STRING' },
+          citedDocumentIds: { type: 'ARRAY', items: { type: 'STRING' } },
+          reason: { type: 'STRING' },
+        },
+        required: ['action'],
+      },
+    });
+    return this.finish(result.text, result, input.brand?.bannedTerms ?? []);
+  }
+
   async generateHashtags(input: HashtagInput): Promise<AIResult<string[]>> {
     const result = await this.generate(hashtagPrompt(input), input.signal);
     const tags = parseHashtags(result.text, input.count);
@@ -166,7 +195,15 @@ export class GeminiProvider implements AIProvider {
    * retry policy and the API's error envelope treat a Gemini failure exactly as
    * they treat a Meta one — a rate limit is retryable, a bad key is not.
    */
-  private async generate(prompt: string, signal?: AbortSignal): Promise<RawGeneration> {
+  private async generate(
+    prompt: string,
+    signal?: AbortSignal,
+    config: {
+      temperature?: number;
+      responseMimeType?: string;
+      responseSchema?: Record<string, unknown>;
+    } = {},
+  ): Promise<RawGeneration> {
     const started = Date.now();
 
     const controller = new AbortController();
@@ -189,9 +226,11 @@ export class GeminiProvider implements AIProvider {
           body: JSON.stringify({
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             generationConfig: {
-              temperature: TEMPERATURE,
+              temperature: config.temperature ?? TEMPERATURE,
               maxOutputTokens: MAX_OUTPUT_TOKENS,
               candidateCount: 1,
+              ...(config.responseMimeType ? { responseMimeType: config.responseMimeType } : {}),
+              ...(config.responseSchema ? { responseSchema: config.responseSchema } : {}),
             },
           }),
           signal: controller.signal,

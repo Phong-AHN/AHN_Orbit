@@ -10,6 +10,7 @@ import {
 } from '@orbit/queue';
 import { startHealthServer } from './health.js';
 import { processAccountHealth } from './processors/account-health.js';
+import { processAssistant } from './processors/assistant.js';
 import { processAnalytics } from './processors/analytics.js';
 import { processEngagement } from './processors/engagement.js';
 import { processMessaging } from './processors/messaging.js';
@@ -61,6 +62,8 @@ async function main(): Promise<void> {
     startWorker('scheduler', processScheduler),
     startWorker('webhooks', processWebhooks),
     startWorker('messaging', processMessaging),
+    // One attempt: a late or doubled automatic reply is worse than none (D-108).
+    startWorker('assistant', processAssistant, { maxAttempts: 1 }),
   ];
 
   await scheduleRepeatableJobs();

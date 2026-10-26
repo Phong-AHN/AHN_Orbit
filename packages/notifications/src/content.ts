@@ -103,6 +103,12 @@ export function notificationContent(event: NotificationEvent): NotificationConte
         body: 'Someone is waiting for a reply. Open the conversation to answer it.',
       };
 
+    case 'message.needs_human':
+      return {
+        title: `A customer of ${event.accountName} needs a person`,
+        body: `The AI assistant handed this conversation over (${event.reason}). Reply as soon as you can.`,
+      };
+
     default: {
       const exhaustive: never = event;
       throw new Error(`Unhandled notification event: ${JSON.stringify(exhaustive)}`);

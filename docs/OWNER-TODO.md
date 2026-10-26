@@ -869,7 +869,9 @@ cả hai đều gọi API.
 | `ORBIT_ROLE=worker` | **chỉ trên Railway**, không đặt ở Vercel | ✅ |
 | `SENTRY_DSN` | **bắt buộc khi `APP_ENV=production`** — cả web lẫn worker | ✅ |
 | `S3_ENDPOINT` | **phải để TRỐNG trên production** — chỉ dùng cho MinIO local. Set nó là boot fail | ❌ |
-| `GEMINI_API_KEY` | Google AI Studio | tuỳ chọn¹ |
+| `GEMINI_API_KEY` | Google AI Studio — **đặt cả trên worker** nếu bật trợ lý AI trả lời tin nhắn (**D-108**) | tuỳ chọn¹ |
+| `GEMINI_MODEL` | mặc định `gemini-3.6-flash` — đặt **giống nhau** trên web và worker | ❌ |
+| `GEMINI_TIER` | `free` (mặc định) hoặc `paid`. Chỉ đổi lời cảnh báo trên trang cài đặt trợ lý; **không** đổi gói của Google | ❌ |
 
 > **Worker trên Railway — ba cái bắt được lúc deploy hỏng (19/10/2026).**
 >
@@ -913,7 +915,11 @@ bình thường.
 (chính mục này) — Vercel build không chạy. File nằm trong repo không có nghĩa là
 nó đã được áp dụng.
 
-**Hiện không còn migration nào chờ** (kiểm tra 2026-10-23 bằng `prisma migrate status`).
+**Đang chờ: `20261026000000_ai_assistant`** (**D-108**, trợ lý AI trả lời tin nhắn) —
+viết ngày 2026-10-26, **chưa chạy**. Thêm 3 bảng (`BrandKnowledgeEntry`,
+`BrandAssistant`, `AssistantDecision`, đều có RLS) và vài cột mặc định an toàn
+trên `SocialConversation` / `SocialMessage`. Không sửa, không xoá dữ liệu cũ.
+Chạy **trước** khi deploy worker và web có code D-108.
 
 Đã chạy (ghi lại để khỏi chạy lại): `20260814000000_variant_provider_ref`,
 `20260814010000_report`, `20261013000000_social_comments` (2026-10-20),
@@ -1118,6 +1124,55 @@ vẫn chạy độc lập.
 > both the application and database layers. They are deleted when the account
 > is disconnected and after twelve months at most. We do not profile message
 > senders and do not use message content for advertising or model training.
+
+---
+
+### 7b. Trợ lý AI trả lời tin nhắn (**D-108**)
+
+Trả lời tin nhắn riêng bằng Gemini, **chỉ** từ tài liệu agency nhập cho từng
+brand. Mặc định **tắt** ở mọi brand.
+
+**Bật như thế nào**
+
+1. Chạy migration `20261026000000_ai_assistant` (mục 3).
+2. Đặt `GEMINI_API_KEY` (và `GEMINI_MODEL` nếu đổi) trên **Railway (worker)** —
+   worker là bên gửi tin tự động.
+3. Brand → **AI assistant for messages** → nhập FAQ/tài liệu → dùng nút
+   **Try it** để hỏi thử.
+4. Chọn **Suggest replies**. Trong mỗi hội thoại sẽ có nút **Suggest a reply**:
+   AI soạn nháp, nhân viên đọc, sửa rồi tự gửi.
+5. **Sau 7 ngày** dùng gợi ý, Owner/Admin mới chọn được **Answer when nobody is
+   on**. Account Manager quản lý tài liệu được nhưng không bật được chế độ này.
+
+**AI tự trả lời khi nào:** ngoài giờ trực → sau 30 giây; trong giờ trực → sau
+thời gian chờ (mặc định 10 phút) nếu chưa ai trả lời. Chỉ trong cửa sổ 24 giờ,
+**không bao giờ** dùng Human Agent. Tối đa 3 tin tự động mỗi hội thoại (đổi
+được). Có người trả lời trong 12 giờ qua → AI đứng ngoài.
+
+**Luôn chuyển nhân viên, không tự quyết:** khách đòi gặp người, khiếu nại, hoàn
+tiền/thanh toán, pháp lý, an toàn (nhắc đến tự tử…), đơn hàng/tài khoản, thông tin
+cá nhân/mật khẩu/OTP, câu tài liệu không trả lời được, câu trả lời không qua kiểm
+tra (ví dụ một con số không có trong tài liệu), Gemini lỗi hoặc hết credit, và
+các cụm từ riêng brand tự thêm. Khi chuyển: gửi **một** tin chờ cho khách, đánh dấu
+**Needs a person**, báo in-app + email cho người có quyền trả lời tin nhắn.
+
+Mọi tin AI gửi đều kết thúc bằng **"— Phản hồi tự động từ AI Assistant"**.
+
+> ⚠️ **Gói miễn phí của Gemini — đọc trước khi bật cho khách thật.**
+>
+> - Ở gói free, **Google có thể dùng nội dung gửi lên** (tài liệu của brand và
+>   tin nhắn của khách) để cải thiện sản phẩm, và có người của Google đọc. Trang
+>   cài đặt có hiển thị cảnh báo này.
+> - Đoạn mô tả nộp Meta ở mục 7 viết *"We do not use message content for …
+>   model training"*. Dùng gói free với tin nhắn thật thì câu đó **không còn
+>   đúng**, và Meta Platform Terms hạn chế chuyển Platform Data cho bên thứ ba
+>   dùng vào mục đích riêng. **Em khuyên chuyển sang gói trả phí (bật billing
+>   trong Google AI Studio) trước khi bật AI cho tin nhắn Meta thật**, rồi đặt
+>   `GEMINI_TIER=paid`. Đến lúc đó hãy chỉ dùng Suggest để thử nội bộ.
+> - Gói free giới hạn số request mỗi phút/ngày; quá giới hạn thì AI **chuyển
+>   nhân viên**, không trả lời sai.
+>
+> Trang `/privacy-policy` đã thêm mục về trợ lý AI và Gemini.
 
 ---
 

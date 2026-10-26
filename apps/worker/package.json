@@ -11,6 +11,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@orbit/ai": "workspace:*",
     "@orbit/auth": "workspace:*",
     "@orbit/config": "workspace:*",
     "@orbit/core": "workspace:*",

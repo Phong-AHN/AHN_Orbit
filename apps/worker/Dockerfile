@@ -34,6 +34,7 @@ COPY packages/notifications/package.json packages/notifications/
 COPY packages/providers/package.json packages/providers/
 COPY packages/storage/package.json packages/storage/
 COPY packages/queue/package.json packages/queue/
+COPY packages/ai/package.json packages/ai/
 COPY apps/worker/package.json apps/worker/
 
 RUN pnpm install --frozen-lockfile

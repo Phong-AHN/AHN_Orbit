@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Card, CardBody, Empty, PageHeader } from '@orbit/ui';
 import { requirePortalContext } from '@/server/portal-context';
 import { listPortalPublished } from '@/features/portal/service';
+import { safeExternalUrl } from '@/features/publishing/ui/links';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,9 +62,9 @@ export default async function PortalPublishedPage({ params }: PageProps) {
                     <ul className="mt-2 flex flex-wrap gap-3">
                       {post.variants.map((variant) => (
                         <li key={variant.id}>
-                          {variant.externalPermalink ? (
+                          {safeExternalUrl(variant.externalPermalink) ? (
                             <a
-                              href={variant.externalPermalink}
+                              href={safeExternalUrl(variant.externalPermalink) as string}
                               target="_blank"
                               rel="noreferrer noopener"
                               className="text-xs text-accent hover:underline"

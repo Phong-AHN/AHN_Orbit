@@ -8,6 +8,7 @@ export * from './publishing.js';
 export * from './failure-presentation.js';
 export * from './account-health.js';
 export * from './messaging.js';
+export * from './auto-reply.js';
 export * from './ids.js';
 export * from './clock.js';
 export * from './content-hash.js';

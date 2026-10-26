@@ -17,6 +17,7 @@
     { "path": "../../packages/providers" },
     { "path": "../../packages/storage" },
     { "path": "../../packages/queue" },
-    { "path": "../../packages/notifications" }
+    { "path": "../../packages/notifications" },
+    { "path": "../../packages/ai" }
   ]
 }

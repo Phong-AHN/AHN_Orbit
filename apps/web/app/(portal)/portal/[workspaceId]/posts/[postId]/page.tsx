@@ -5,6 +5,7 @@ import { getPortalPost } from '@/features/portal/service';
 import { CommentBox } from '@/features/portal/ui/comment-box';
 import { DecisionPanel } from '@/features/portal/ui/decision-panel';
 import { clientStatusLabel, clientStatusTone } from '@/features/portal/ui/status';
+import { safeExternalUrl } from '@/features/publishing/ui/links';
 
 export const dynamic = 'force-dynamic';
 
@@ -94,9 +95,9 @@ export default async function PortalPostPage({ params }: PageProps) {
                     {variant.hashtags.map((tag) => `#${tag}`).join(' ')}
                   </p>
                 ) : null}
-                {variant.externalPermalink ? (
+                {safeExternalUrl(variant.externalPermalink) ? (
                   <a
-                    href={variant.externalPermalink}
+                    href={safeExternalUrl(variant.externalPermalink) as string}
                     target="_blank"
                     rel="noreferrer noopener"
                     className="mt-1.5 inline-block text-xs text-accent hover:underline"

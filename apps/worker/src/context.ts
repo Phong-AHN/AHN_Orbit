@@ -33,7 +33,8 @@ export interface JobTenant {
 
 export interface SubjectLookup {
   /** Model to resolve on. Its row carries the authoritative tenant. */
-  subjectType: 'postVariant' | 'mediaAsset' | 'socialAccount' | 'post' | 'report';
+  subjectType:
+    'postVariant' | 'mediaAsset' | 'socialAccount' | 'socialConversation' | 'post' | 'report';
   subjectId: string;
 }
 
@@ -85,6 +86,8 @@ async function lookupSubject(subject: SubjectLookup): Promise<{ organizationId: 
       return platformDb.mediaAsset.findUnique({ where, select });
     case 'socialAccount':
       return platformDb.socialAccount.findUnique({ where, select });
+    case 'socialConversation':
+      return platformDb.socialConversation.findUnique({ where, select });
     case 'post':
       return platformDb.post.findUnique({ where, select });
     case 'report':

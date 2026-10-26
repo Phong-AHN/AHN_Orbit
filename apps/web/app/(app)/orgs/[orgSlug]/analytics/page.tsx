@@ -8,6 +8,7 @@ import { listWorkspaces } from '@/features/tenancy/service';
 import { MetricStrip, OverviewTotals } from '@/features/analytics/ui/metric-grid';
 import { listReports } from '@/features/reports/service';
 import { ReportPanel } from '@/features/reports/ui/report-panel';
+import { safeExternalUrl } from '@/features/publishing/ui/links';
 
 export const dynamic = 'force-dynamic';
 
@@ -185,9 +186,9 @@ export default async function AnalyticsPage({ params, searchParams }: PageProps)
                         {row.publishedAt ? ` · ${row.publishedAt.toISOString().slice(0, 10)}` : ''}
                       </span>
 
-                      {row.permalink ? (
+                      {safeExternalUrl(row.permalink) ? (
                         <a
-                          href={row.permalink}
+                          href={safeExternalUrl(row.permalink) as string}
                           target="_blank"
                           rel="noreferrer"
                           className="ml-auto shrink-0 text-xs text-accent hover:underline"

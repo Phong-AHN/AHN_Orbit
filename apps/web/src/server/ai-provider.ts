@@ -1,7 +1,6 @@
 import { serverEnv } from '@orbit/config';
-import { InternalError } from '@orbit/core';
 import { logger } from '@orbit/observability';
-import { GeminiProvider, MockAIProvider, type AIProvider } from '@orbit/ai';
+import { MockAIProvider, createAIProvider, type AIProvider } from '@orbit/ai';
 
 /**
  * Which AI provider this process talks to (T4.2).
@@ -21,22 +20,20 @@ export function aiProvider(): AIProvider {
 
   const env = serverEnv();
 
-  if (env.GEMINI_API_KEY) {
-    cached = new GeminiProvider({ apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL });
+  // Shared with the worker (D-108), so the two cannot pick different models.
+  // `APP_ENV` is the deployment's own word for where it is, the same test the
+  // social registry makes, and it is not the mock's job to decide.
+  cached = createAIProvider({
+    apiKey: env.GEMINI_API_KEY,
+    model: env.GEMINI_MODEL,
+    production: env.APP_ENV === 'production',
+  });
+
+  if (cached instanceof MockAIProvider) {
+    logger.warn('using the mock AI provider', { reason: 'GEMINI_API_KEY is not set' });
+  } else {
     logger.info('AI provider registered', { provider: 'gemini', model: env.GEMINI_MODEL });
-    return cached;
   }
-
-  // The same test the social registry makes: `APP_ENV` is the deployment's own
-  // word for where it is, and it is not the mock's job to decide.
-  if (env.APP_ENV === 'production') {
-    throw new InternalError('GEMINI_API_KEY is not set', {
-      userMessage: 'The writing assistant is not configured. Tell an administrator.',
-    });
-  }
-
-  cached = new MockAIProvider();
-  logger.warn('using the mock AI provider', { reason: 'GEMINI_API_KEY is not set' });
   return cached;
 }
 

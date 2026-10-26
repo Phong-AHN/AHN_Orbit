@@ -139,6 +139,10 @@ export const RECIPIENT_RULES: Record<NotificationType, RecipientRule> = {
     interestedIn: 'message:reply',
     visibilityRequires: 'message:read',
   },
+  'message.needs_human': {
+    interestedIn: 'message:reply',
+    visibilityRequires: 'message:read',
+  },
 };
 
 export interface RecipientScope {

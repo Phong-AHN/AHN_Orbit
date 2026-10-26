@@ -20,7 +20,7 @@ import Link from 'next/link';
 const OPERATOR = 'AHN Group';
 const CONTACT_EMAIL = 'phong@ahnmedia.com';
 
-const LAST_UPDATED = '23 October 2026';
+const LAST_UPDATED = '26 October 2026';
 
 export const metadata: Metadata = {
   title: 'Privacy policy',
@@ -252,12 +252,31 @@ export default function PrivacyPolicyPage() {
               more than twelve months. Disconnecting the account deletes its conversations. A
               message the person unsends is erased from Orbit as soon as the platform tells us.
             </li>
+            <li>
+              <Strong>Automatic replies</Strong> — an agency may switch on an AI assistant for a
+              brand. It drafts answers for staff, or, where the agency allows it, answers on its own
+              when nobody is available — using only information the brand has written down. Every
+              message it sends ends with &ldquo;Phản hồi tự động từ AI Assistant&rdquo; (an
+              automatic reply from the AI assistant). It never handles complaints, refunds,
+              payments, orders, accounts, legal or safety matters, or personal details: those, and
+              anything it cannot answer from the brand&rsquo;s information, are passed to a person,
+              and the customer is told so. Anyone can ask it to stop by replying &ldquo;stop&rdquo;
+              or &ldquo;dừng&rdquo;.
+            </li>
+            <li>
+              <Strong>What the assistant sends to Google</Strong> — to write an answer, the recent
+              messages of that one conversation and the brand&rsquo;s written information are sent
+              to Google&rsquo;s Gemini API. Phone numbers, card and ID numbers, codes and email
+              addresses are removed first. Orbit does not send the person&rsquo;s name or
+              identifier. On Google&rsquo;s free tier, Google&rsquo;s terms allow it to use that
+              content to improve its products; on paid tiers they do not.
+            </li>
           </List>
           <P>
-            Messages are never used for advertising, profiling or training machine learning models,
-            and they are never shown in the client portal. They are visible only to the agency staff
-            working on that client. To ask what is held about you, or to have a conversation
-            deleted, write to <Mail />.
+            Orbit never uses messages for advertising, profiling or training machine learning
+            models, and they are never shown in the client portal. They are visible only to the
+            agency staff working on that client. To ask what is held about you, or to have a
+            conversation deleted, write to <Mail />.
           </P>
         </Section>
 
@@ -456,6 +475,11 @@ const PROCESSORS = [
   { name: 'Redis Cloud', purpose: 'Scheduling queue', region: 'Singapore' },
   { name: 'Vercel', purpose: 'Application hosting', region: 'United States' },
   { name: 'Meta Platforms', purpose: 'Publishing to Facebook Pages', region: 'United States' },
+  {
+    name: 'Google Gemini API',
+    purpose: 'AI writing suggestions and, where switched on, automatic message replies',
+    region: 'United States',
+  },
 ];
 
 function Processors() {

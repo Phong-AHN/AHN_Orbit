@@ -187,6 +187,17 @@ export type SocialConversationState = (typeof SOCIAL_CONVERSATION_STATES)[number
 export const SOCIAL_MESSAGE_DIRECTIONS = ['INBOUND', 'OUTBOUND'] as const;
 export type SocialMessageDirection = (typeof SOCIAL_MESSAGE_DIRECTIONS)[number];
 
+/** What the AI assistant may do for a brand (D-108). */
+export const ASSISTANT_MODES = ['OFF', 'SUGGEST', 'AUTO'] as const;
+
+/** A knowledge entry: a question and its answer, or a document (D-108). */
+export const KNOWLEDGE_ENTRY_KINDS = ['FAQ', 'DOCUMENT'] as const;
+export type KnowledgeEntryKind = (typeof KNOWLEDGE_ENTRY_KINDS)[number];
+
+/** What the assistant did about one message (D-108). */
+export const ASSISTANT_ACTIONS = ['SUGGESTED', 'REPLIED', 'ESCALATED'] as const;
+export type AssistantAction = (typeof ASSISTANT_ACTIONS)[number];
+
 export const CONTENT_IDEA_STATES = ['SUGGESTED', 'ACCEPTED', 'DISMISSED', 'CONVERTED'] as const;
 export type ContentIdeaState = (typeof CONTENT_IDEA_STATES)[number];
 

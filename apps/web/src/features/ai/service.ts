@@ -92,19 +92,7 @@ export async function runGeneration<T>(
 ): Promise<AIResult<T>> {
   const { ctx, brandId, operation } = input;
 
-  // Speed first, then volume. The monthly ceiling stops an organization
-  // exceeding its plan; it does nothing about a loop burning that plan in
-  // seconds. Refused here costs neither money nor a credit.
-  await assertAIRateLimit(ctx);
-
-  // Checked before spending anything. An organization at its limit gets a
-  // sentence, not a provider error.
-  const credits = await getCreditStatus(ctx);
-  if (credits.limit !== undefined && credits.used >= credits.limit) {
-    throw new PlanLimitExceededError(`AI credit limit reached (${credits.used}/${credits.limit})`, {
-      userMessage: `This organization has used all ${credits.limit} AI suggestions for this month.`,
-    });
-  }
+  await assertAIAllowance(ctx);
 
   // Loaded here, hard-scoped to one brand, so no endpoint can pass brand
   // context in from a request body (SRS §24). A brand from another tenant is
@@ -116,7 +104,7 @@ export async function runGeneration<T>(
   try {
     const result = await call(brand);
 
-    await record(input, provider, {
+    await recordAIUsage(input, provider, {
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
       latencyMs: result.latencyMs,
@@ -138,7 +126,7 @@ export async function runGeneration<T>(
     // A failed call still cost a model request. Recording it is what makes the
     // bill explicable, and it is deliberately not counted against the credit
     // limit's *intent* — but it is counted, because it was spent.
-    await record(input, provider, {
+    await recordAIUsage(input, provider, {
       inputTokens: 0,
       outputTokens: 0,
       latencyMs: Date.now() - started,
@@ -149,7 +137,31 @@ export async function runGeneration<T>(
   }
 }
 
-async function record(
+/**
+ * The two checks before any model call: the rate limit and the month's credits.
+ *
+ * Exported for the assistant (D-108), whose call does not fit `runGeneration`'s
+ * shape — a rule may decide before the model is asked, and then nothing is
+ * spent — but must be refused by the same rules when it is.
+ */
+export async function assertAIAllowance(ctx: TenantContext): Promise<void> {
+  // Speed first, then volume. The monthly ceiling stops an organization
+  // exceeding its plan; it does nothing about a loop burning that plan in
+  // seconds. Refused here costs neither money nor a credit.
+  await assertAIRateLimit(ctx);
+
+  // Checked before spending anything. An organization at its limit gets a
+  // sentence, not a provider error.
+  const credits = await getCreditStatus(ctx);
+  if (credits.limit !== undefined && credits.used >= credits.limit) {
+    throw new PlanLimitExceededError(`AI credit limit reached (${credits.used}/${credits.limit})`, {
+      userMessage: `This organization has used all ${credits.limit} AI suggestions for this month.`,
+    });
+  }
+}
+
+/** Record one model call, spent whether or not it succeeded. */
+export async function recordAIUsage(
   input: GenerationContext,
   provider: AIProvider,
   usage: { inputTokens: number; outputTokens: number; latencyMs: number; succeeded: boolean },

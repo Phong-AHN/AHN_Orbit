@@ -67,6 +67,20 @@ export const MESSAGING_WORKER_CAPABILITIES = [
 ] as const satisfies readonly Permission[];
 
 /**
+ * The AI assistant (D-108): reads a conversation and the brand's documents,
+ * and may send — but only through `message:reply_ai`, which no role holds.
+ *
+ * Kept apart from the ingestion set on purpose. The jobs that write incoming
+ * messages still cannot speak as the brand; only this one, which runs every
+ * gate in `decideReply` before it does, can.
+ */
+export const ASSISTANT_WORKER_CAPABILITIES = [
+  'social_account:read',
+  'message:read',
+  'message:reply_ai',
+] as const satisfies readonly Permission[];
+
+/**
  * The report renderer reads published posts and their stored analytics.
  *
  * `analytics:read` and `post:read` and nothing else. It writes only to the

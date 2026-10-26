@@ -222,6 +222,7 @@ async function describe(
     // Written inline by message ingestion, in the transaction that opened the
     // conversation (D-107) — the same choice account health makes.
     case 'message.received':
+    case 'message.needs_human':
       throw new NotFoundError('Message notifications are written inline, not queued');
 
     default: {

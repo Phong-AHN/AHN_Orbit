@@ -542,7 +542,7 @@ export async function syncNow(ctx: TenantContext, correlationId: string) {
         status: 'ACTIVE',
         ...(scope === 'ALL' ? {} : { workspaceId: { in: [...scope] } }),
       },
-      select: { id: true },
+      select: { id: true, platform: true },
       // A bound, so one organization with hundreds of accounts cannot turn one
       // press into hundreds of jobs.
       take: 50,
@@ -555,6 +555,17 @@ export async function syncNow(ctx: TenantContext, correlationId: string) {
       correlationId,
       socialAccountId: account.id,
     });
+
+    // Private messages too, on the platforms that have them (D-107). The job
+    // reads nothing when messaging is switched off, so this costs no quota
+    // where there is nothing to read.
+    if (account.platform === 'FACEBOOK' || account.platform === 'INSTAGRAM') {
+      await enqueue('messaging', {
+        organizationId: ctx.organizationId,
+        correlationId,
+        socialAccountId: account.id,
+      });
+    }
   }
 
   logger.info('community inbox sync requested', {

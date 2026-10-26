@@ -1,6 +1,7 @@
 import { findBannedTerms } from './prompt.js';
 import type {
   AdaptInput,
+  AnswerMessageInput,
   AIProvider,
   AIResult,
   CaptionInput,
@@ -60,6 +61,41 @@ export class MockAIProvider implements AIProvider {
     }
 
     return this.result(trim(text, input.maxLength), input);
+  }
+
+  /**
+   * Answer with the first document that shares a word with the customer's
+   * latest message, quoted verbatim and cited — or escalate when none does.
+   * Verbatim, so the answer always passes the grounding check, and a test
+   * that wants it to fail has to say so by changing the documents.
+   */
+  async answerMessage(input: AnswerMessageInput): Promise<AIResult<string>> {
+    const latest = [...input.turns].reverse().find((turn) => turn.from === 'CUSTOMER')?.text ?? '';
+    const words = new Set(
+      latest
+        .toLowerCase()
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter((word) => word.length > 2),
+    );
+    const match = input.entries.find((entry) =>
+      `${entry.title} ${entry.question ?? ''}`
+        .toLowerCase()
+        .split(/[^\p{L}\p{N}]+/u)
+        .some((word) => words.has(word)),
+    );
+
+    const json = match
+      ? JSON.stringify({ action: 'REPLY', reply: match.content, citedDocumentIds: [match.id] })
+      : JSON.stringify({ action: 'ESCALATE', reason: 'no document covers this' });
+
+    return {
+      value: json,
+      model: this.model,
+      inputTokens: latest.length,
+      outputTokens: json.length,
+      latencyMs: 0,
+      bannedTermHits: [],
+    };
   }
 
   async generateHashtags(input: HashtagInput): Promise<AIResult<string[]>> {

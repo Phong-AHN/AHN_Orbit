@@ -13,6 +13,11 @@ import { NOTIFICATION_TYPES, isNotificationType, type NotificationEvent } from '
 
 const SAMPLES: Record<(typeof NOTIFICATION_TYPES)[number], NotificationEvent> = {
   'message.received': { type: 'message.received', accountName: 'Hay là cà phê' },
+  'message.needs_human': {
+    type: 'message.needs_human',
+    accountName: 'Hay là cà phê',
+    reason: 'refund request',
+  },
   'social_account.needs_reconnect': {
     type: 'social_account.needs_reconnect',
     accountName: 'Acme Bakery',

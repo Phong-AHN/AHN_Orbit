@@ -221,6 +221,29 @@ enum SocialMessageDirection {
   OUTBOUND
 }
 
+/// What the AI assistant may do for a brand (**D-108**). SUGGEST drafts an
+/// answer a colleague reads, edits and sends; AUTO answers on its own when
+/// nobody is staffing the inbox.
+enum AssistantMode {
+  OFF
+  SUGGEST
+  AUTO
+}
+
+/// A knowledge entry: a question and its answer, or a document.
+enum KnowledgeEntryKind {
+  FAQ
+  DOCUMENT
+}
+
+/// What the assistant did about one message (**D-108**): drafted for a
+/// colleague, sent on its own, or handed to a person.
+enum AssistantAction {
+  SUGGESTED
+  REPLIED
+  ESCALATED
+}
+
 enum ContentIdeaState {
   SUGGESTED
   ACCEPTED
@@ -270,6 +293,9 @@ model User {
   assignedConversations   SocialConversation[]     @relation("SocialConversationAssignee")
   handledConversations    SocialConversation[]     @relation("SocialConversationHandler")
   sentSocialMessages      SocialMessage[]          @relation("SocialMessageAuthor")
+  editedKnowledgeEntries  BrandKnowledgeEntry[]    @relation("KnowledgeEntryEditor")
+  editedAssistants        BrandAssistant[]         @relation("AssistantEditor")
+  reviewedDecisions       AssistantDecision[]      @relation("AssistantDecisionReviewer")
   uploadedMedia           MediaAsset[]
   connectedAccounts       SocialAccount[]
   notifications           Notification[]
@@ -313,6 +339,9 @@ model Organization {
   socialComments     SocialComment[]
   socialConversations SocialConversation[]
   socialMessages     SocialMessage[]
+  knowledgeEntries   BrandKnowledgeEntry[]
+  brandAssistants    BrandAssistant[]
+  assistantDecisions AssistantDecision[]
   queueSlots         QueueSlot[]
   publishingJobs     PublishingJob[]
   publishingAttempts PublishingAttempt[]
@@ -388,6 +417,8 @@ model Workspace {
   reports      Report[]
   socialComments SocialComment[]
   socialConversations SocialConversation[]
+  knowledgeEntries BrandKnowledgeEntry[]
+  brandAssistants BrandAssistant[]
 
   @@unique([organizationId, slug])
   /// Target for composite foreign keys from tenant-scoped children. Every
@@ -439,6 +470,8 @@ model Brand {
   contentIdeas   ContentIdea[]
   socialComments SocialComment[]
   socialConversations SocialConversation[]
+  knowledgeEntries BrandKnowledgeEntry[]
+  assistant      BrandAssistant?
   aiUsage        AIUsage[]
 
   @@unique([workspaceId, slug])
@@ -1284,6 +1317,17 @@ model SocialConversation {
   handledAt             DateTime?               @db.Timestamptz(3)
   handledById           String?                 @db.Uuid
 
+  /// The latest message a person sent here, from Orbit or the platform's app.
+  /// The assistant stays out while this is recent (**D-108**).
+  lastHumanReplyAt      DateTime?               @db.Timestamptz(3)
+  /// The customer asked the assistant to stop, or a colleague switched it off here.
+  assistantPaused       Boolean                 @default(false)
+  /// The assistant handed this to a person, who has not dealt with it yet.
+  needsHuman            Boolean                 @default(false)
+  escalationReason      String?
+  /// Automatic replies sent in this conversation, against the brand's cap.
+  assistantReplyCount   Int                     @default(0)
+
   createdAt             DateTime                @default(now()) @db.Timestamptz(3)
   updatedAt             DateTime                @updatedAt @db.Timestamptz(3)
 
@@ -1294,6 +1338,7 @@ model SocialConversation {
   assignedTo    User?           @relation("SocialConversationAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
   handledBy     User?           @relation("SocialConversationHandler", fields: [handledById], references: [id], onDelete: SetNull)
   messages      SocialMessage[]
+  decisions     AssistantDecision[]
 
   /// One conversation per person per account.
   @@unique([organizationId, socialAccountId, participantExternalId], map: "SocialConversation_account_participant_key")
@@ -1324,6 +1369,8 @@ model SocialMessage {
   /// Who sent it from Orbit. Null for the person's messages, and for the
   /// brand's own sent from the platform's app.
   createdById     String?                @db.Uuid
+  /// Sent by the AI assistant, on its own (**D-108**).
+  sentByAssistant Boolean                @default(false)
 
   createdAt       DateTime               @default(now()) @db.Timestamptz(3)
 
@@ -1338,6 +1385,98 @@ model SocialMessage {
   @@index([organizationId, conversationId, sentAt])
   /// Retention.
   @@index([organizationId, sentAt])
+}
+
+/// Something the AI assistant may answer from (**D-108**).
+///
+/// Written by the agency for one brand. `usableByAssistant` false keeps an
+/// entry as an internal note that never reaches the model.
+model BrandKnowledgeEntry {
+  id                String             @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId    String             @db.Uuid
+  workspaceId       String             @db.Uuid
+  brandId           String             @db.Uuid
+  kind              KnowledgeEntryKind
+  title             String
+  /// The question, on an FAQ entry.
+  question          String?
+  content           String
+  usableByAssistant Boolean            @default(true)
+  updatedById       String?            @db.Uuid
+  createdAt         DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime           @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace    @relation(fields: [organizationId, workspaceId], references: [organizationId, id], onDelete: Cascade)
+  brand        Brand        @relation(fields: [organizationId, brandId], references: [organizationId, id], onDelete: Cascade)
+  updatedBy    User?        @relation("KnowledgeEntryEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, brandId])
+}
+
+/// How the AI assistant behaves for one brand (**D-108**). One row per brand.
+model BrandAssistant {
+  id               String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId   String        @db.Uuid
+  workspaceId      String        @db.Uuid
+  brandId          String        @db.Uuid
+  mode             AssistantMode @default(OFF)
+  /// `[{ day, start, end }]` in the workspace's time zone. Empty means never staffed.
+  staffedHours     Json          @default("[]")
+  /// Minutes to leave a colleague, during staffed hours, before the assistant answers.
+  graceMinutes     Int           @default(10)
+  /// Sent when the assistant hands over. Null uses the default wording.
+  holdingMessage   String?
+  maxRepliesPerConversation Int  @default(3)
+  /// The brand's own phrases that always go to a person.
+  escalationTerms  String[]      @default([])
+  /// When suggestions were first switched on. AUTO needs seven days of them.
+  suggestSince     DateTime?     @db.Timestamptz(3)
+  updatedById      String?       @db.Uuid
+  createdAt        DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime      @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace    Workspace    @relation(fields: [organizationId, workspaceId], references: [organizationId, id], onDelete: Cascade)
+  brand        Brand        @relation(fields: [organizationId, brandId], references: [organizationId, id], onDelete: Cascade)
+  updatedBy    User?        @relation("AssistantEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, brandId])
+  @@unique([organizationId, id])
+}
+
+/// One thing the assistant decided, and why (**D-108**).
+///
+/// Kept so a colleague can see what the assistant said on the brand's behalf
+/// and rate it. Goes with its conversation, and ages out with it.
+model AssistantDecision {
+  id               String          @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId   String          @db.Uuid
+  conversationId   String          @db.Uuid
+  action           AssistantAction
+  /// The escalation category, when it handed over.
+  category         String?
+  reason           String?
+  /// What it drafted or sent.
+  text             String?
+  citedEntryIds    String[]        @default([])
+  model            String?
+  inputTokens      Int             @default(0)
+  outputTokens     Int             @default(0)
+  latencyMs        Int?
+  /// A colleague's verdict on it: true good, false bad, null not reviewed.
+  rating           Boolean?
+  reviewedById     String?         @db.Uuid
+  createdAt        DateTime        @default(now()) @db.Timestamptz(3)
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation SocialConversation @relation(fields: [organizationId, conversationId], references: [organizationId, id], onDelete: Cascade)
+  reviewedBy   User?              @relation("AssistantDecisionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, conversationId, createdAt])
+  @@index([organizationId, createdAt])
 }
 
 model WebhookEvent {

@@ -86,6 +86,27 @@ export interface AdaptInput extends GenerationBase {
  * text; nothing in this package writes to a post, and nothing in it can reach
  * publishing (SRS §25).
  */
+/**
+ * Answering a private message from the brand's documents (D-108).
+ *
+ * The provider builds the prompt from these with `assistantPrompt` and returns
+ * the model's raw JSON; deciding what that JSON is allowed to mean happens in
+ * `decideReply`, which every caller goes through.
+ */
+export interface AnswerMessageInput {
+  brand: BrandContext | null;
+  brandName: string;
+  entries: ReadonlyArray<{
+    id: string;
+    title: string;
+    question?: string | undefined;
+    content: string;
+  }>;
+  turns: ReadonlyArray<{ from: 'CUSTOMER' | 'BRAND'; text: string }>;
+  correlationId: string;
+  signal?: AbortSignal | undefined;
+}
+
 export interface AIResult<T> {
   value: T;
   model: string;
@@ -117,4 +138,7 @@ export interface AIProvider {
    * post, and the caller decides whether to keep it (SRS §25).
    */
   adaptForPlatform(input: AdaptInput): Promise<AIResult<string>>;
+
+  /** The model's JSON verdict on a private message, unparsed (D-108). */
+  answerMessage(input: AnswerMessageInput): Promise<AIResult<string>>;
 }

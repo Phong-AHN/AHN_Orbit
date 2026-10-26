@@ -7,6 +7,7 @@ import { PreviewMedia } from '@/features/posts/ui/preview';
 import { previewShape } from '@/features/posts/ui/preview-shape';
 import { buildThread, compactAge, needsReply, threadStyle, type ThreadStyle } from '../thread';
 import { useCommentActions } from './use-comment-actions';
+import { safeExternalUrl } from '@/features/publishing/ui/links';
 
 /**
  * A published post and the conversation under it, drawn the way its platform
@@ -185,12 +186,12 @@ function PostCard({ orgSlug, post, now }: { orgSlug: string; post: ThreadPost; n
         </p>
       ) : null}
 
-      {post.externalPermalink ? (
+      {safeExternalUrl(post.externalPermalink) ? (
         <footer className="border-t border-line px-4 py-2.5">
           {/* `noreferrer` as well as `noopener`: a public page has no need to
               learn which Orbit screen somebody arrived from. */}
           <a
-            href={post.externalPermalink}
+            href={safeExternalUrl(post.externalPermalink) as string}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs font-medium text-accent underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"

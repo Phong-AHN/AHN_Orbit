@@ -23,6 +23,8 @@ export const NOTIFICATION_TYPES = [
   'post.approved',
   // Private messages (D-107).
   'message.received',
+  // The AI assistant handed a conversation to a person (D-108).
+  'message.needs_human',
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -76,6 +78,7 @@ export const NOTIFICATION_AUDIENCE: Record<NotificationType, NotificationAudienc
 
   // Somebody is waiting for an answer in a private conversation.
   'message.received': 'AGENCY',
+  'message.needs_human': 'AGENCY',
 };
 
 export function notificationTypesFor(audience: NotificationAudience): readonly NotificationType[] {
@@ -164,7 +167,12 @@ export type NotificationEvent =
    * belong in a table built for "something happened". The conversation itself
    * is one click away.
    */
-  | { type: 'message.received'; accountName: string };
+  | { type: 'message.received'; accountName: string }
+  /**
+   * The assistant could not or would not answer, and a person must (D-108).
+   * Carries the kind of matter, never the customer's words or name.
+   */
+  | { type: 'message.needs_human'; accountName: string; reason: string };
 
 /** Where a notification points when someone clicks it. */
 export interface NotificationResource {

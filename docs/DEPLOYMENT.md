@@ -116,6 +116,8 @@ produces a localhost callback that TikTok refuses.
 |---|---|---|
 | `FACEBOOK_WEBHOOK_VERIFY_TOKEN` | **Vercel** and **Railway** | Any long random string, also entered in the Meta App Dashboard. Web answers Meta's handshake with it; the worker subscribes accounts to webhooks only when it is set. |
 | `META_MESSAGING_ENABLED` | **Vercel** and **Railway**, identically | `true` only after `pages_messaging`, `pages_manage_metadata` and `instagram_business_manage_messages` are on the Meta app — an unknown scope fails the whole connect dialog, publishing included. |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | **Vercel** and **Railway**, identically, when the AI assistant answers messages | The worker sends the assistant's automatic replies (**D-108**); without a key there, a brand in AUTO hands every message to a person. |
+| `GEMINI_TIER` | **Vercel** | `free` (default) or `paid`. Only changes the warning on the assistant settings page; the tier itself is Google's billing setting. |
 | `META_HUMAN_AGENT_ENABLED` | **Vercel** and **Railway**, identically | `true` only once Meta has approved Human Agent. Extends the reply window from 24 hours to 7 days. |
 
 Webhook callback URLs, registered in the Meta App Dashboard:
@@ -328,6 +330,7 @@ verifiable — none of it is "looks fine".
 - [ ] `GEMINI_API_KEY` set, or the writing assistant is expected to be off. With
       no key, production **refuses at first use** rather than silently answering
       from a mock (**D-068**).
+      The worker needs it too once any brand's AI assistant is in AUTO (**D-108**).
 - [ ] `CREDENTIAL_ENCRYPTION_KEY` and `STATE_SIGNING_SECRET` are 32 random bytes,
       base64, and **backed up**. Losing the first loses every social connection.
 - [ ] `ORBIT_ROLE=worker` on the worker and **nowhere else**. `assertWorkerProcess()`

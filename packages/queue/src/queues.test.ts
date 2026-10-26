@@ -37,6 +37,8 @@ describe('the queue catalogue', () => {
         // account is resolved; and the per-account conversation backfill.
         'webhooks',
         'messaging',
+        // D-108. The AI assistant considering one conversation.
+        'assistant',
       ].sort(),
     );
   });

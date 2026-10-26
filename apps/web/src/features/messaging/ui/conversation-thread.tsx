@@ -3,7 +3,16 @@
 import * as React from 'react';
 import { Badge, Button, Field, Textarea, cn } from '@orbit/ui';
 import { compactAge } from '@/features/community/thread';
-import { attachmentsOf, participantLabel, windowLabel, type WindowView } from '../inbox';
+import { safeExternalUrl } from '@/features/publishing/ui/links';
+import { ApiError, apiRequest } from '@/features/posts/ui/api';
+import { categoryLabel } from '@/features/assistant/labels';
+import {
+  attachmentWord,
+  attachmentsOf,
+  participantLabel,
+  windowLabel,
+  type WindowView,
+} from '../inbox';
 import { useMessageActions } from './use-message-actions';
 
 /**
@@ -26,7 +35,24 @@ export interface ThreadMessageView {
   attachments: unknown;
   sentAt: string;
   deletedAt: string | null;
+  sentByAssistant: boolean;
   createdBy: { id: string; name: string | null } | null;
+}
+
+/** What the AI assistant may do here, and whether it has handed this over (D-108). */
+export interface ThreadAssistantView {
+  mode: 'OFF' | 'SUGGEST' | 'AUTO';
+  needsHuman: boolean;
+  escalationReason: string | null;
+  paused: boolean;
+}
+
+interface Suggestion {
+  action: 'REPLY' | 'ESCALATE';
+  category: string | null;
+  reason: string | null;
+  text: string | null;
+  cited: { id: string; title: string }[];
 }
 
 export interface ConversationThreadProps {
@@ -46,6 +72,7 @@ export interface ConversationThreadProps {
   window: WindowView;
   needsReconnect: boolean;
   maxMessageLength: number | null;
+  assistant: ThreadAssistantView;
 }
 
 export function ConversationThread(props: ConversationThreadProps) {
@@ -53,6 +80,9 @@ export function ConversationThread(props: ConversationThreadProps) {
   const now = React.useMemo(() => new Date(props.renderedAt), [props.renderedAt]);
   const actions = useMessageActions(orgSlug, conversation.id);
   const [draft, setDraft] = React.useState('');
+  const [suggestion, setSuggestion] = React.useState<Suggestion | null>(null);
+  const [suggesting, setSuggesting] = React.useState(false);
+  const [suggestError, setSuggestError] = React.useState<string | null>(null);
 
   const person = participantLabel(conversation);
   const deadline = windowLabel(props.window, now);
@@ -63,7 +93,33 @@ export function ConversationThread(props: ConversationThreadProps) {
     const text = draft.trim();
     if (!text) return;
     // Cleared only on success: a failed send keeps the words.
-    if (await actions.reply(text)) setDraft('');
+    if (await actions.reply(text)) {
+      setDraft('');
+      setSuggestion(null);
+    }
+  }
+
+  /**
+   * Ask for a draft. It lands in the composer for the person to read and edit;
+   * nothing is sent until they press Send, as themselves.
+   */
+  async function suggest() {
+    setSuggesting(true);
+    setSuggestError(null);
+    try {
+      const { suggestion: result } = await apiRequest<{ suggestion: Suggestion }>(
+        `/api/v1/orgs/${encodeURIComponent(orgSlug)}/messages/${conversation.id}/suggest`,
+        { method: 'POST' },
+      );
+      setSuggestion(result);
+      if (result.action === 'REPLY' && result.text) setDraft(result.text);
+    } catch (e) {
+      setSuggestError(
+        e instanceof ApiError ? e.message : 'The assistant could not suggest a reply.',
+      );
+    } finally {
+      setSuggesting(false);
+    }
   }
 
   return (
@@ -82,11 +138,16 @@ export function ConversationThread(props: ConversationThreadProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {conversation.state === 'NEW' ? (
+          {props.assistant.needsHuman ? (
+            <Badge tone="danger">Needs a person</Badge>
+          ) : conversation.state === 'NEW' ? (
             <Badge tone="warning">Needs a reply</Badge>
           ) : (
             <Badge tone="success">Handled</Badge>
           )}
+          {props.assistant.mode === 'AUTO' && props.assistant.paused ? (
+            <Badge tone="neutral">Assistant off here</Badge>
+          ) : null}
 
           {canReply ? (
             <>
@@ -121,6 +182,17 @@ export function ConversationThread(props: ConversationThreadProps) {
           ) : null}
         </div>
       </header>
+
+      {props.assistant.needsHuman ? (
+        <p
+          role="status"
+          className="border-b border-line bg-danger-soft px-4 py-2 text-sm text-danger"
+        >
+          The AI assistant handed this conversation to the team
+          {props.assistant.escalationReason ? ` — ${props.assistant.escalationReason}` : ''}. It
+          will not answer here until somebody replies.
+        </p>
+      ) : null}
 
       <ol className="flex-1 space-y-2 overflow-y-auto px-4 py-4" aria-label="Messages">
         {messages.length === 0 ? (
@@ -165,6 +237,25 @@ export function ConversationThread(props: ConversationThreadProps) {
               />
             </Field>
 
+            {suggestion ? (
+              <p className="text-xs text-ink-secondary">
+                {suggestion.action === 'REPLY'
+                  ? `Drafted by the AI assistant${
+                      suggestion.cited.length
+                        ? ` from ${suggestion.cited.map((entry) => entry.title).join(', ')}`
+                        : ''
+                    }. Check it before sending — it goes out as you.`
+                  : `The assistant suggests a person answers this: ${
+                      suggestion.category ? categoryLabel(suggestion.category) : 'no draft'
+                    }.`}
+              </p>
+            ) : null}
+            {suggestError ? (
+              <p role="alert" className="text-xs font-medium text-danger">
+                {suggestError}
+              </p>
+            ) : null}
+
             <div className="flex flex-wrap items-center gap-3">
               <Button
                 onClick={send}
@@ -174,6 +265,17 @@ export function ConversationThread(props: ConversationThreadProps) {
               >
                 Send
               </Button>
+              {props.assistant.mode !== 'OFF' ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => void suggest()}
+                  loading={suggesting}
+                  loadingLabel="Thinking"
+                  disabled={actions.busy}
+                >
+                  Suggest a reply
+                </Button>
+              ) : null}
               {props.maxMessageLength !== null ? (
                 <span
                   className={cn(
@@ -218,21 +320,49 @@ function Bubble({ message, now }: { message: ThreadMessageView; now: Date }) {
               {message.text ? (
                 <p className="whitespace-pre-wrap break-words">{message.text}</p>
               ) : null}
-              {attachments.map((attachment, index) =>
-                attachment.url ? (
+              {attachments.map((attachment, index) => {
+                // Platform data, but rendered as an href and an img src all the
+                // same, so it passes the same web-address check as a permalink.
+                const url = safeExternalUrl(attachment.url);
+                const label = attachmentWord([attachment]);
+
+                if (url && attachment.type === 'image') {
+                  return (
+                    <a
+                      key={index}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1 block"
+                    >
+                      {/* A plain <img>: a platform CDN link is short-lived and
+                          not ours to optimise. No referrer, so the platform does
+                          not learn which Orbit screen displayed it. */}
+                      <img
+                        src={url}
+                        alt={label}
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        className="max-h-60 max-w-full rounded-lg object-cover"
+                      />
+                    </a>
+                  );
+                }
+
+                return url ? (
                   <a
                     key={index}
-                    href={attachment.url}
+                    href={url}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="block underline underline-offset-2"
                   >
-                    Open {attachment.type}
+                    {label}
                   </a>
                 ) : (
-                  <p key={index}>{attachment.type}</p>
-                ),
-              )}
+                  <p key={index}>{label}</p>
+                );
+              })}
               {!message.text && attachments.length === 0 ? <p>Sent a message</p> : null}
             </>
           )}
@@ -240,7 +370,8 @@ function Bubble({ message, now }: { message: ThreadMessageView; now: Date }) {
         <p className="text-[11px] text-ink-muted">
           <time dateTime={message.sentAt}>{compactAge(message.sentAt, now)}</time>
           {ours && message.createdBy?.name ? ` · ${message.createdBy.name}` : null}
-          {ours && !message.createdBy ? ' · sent outside Orbit' : null}
+          {ours && message.sentByAssistant ? ' · AI assistant' : null}
+          {ours && !message.createdBy && !message.sentByAssistant ? ' · sent outside Orbit' : null}
         </p>
       </div>
     </li>

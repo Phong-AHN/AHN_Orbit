@@ -73,6 +73,11 @@ const CONVERSATION_SELECT = {
   state: true,
   assignedToId: true,
   handledAt: true,
+  // What the AI assistant has done here (D-108). Never the platform ids.
+  needsHuman: true,
+  escalationReason: true,
+  assistantPaused: true,
+  assistantReplyCount: true,
   assignedTo: { select: { id: true, name: true, email: true } },
   socialAccount: {
     select: {
@@ -94,6 +99,7 @@ const MESSAGE_SELECT = {
   attachments: true,
   sentAt: true,
   deletedAt: true,
+  sentByAssistant: true,
   createdBy: { select: { id: true, name: true } },
 } as const;
 
@@ -294,6 +300,11 @@ export async function replyToConversation(
         state: 'HANDLED',
         handledAt: now,
         ...(actorUserId(ctx) ? { handledById: actorUserId(ctx) as string } : {}),
+        // A person has answered: the assistant stays out for a while, and a
+        // hand-over it asked for has been dealt with (D-108).
+        lastHumanReplyAt: sent.sentAt,
+        needsHuman: false,
+        escalationReason: null,
       },
     });
 
@@ -339,6 +350,9 @@ export async function setConversationHandled(
             state: 'HANDLED',
             handledAt: clock.now(),
             ...(actorUserId(ctx) ? { handledById: actorUserId(ctx) as string } : {}),
+            // Dealt with by a person, so no longer waiting on one.
+            needsHuman: false,
+            escalationReason: null,
           }
         : { state: 'NEW', handledAt: null, handledById: null },
       select: CONVERSATION_SELECT,
