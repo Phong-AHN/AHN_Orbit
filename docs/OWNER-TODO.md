@@ -915,16 +915,13 @@ bình thường.
 (chính mục này) — Vercel build không chạy. File nằm trong repo không có nghĩa là
 nó đã được áp dụng.
 
-**Đang chờ: `20261026000000_ai_assistant`** (**D-108**, trợ lý AI trả lời tin nhắn) —
-viết ngày 2026-10-26, **chưa chạy**. Thêm 3 bảng (`BrandKnowledgeEntry`,
-`BrandAssistant`, `AssistantDecision`, đều có RLS) và vài cột mặc định an toàn
-trên `SocialConversation` / `SocialMessage`. Không sửa, không xoá dữ liệu cũ.
-Chạy **trước** khi deploy worker và web có code D-108.
+**Hiện không còn migration nào chờ** (kiểm tra 2026-10-27 bằng `prisma migrate status`).
 
 Đã chạy (ghi lại để khỏi chạy lại): `20260814000000_variant_provider_ref`,
 `20260814010000_report`, `20261013000000_social_comments` (2026-10-20),
 `20261020000000_workspace_client_approval` (2026-10-20, **D-106**),
-`20261023000000_social_messages` (2026-10-23, **D-107**).
+`20261023000000_social_messages` (2026-10-23, **D-107**),
+`20261026000000_ai_assistant` (2026-10-27, **D-108**).
 
 Khi có migration mới:
 
@@ -1134,7 +1131,7 @@ brand. Mặc định **tắt** ở mọi brand.
 
 **Bật như thế nào**
 
-1. Chạy migration `20261026000000_ai_assistant` (mục 3).
+1. ~~Chạy migration `20261026000000_ai_assistant`~~ — đã chạy 2026-10-27.
 2. Đặt `GEMINI_API_KEY` (và `GEMINI_MODEL` nếu đổi) trên **Railway (worker)** —
    worker là bên gửi tin tự động.
 3. Brand → **AI assistant for messages** → nhập FAQ/tài liệu → dùng nút

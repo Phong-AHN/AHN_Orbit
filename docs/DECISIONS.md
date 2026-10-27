@@ -4280,7 +4280,7 @@ anything. Every model call is metered against the organization's AI credits
   and the organization's monthly credits.
 
 - **Date:** 2026-10-26 · **Status:** IMPLEMENTED (migration
-  `20261026000000_ai_assistant` written, **not applied**)
+  `20261026000000_ai_assistant` applied to production 2026-10-27)
 
 ---
 
