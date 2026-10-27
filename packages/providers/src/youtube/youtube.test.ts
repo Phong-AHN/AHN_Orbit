@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { YouTubeProvider, titleFrom } from './provider.js';
+import { YOUTUBE_UPLOAD_CHUNK_BYTES, YouTubeProvider, titleFrom } from './provider.js';
 import type { FetchLike } from './client.js';
 
 /**
@@ -451,6 +451,81 @@ describe('publishing', () => {
 
     await expect(provider(api).publish(ctx)).rejects.toThrow();
     expect(api.calls).toHaveLength(0);
+  });
+});
+
+describe('chunked upload', () => {
+  const CHUNK = YOUTUBE_UPLOAD_CHUNK_BYTES;
+
+  /** Reads a range of a pretend file, recording what was asked for. */
+  function rangeReader(reads: Array<[number, number]>) {
+    return async (input: { firstByte: number; lastByte: number }) => {
+      reads.push([input.firstByte, input.lastByte]);
+      return new Uint8Array(input.lastByte - input.firstByte + 1);
+    };
+  }
+
+  function sized(sizeBytes: number) {
+    return publishContext({ media: [{ ...video(), sizeBytes }] });
+  }
+
+  /**
+   * The whole video used to be read into memory; two at once killed a 512 MB
+   * worker. Now only one chunk is ever held, and Google is told which bytes
+   * each one carries.
+   */
+  it('sends the video one chunk at a time, never the whole file', async () => {
+    const api = happyApi();
+    const replies = [
+      { status: 308, headers: { range: `bytes=0-${CHUNK - 1}` } },
+      { body: { id: 'vid-987' } },
+    ];
+    api.on(/upload\.test\/session/, () => replies.shift() ?? { status: 500 });
+    const reads: Array<[number, number]> = [];
+
+    const result = await provider(api, {
+      readMedia: undefined,
+      readMediaRange: rangeReader(reads),
+    }).publish(sized(CHUNK + 100));
+
+    expect(result.externalPostId).toBe('vid-987');
+    expect(reads).toEqual([
+      [0, CHUNK - 1],
+      [CHUNK, CHUNK + 99],
+    ]);
+    const puts = api.calls.filter((call) => /upload\.test\/session/.test(call.url));
+    expect(puts.map((call) => call.headers['content-range'])).toEqual([
+      `bytes 0-${CHUNK - 1}/${CHUNK + 100}`,
+      `bytes ${CHUNK}-${CHUNK + 99}/${CHUNK + 100}`,
+    ]);
+  });
+
+  /** Google may keep only part of a chunk; the next one starts where it says. */
+  it('resumes from what Google holds, not from what was sent', async () => {
+    const api = happyApi();
+    const replies = [
+      { status: 308, headers: { range: 'bytes=0-262143' } },
+      { body: { id: 'vid-987' } },
+    ];
+    api.on(/upload\.test\/session/, () => replies.shift() ?? { status: 500 });
+    const reads: Array<[number, number]> = [];
+
+    await provider(api, { readMedia: undefined, readMediaRange: rangeReader(reads) }).publish(
+      sized(CHUNK),
+    );
+
+    expect(reads[1]).toEqual([262_144, CHUNK - 1]);
+  });
+
+  it('gives up on a session that stops moving', async () => {
+    const api = happyApi();
+    api.on(/upload\.test\/session/, { status: 308 });
+
+    await expect(
+      provider(api, { readMedia: undefined, readMediaRange: rangeReader([]) }).publish(
+        sized(CHUNK * 2),
+      ),
+    ).rejects.toThrow(/stopped accepting/);
   });
 });
 

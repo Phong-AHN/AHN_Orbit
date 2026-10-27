@@ -77,6 +77,14 @@ what catches the deployment mistake of running the wrong bundle (**D-022**).
 Optional: `FACEBOOK_APP_ID`/`FACEBOOK_APP_SECRET` (absent ⇒ the mock provider, which the registry
 refuses in production), `SENTRY_DSN`, `WORKER_HEALTH_PORT` (3100), `S3_ENDPOINT` for MinIO.
 
+Worker memory (2026-10-27, after the worker ran out of memory on Railway): YouTube now uploads in
+8 MiB chunks and TikTok already did, so neither holds a video in memory.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `WORKER_PUBLISH_CONCURRENCY` | 8 | Publish jobs at once. `2` on a 512 MB container |
+| `WORKER_MAX_IN_MEMORY_MEDIA_MB` | 150 | Largest file held whole (Pinterest video, LinkedIn images). Larger fails its publish with a message instead of crashing the worker |
+
 ### `FACEBOOK_GRAPH_VERSION` — set it explicitly on every deployed surface
 
 | Variable | Value | Where |

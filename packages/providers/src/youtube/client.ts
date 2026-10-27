@@ -179,6 +179,55 @@ export class YouTubeClient {
     return parsed;
   }
 
+  /**
+   * Send one chunk of a resumable upload.
+   *
+   * Google answers **308 Resume Incomplete** with a `Range` header naming what
+   * it holds so far, and 200/201 with the video once the last byte is in. The
+   * next chunk starts after what Google says it has, not after what we sent —
+   * a chunk can be accepted in part.
+   *
+   * `redirect: 'manual'`, because 308 is also the status for a permanent
+   * redirect, and a fetch that followed it would resend the chunk somewhere
+   * else.
+   */
+  async uploadChunk(input: {
+    sessionUrl: string;
+    body: Uint8Array;
+    firstByte: number;
+    totalBytes: number;
+    mimeType: string;
+    signal?: AbortSignal | undefined;
+  }): Promise<{ done: true; body: Record<string, unknown> } | { done: false; nextByte: number }> {
+    const lastByte = input.firstByte + input.body.byteLength - 1;
+
+    const response = await this.send(input.sessionUrl, {
+      method: 'PUT',
+      redirect: 'manual',
+      headers: {
+        'content-type': input.mimeType,
+        'content-length': String(input.body.byteLength),
+        'content-range': `bytes ${input.firstByte}-${lastByte}/${input.totalBytes}`,
+      },
+      body: input.body,
+      ...(input.signal ? { signal: input.signal } : {}),
+    });
+
+    if (response.status === 308) {
+      // Drain it so the connection is released; the body carries nothing.
+      await response.text();
+      const range = /bytes=0-(\d+)/.exec(response.headers.get('range') ?? '');
+      return { done: false, nextByte: range ? Number(range[1]) + 1 : 0 };
+    }
+
+    const text = await response.text();
+    const parsed = text ? (safeJson(text) as GoogleErrorBody & Record<string, unknown>) : {};
+
+    if (!response.ok) throw this.toError(parsed, response.status);
+
+    return { done: true, body: parsed };
+  }
+
   /** Token exchange and refresh. Form-encoded, and on a different host. */
   async token(fields: Record<string, string>): Promise<Record<string, unknown>> {
     const response = await this.send(this.tokenUrl, {

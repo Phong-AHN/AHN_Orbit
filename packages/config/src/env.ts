@@ -93,6 +93,22 @@ export const serverEnvSchema = z.object({
    */
   WORKER_HEALTH_PORT: z.coerce.number().int().positive().optional(),
 
+  /**
+   * Publish jobs the worker runs at once. Unset keeps the queue's default (8).
+   * Lower it on a small container: each publish holds a connection and, for
+   * platforms that take a file in one request, the file itself.
+   */
+  WORKER_PUBLISH_CONCURRENCY: z.coerce.number().int().min(1).max(32).optional(),
+
+  /**
+   * The largest file the worker will hold in memory whole, in megabytes, for
+   * platforms that take the bytes in one request (Pinterest video, LinkedIn
+   * images). YouTube and TikTok upload in chunks and are not bound by it. A
+   * larger file fails its publish with a sentence instead of the worker
+   * running out of memory and dying with every job it held.
+   */
+  WORKER_MAX_IN_MEMORY_MEDIA_MB: z.coerce.number().int().min(1).max(4096).default(150),
+
   // ── Storage (SRS §17) ─────────────────────────────────────────────────────
   S3_REGION: z.string().min(1).default('eu-west-1'),
   S3_BUCKET: z.string().min(1),

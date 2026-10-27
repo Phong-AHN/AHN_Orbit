@@ -68,6 +68,23 @@ import {
 /** Refresh once the token is within this of expiring. */
 const REFRESH_WINDOW_MS = 10 * 60 * 1000;
 
+/**
+ * One chunk of a resumable upload: 8 MiB.
+ *
+ * Google requires every chunk but the last to be a multiple of 256 KiB. Eight
+ * MiB keeps the worker's memory flat whatever the video's size — the whole
+ * file used to be read into memory, and two videos publishing at once were
+ * enough to kill a 512 MB worker — while each PUT stays well inside the
+ * client's 60-second timeout.
+ */
+export const YOUTUBE_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Chunks Google may accept in part, in a row, before we stop. A session that
+ * keeps answering "resume" without moving is not going to finish.
+ */
+const MAX_STALLED_CHUNKS = 3;
+
 export interface YouTubeProviderOptions extends YouTubeClientOptions {
   /**
    * How the worker reads the video's bytes.
@@ -77,6 +94,19 @@ export interface YouTubeProviderOptions extends YouTubeClientOptions {
    * link and let the platform pull.
    */
   readMedia?: ((media: PublishMedia) => Promise<Uint8Array>) | undefined;
+  /**
+   * A byte range of the video, for a chunked upload. Preferred over
+   * `readMedia` when both are given, so a large video never has to be in
+   * memory at once.
+   */
+  readMediaRange?:
+    | ((input: {
+        media: PublishMedia;
+        firstByte: number;
+        lastByte: number;
+        signal?: AbortSignal | undefined;
+      }) => Promise<Uint8Array>)
+    | undefined;
 }
 
 /** Per-post settings that exist only here. */
@@ -414,12 +444,11 @@ export class YouTubeProvider implements SocialProvider {
       });
     }
 
-    const read = this.options.readMedia;
-    if (!read) {
+    if (!this.options.readMediaRange && !this.options.readMedia) {
       throw toAppError('YOUTUBE', {
         kind: 'UNAVAILABLE',
         message:
-          'YouTube is configured without a media reader, so nothing can be uploaded. Wire readMedia when constructing the provider.',
+          'YouTube is configured without a media reader, so nothing can be uploaded. Wire readMediaRange when constructing the provider.',
       });
     }
 
@@ -468,12 +497,7 @@ export class YouTubeProvider implements SocialProvider {
     // failure, and the session is the only handle that exists.
     await ctx.recordProviderRef?.({ sessionUrl, contentHash: ctx.contentHash });
 
-    const uploaded = await this.client.uploadTo({
-      sessionUrl,
-      body: await read(video),
-      mimeType: video.mimeType,
-      ...(ctx.signal ? { signal: ctx.signal } : {}),
-    });
+    const uploaded = await this.upload(video, sessionUrl, ctx.signal);
 
     const videoId = typeof uploaded['id'] === 'string' ? uploaded['id'] : undefined;
     if (!videoId) {
@@ -494,6 +518,74 @@ export class YouTubeProvider implements SocialProvider {
         madeForKids: settings.madeForKids,
       },
     };
+  }
+
+  /**
+   * Move the bytes into an open session.
+   *
+   * In chunks when the worker can read ranges — one chunk in memory at a
+   * time — and in one PUT otherwise, which only a test still does.
+   */
+  private async upload(
+    video: PublishMedia,
+    sessionUrl: string,
+    signal: AbortSignal | undefined,
+  ): Promise<Record<string, unknown>> {
+    const readRange = this.options.readMediaRange;
+
+    if (!readRange) {
+      const read = this.options.readMedia as (media: PublishMedia) => Promise<Uint8Array>;
+      return this.client.uploadTo({
+        sessionUrl,
+        body: await read(video),
+        mimeType: video.mimeType,
+        ...(signal ? { signal } : {}),
+      });
+    }
+
+    const total = video.sizeBytes;
+    let firstByte = 0;
+    let stalled = 0;
+
+    while (firstByte < total) {
+      const lastByte = Math.min(firstByte + YOUTUBE_UPLOAD_CHUNK_BYTES, total) - 1;
+      const body = await readRange({
+        media: video,
+        firstByte,
+        lastByte,
+        ...(signal ? { signal } : {}),
+      });
+
+      const result = await this.client.uploadChunk({
+        sessionUrl,
+        body,
+        firstByte,
+        totalBytes: total,
+        mimeType: video.mimeType,
+        ...(signal ? { signal } : {}),
+      });
+
+      if (result.done) return result.body;
+
+      if (result.nextByte <= firstByte) {
+        stalled += 1;
+        if (stalled >= MAX_STALLED_CHUNKS) {
+          throw toAppError('YOUTUBE', {
+            kind: 'UNAVAILABLE',
+            message: `YouTube stopped accepting the upload at byte ${firstByte} of ${total}`,
+          });
+        }
+      } else {
+        stalled = 0;
+      }
+      firstByte = result.nextByte;
+    }
+
+    // Every byte is in and Google still has not answered with the video.
+    throw toAppError('YOUTUBE', {
+      kind: 'UNAVAILABLE',
+      message: 'YouTube received the whole upload but returned no video',
+    });
   }
 
   // ── Reconciliation ────────────────────────────────────────────────────────

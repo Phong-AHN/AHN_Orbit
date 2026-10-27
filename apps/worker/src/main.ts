@@ -52,7 +52,10 @@ async function main(): Promise<void> {
   ensureProvidersRegistered();
 
   const workers: RunningWorker[] = [
-    startWorker('publish', processPublish),
+    startWorker('publish', processPublish, {
+      // Tunable per deployment: a small container cannot hold eight at once.
+      ...(env.WORKER_PUBLISH_CONCURRENCY ? { concurrency: env.WORKER_PUBLISH_CONCURRENCY } : {}),
+    }),
     startWorker('account-health', processAccountHealth),
     startWorker('analytics', processAnalytics),
     startWorker('engagement', processEngagement),

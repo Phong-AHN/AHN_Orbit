@@ -1,6 +1,12 @@
 import { serverEnv } from '@orbit/config';
 import { logger } from '@orbit/observability';
-import { registerProvider, supportedPlatforms, type PublishMedia } from '@orbit/providers';
+import {
+  registerProvider,
+  supportedPlatforms,
+  toAppError,
+  type PublishMedia,
+} from '@orbit/providers';
+import type { Platform } from '@orbit/core';
 import { FacebookProvider } from '@orbit/providers/facebook';
 import { InstagramProvider } from '@orbit/providers/instagram';
 import { TikTokProvider } from '@orbit/providers/tiktok';
@@ -75,6 +81,12 @@ async function readMediaRange(input: {
 /**
  * Read a whole media object, for platforms that take the bytes in one request.
  *
+ * **Bounded by `WORKER_MAX_IN_MEMORY_MEDIA_MB`**, checked before a byte is
+ * fetched. Unbounded, this is how the worker died: two large videos publishing
+ * at once were more memory than the container had, and the crash took every
+ * other job in flight with it — then the restarted worker picked the same video
+ * up again. A file over the limit now fails its own publish, saying why.
+ *
  * A plain GET against the signed URL the publish subject already built, for the
  * same reason `readMediaRange` uses one: `@orbit/providers` must not depend on
  * `@orbit/storage`.
@@ -84,12 +96,32 @@ async function readMediaRange(input: {
  * bounds it in practice — a file too large to fetch inside that window fails
  * loudly on an expired URL rather than silently truncating.
  */
-async function readWholeMedia(media: PublishMedia): Promise<Uint8Array> {
-  const response = await fetch(media.url);
-  if (!response.ok) {
-    throw new Error(`Reading media ${media.id} returned HTTP ${response.status}`);
-  }
-  return new Uint8Array(await response.arrayBuffer());
+function wholeMediaReader(platform: Platform) {
+  return async (media: PublishMedia): Promise<Uint8Array> => {
+    const limitMb = serverEnv().WORKER_MAX_IN_MEMORY_MEDIA_MB;
+    const tooLarge = (bytes: number) =>
+      toAppError(platform, {
+        kind: 'MEDIA',
+        message: `Media ${media.id} is ${bytes} bytes, over the ${limitMb} MB in-memory limit`,
+        userMessage: `This file is larger than ${limitMb} MB, which Orbit cannot send to this platform yet. Use a smaller file.`,
+      });
+
+    if (media.sizeBytes > limitMb * 1024 * 1024) throw tooLarge(media.sizeBytes);
+
+    const response = await fetch(media.url);
+    if (!response.ok) {
+      throw new Error(`Reading media ${media.id} returned HTTP ${response.status}`);
+    }
+
+    // The stored size could be stale; the object's own length is the truth.
+    const length = Number(response.headers.get('content-length') ?? 0);
+    if (length > limitMb * 1024 * 1024) {
+      await response.body?.cancel();
+      throw tooLarge(length);
+    }
+
+    return new Uint8Array(await response.arrayBuffer());
+  };
 }
 
 export function ensureProvidersRegistered(): void {
@@ -132,7 +164,7 @@ export function ensureProvidersRegistered(): void {
         // LinkedIn will not fetch an image from a URL, so the worker reads the
         // object and pushes the bytes. Only the worker: the web app publishes
         // nothing.
-        readMedia: readWholeMedia,
+        readMedia: wholeMediaReader('LINKEDIN'),
       }),
     );
     registeredAny = true;
@@ -145,8 +177,9 @@ export function ensureProvidersRegistered(): void {
         clientSecret: env.YOUTUBE_CLIENT_SECRET,
         apiVersion: 'v3',
         // YouTube will not fetch from a URL: a resumable session takes the
-        // bytes and nothing else. Only the worker wires this.
-        readMedia: readWholeMedia,
+        // bytes and nothing else. In ranges, so a video is never in memory
+        // whole. Only the worker wires this.
+        readMediaRange,
       }),
     );
     registeredAny = true;
@@ -160,7 +193,7 @@ export function ensureProvidersRegistered(): void {
         apiVersion: 'v5',
         // A video pin is uploaded to a storage bucket Pinterest nominates; an
         // image pin is fetched from its URL and needs none of this.
-        readMedia: readWholeMedia,
+        readMedia: wholeMediaReader('PINTEREST'),
       }),
     );
     registeredAny = true;
