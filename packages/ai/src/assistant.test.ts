@@ -5,6 +5,7 @@ import {
   checkReply,
   decideReply,
   detectEscalation,
+  detectSmallTalk,
   isStopRequest,
   parseVerdict,
   redactSensitive,
@@ -287,6 +288,60 @@ describe('decideReply', () => {
       ],
     });
     expect(decision.verdict).toMatchObject({ action: 'ESCALATE', reason: 'nothing to answer' });
+  });
+});
+
+describe('small talk', () => {
+  /** "Xin chào" alone was handed to a person: it has no answer in any document. */
+  it('greets back without asking the model, in the customer’s language', async () => {
+    const untouchable = {
+      ...new MockAIProvider(),
+      answerMessage: () => {
+        throw new Error('the model must not be called');
+      },
+    } as unknown as AIProvider;
+    const ask = (text: string) =>
+      decideReply(untouchable, {
+        brand: null,
+        brandName: 'AHN',
+        entries: [],
+        turns: [{ from: 'CUSTOMER', text }],
+        correlationId: 'test',
+        maxLength: 900,
+      });
+
+    expect((await ask('Xin chào')).verdict).toEqual({
+      action: 'REPLY',
+      reply: 'Xin chào! AHN có thể giúp gì cho bạn?',
+      citedEntryIds: [],
+    });
+    expect((await ask('hi shop!')).verdict).toMatchObject({
+      action: 'REPLY',
+      reply: 'Hi! How can AHN help you today?',
+    });
+    expect((await ask('cảm ơn shop nhé')).verdict).toMatchObject({
+      reply: 'Cảm ơn bạn! Nếu cần thêm thông tin, bạn cứ nhắn nhé.',
+    });
+  });
+
+  it('treats a greeting with a question as a question', () => {
+    expect(detectSmallTalk('Xin chào, phí ship bao nhiêu?')).toBeNull();
+    expect(detectSmallTalk('hello, are you open today?')).toBeNull();
+  });
+
+  it('still escalates a greeting that carries a matter for a person', async () => {
+    const decision = await decideReply(new MockAIProvider(), {
+      brand: null,
+      brandName: 'AHN',
+      entries,
+      turns: [
+        { from: 'CUSTOMER', text: 'Chào shop' },
+        { from: 'CUSTOMER', text: 'Mình muốn hoàn tiền' },
+      ],
+      correlationId: 'test',
+      maxLength: 900,
+    });
+    expect(decision.verdict).toMatchObject({ action: 'ESCALATE', category: 'REFUND_OR_PAYMENT' });
   });
 });
 

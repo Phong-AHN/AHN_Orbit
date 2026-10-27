@@ -30,6 +30,8 @@ export {
   checkReply,
   decideReply,
   detectEscalation,
+  detectSmallTalk,
+  smallTalkReply,
   isStopRequest,
   normalizeForMatching,
   parseVerdict,
@@ -39,6 +41,7 @@ export {
   type AssistantVerdict,
   type Decision,
   type EscalationCategory,
+  type SmallTalk,
   type KnowledgeEntry,
 } from './assistant.js';
 export { createAIProvider, toBrandContext } from './factory.js';

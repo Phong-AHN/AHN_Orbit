@@ -402,7 +402,19 @@ export async function syncConversations(input: {
   const provider = getProvider(account.platform);
   const credential = await loadAccountCredential(ctx, account.id);
 
-  if (input.subscribe && !account.webhookExternalId && provider.subscribeWebhooks) {
+  // Subscribed once is not subscribed for good. The fields are chosen when the
+  // call is made — `feed` alone while messaging is off — so a Page subscribed
+  // before messaging was switched on would never receive a message, and
+  // `webhookExternalId` being set would keep it that way forever. That is what
+  // happened on 2026-10-27. Re-subscribing is idempotent and replaces the
+  // fields, so an account that can message is subscribed again on every pass.
+  const resubscribe =
+    messaging.supported && messaging.scopes.every((s) => credential.scopes.includes(s));
+  if (
+    input.subscribe &&
+    (!account.webhookExternalId || resubscribe) &&
+    provider.subscribeWebhooks
+  ) {
     try {
       await subscribeAccount(ctx, account, credential);
     } catch (error) {

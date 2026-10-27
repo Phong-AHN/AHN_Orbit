@@ -35,6 +35,8 @@ export interface WebhookEventResult {
   accounts: number;
   recorded: number;
   commentsQueued: number;
+  /** Why matched accounts wrote nothing, e.g. messaging off on this worker. */
+  skipped: string[];
 }
 
 export async function processWebhookEvent(input: {
@@ -43,7 +45,12 @@ export async function processWebhookEvent(input: {
   correlationId: string;
 }): Promise<WebhookEventResult> {
   const { webhookEventId, correlationId } = input;
-  const result: WebhookEventResult = { accounts: 0, recorded: 0, commentsQueued: 0 };
+  const result: WebhookEventResult = {
+    accounts: 0,
+    recorded: 0,
+    commentsQueued: 0,
+    skipped: [],
+  };
 
   const row = await platformDb.webhookEvent.findUnique({
     where: { id: webhookEventId },
@@ -79,6 +86,7 @@ export async function processWebhookEvent(input: {
           deleted: event.deleted,
         });
         if (ingested.kind === 'RECORDED' && ingested.recorded.created) result.recorded += 1;
+        if (ingested.kind === 'SKIPPED') result.skipped.push(ingested.reason);
       }
     } else if (event?.kind === 'COMMENT_ACTIVITY') {
       result.commentsQueued = await queueCommentRead(platform, event.externalPostId, correlationId);
@@ -104,9 +112,22 @@ export async function processWebhookEvent(input: {
   if (result.accounts === 0 && event?.kind === 'MESSAGE') {
     // A Page connected nowhere, or disconnected since. Not an error: Meta
     // keeps delivering to an app until the subscription is removed.
-    logger.debug('webhook message for an account no organization has connected', {
+    logger.info('webhook message for an account no organization has connected', {
       webhookEventId,
       platform,
+    });
+  }
+
+  // A message that reached a connected account and was still not written is
+  // the one case somebody needs to see: it is what "I messaged the Page and
+  // nothing appeared" looks like from here. UNSUPPORTED means this worker has
+  // messaging switched off (META_MESSAGING_ENABLED). Nothing private is
+  // logged — the reason, not the message.
+  if (result.skipped.length > 0) {
+    logger.warn('webhook message reached a connected account but was not recorded', {
+      webhookEventId,
+      platform,
+      reasons: [...new Set(result.skipped)],
     });
   }
 

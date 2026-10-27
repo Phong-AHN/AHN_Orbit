@@ -269,6 +269,124 @@ export function isStopRequest(text: string): boolean {
   ].includes(normalized);
 }
 
+/**
+ * A message that is only a greeting, a thank-you or a goodbye.
+ *
+ * These have no answer in any document, so the model either escalated them or
+ * wrote a greeting that cited nothing — which the after-check rightly refuses —
+ * and "Xin chào" was handed to a person (2026-10-27). They get a fixed reply
+ * instead: no model, so nothing to invent and no credit spent.
+ *
+ * Whole message only, like `isStopRequest`: "chào shop, phí ship bao nhiêu?"
+ * is a question and goes through every gate as usual. Words that only address
+ * the brand ("shop", "ad", "ạ", "nhé") are ignored.
+ */
+export type SmallTalk = 'GREETING' | 'THANKS' | 'GOODBYE';
+
+const SMALL_TALK_FILLERS = new Set([
+  'shop',
+  'ad',
+  'admin',
+  'page',
+  'team',
+  'ban',
+  'a',
+  'ah',
+  'nhe',
+  'nha',
+  'oi',
+  'anh',
+  'chi',
+  'em',
+  'ok',
+  'oke',
+  'there',
+  'everyone',
+  'all',
+  'guys',
+  'so',
+  'much',
+  'lot',
+  'nhieu',
+]);
+
+const SMALL_TALK: Record<SmallTalk, readonly string[]> = {
+  GREETING: [
+    'xin chao',
+    'chao',
+    'alo',
+    'hello',
+    'helo',
+    'hi',
+    'hey',
+    'chao buoi sang',
+    'chao buoi chieu',
+    'chao buoi toi',
+    'good morning',
+    'good afternoon',
+    'good evening',
+  ],
+  THANKS: ['cam on', 'thanks', 'thank you', 'thank', 'tks', 'thx'],
+  GOODBYE: ['tam biet', 'bye', 'goodbye', 'bye bye'],
+};
+
+/** Normalized forms that only Vietnamese uses; anything else is answered in English. */
+const VIETNAMESE_SMALL_TALK = new Set([
+  'xin chao',
+  'chao',
+  'alo',
+  'chao buoi sang',
+  'chao buoi chieu',
+  'chao buoi toi',
+  'cam on',
+  'tam biet',
+]);
+
+export function detectSmallTalk(text: string): { kind: SmallTalk; vietnamese: boolean } | null {
+  const phrase = normalizeForMatching(text)
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((word) => word && !SMALL_TALK_FILLERS.has(word))
+    .join(' ');
+  if (!phrase) return null;
+
+  for (const kind of Object.keys(SMALL_TALK) as SmallTalk[]) {
+    if (SMALL_TALK[kind].includes(phrase)) {
+      // Diacritics settle it; without them, the phrase itself does.
+      const vietnamese =
+        /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(text) ||
+        VIETNAMESE_SMALL_TALK.has(phrase);
+      return { kind, vietnamese };
+    }
+  }
+  return null;
+}
+
+/** The fixed reply to small talk, in the customer's language. */
+export function smallTalkReply(
+  talk: { kind: SmallTalk; vietnamese: boolean },
+  brandName: string,
+): string {
+  if (talk.vietnamese) {
+    switch (talk.kind) {
+      case 'GREETING':
+        return `Xin chào! ${brandName} có thể giúp gì cho bạn?`;
+      case 'THANKS':
+        return 'Cảm ơn bạn! Nếu cần thêm thông tin, bạn cứ nhắn nhé.';
+      case 'GOODBYE':
+        return 'Cảm ơn bạn đã nhắn tin. Chúc bạn một ngày tốt lành!';
+    }
+  }
+  switch (talk.kind) {
+    case 'GREETING':
+      return `Hi! How can ${brandName} help you today?`;
+    case 'THANKS':
+      return "You're welcome! Let us know if there's anything else we can help with.";
+    case 'GOODBYE':
+      return 'Thanks for reaching out. Have a great day!';
+  }
+}
+
 // ── Gate 2: sensitive data ──────────────────────────────────────────────────
 
 /**
@@ -537,6 +655,18 @@ export async function decideReply(
         action: 'ESCALATE',
         category: trigger.category,
         reason: `matched "${trigger.term}"`,
+      },
+    };
+  }
+
+  // After the escalation rules, so nothing that matched one is greeted instead.
+  const talk = detectSmallTalk(pending);
+  if (talk) {
+    return {
+      verdict: {
+        action: 'REPLY',
+        reply: smallTalkReply(talk, input.brandName),
+        citedEntryIds: [],
       },
     };
   }
