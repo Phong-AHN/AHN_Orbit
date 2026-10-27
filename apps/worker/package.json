@@ -5,7 +5,8 @@
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
-    "build": "tsc -b",
+    "//build": "Generates the Prisma client first. The Dockerfile does this itself; a builder that skips the Dockerfile and runs this script would otherwise compile against an empty @prisma/client and fail with hundreds of type errors.",
+    "build": "pnpm --filter @orbit/db exec prisma generate --schema prisma/schema.prisma && tsc -b",
     "clean": "tsc -b --clean",
     "dev": "node --watch --experimental-strip-types src/index.ts",
     "start": "node dist/index.js"

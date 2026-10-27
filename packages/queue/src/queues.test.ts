@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_JOB_OPTIONS } from './producer.js';
+import { DEFAULT_JOB_OPTIONS, EVENTS_MAX_LEN } from './producer.js';
 import {
   QUEUE_DEFINITIONS,
   QUEUE_NAMES,
@@ -183,6 +183,19 @@ describe('job retention is bounded', () => {
   it('keeps failures for the same window the dead-letter store does', () => {
     const onFail = DEFAULT_JOB_OPTIONS.removeOnFail as { age: number };
     expect(onFail.age).toBe(30 * 24 * 3_600);
+  });
+
+  /**
+   * Thirteen queues share one small Redis. The second outage came from
+   * per-queue trails sized as if each queue had the instance to itself.
+   */
+  it('keeps every per-queue trail small enough for thirteen queues on a small Redis', () => {
+    const onComplete = DEFAULT_JOB_OPTIONS.removeOnComplete as { count: number };
+    const onFail = DEFAULT_JOB_OPTIONS.removeOnFail as { count: number };
+    expect(onComplete.count).toBeLessThanOrEqual(100);
+    expect(onFail.count).toBeLessThanOrEqual(500);
+    // BullMQ's default is 10,000 events per queue, and nothing reads them.
+    expect(EVENTS_MAX_LEN).toBeLessThanOrEqual(500);
   });
 
   /** The worker owns retry policy; BullMQ must not re-run a job behind it. */

@@ -30,8 +30,9 @@ import { parsePayload, QUEUE_NAMES, type PayloadOf, type QueueName } from './que
 export const DEFAULT_JOB_OPTIONS = {
   // The worker owns retry policy; BullMQ must not second-guess it.
   attempts: 1,
-  // A short success trail for debugging.
-  removeOnComplete: { count: 1_000, age: 24 * 3_600 },
+  // A short success trail for debugging. Short because it is per queue, and
+  // the 30-second sweeps alone complete thousands of jobs a day (2026-10-27).
+  removeOnComplete: { count: 100, age: 3_600 },
   /**
    * Bounded, and it was not.
    *
@@ -54,8 +55,24 @@ export const DEFAULT_JOB_OPTIONS = {
    * view agree about what "recent failures" means; the count cap bounds
    * a burst that arrives faster than the window expires.
    */
-  removeOnFail: { count: 5_000, age: 30 * 24 * 3_600 },
+  removeOnFail: { count: 500, age: 30 * 24 * 3_600 },
 } as const;
+
+/**
+ * How many events each queue's event stream keeps.
+ *
+ * BullMQ writes an entry to `bull:<queue>:events` for every state change and
+ * keeps **10,000 per queue** unless told otherwise. Nothing in Orbit reads that
+ * stream — no `QueueEvents` listener exists — and across thirteen queues it
+ * was most of a small Redis. A full Redis under `noeviction` refuses every
+ * write: the second `OOM command not allowed` outage (2026-10-27) came from
+ * here and from the completed-job trail above, after the first one had
+ * bounded failed jobs.
+ *
+ * Written into each queue's meta hash when the queue is opened, which is where
+ * the worker's scripts read it too, so this one setting trims every writer.
+ */
+export const EVENTS_MAX_LEN = 200;
 
 const queues = new Map<QueueName, Queue>();
 
@@ -66,6 +83,7 @@ export function queueFor<Q extends QueueName>(name: Q): Queue<PayloadOf<Q>> {
     queue = new Queue(name, {
       connection: redis(),
       defaultJobOptions: DEFAULT_JOB_OPTIONS,
+      streams: { events: { maxLen: EVENTS_MAX_LEN } },
     });
     queues.set(name, queue);
   }

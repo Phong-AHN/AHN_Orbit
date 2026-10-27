@@ -23,6 +23,18 @@ import type { QueueName } from './queues.js';
 const DEAD_LETTER_INDEX = 'dlq:index';
 const RETENTION_MS = 30 * 24 * 3_600 * 1_000;
 
+/**
+ * Entries kept, whatever their age.
+ *
+ * Time alone did not bound it. A maintenance task that failed on every run
+ * wrote thousands of entries well inside thirty days, and with the failed jobs
+ * behind them they filled a 30 MB Redis — which, under `noeviction`, then
+ * refused every write in the product (2026-10-27). A thousand is more than
+ * anyone reads in the admin view; one failure repeated beyond that adds
+ * nothing but bytes.
+ */
+export const MAX_DEAD_LETTERS = 1_000;
+
 export interface DeadLetterEntry {
   id: string;
   queue: QueueName;
@@ -112,6 +124,17 @@ export async function recordDeadLetter(input: {
     // Trim anything past the retention window so the index cannot grow forever.
     .zremrangebyscore(DEAD_LETTER_INDEX, 0, now - RETENTION_MS)
     .exec();
+
+  // And past the count: the oldest go, entry and index together, so nothing is
+  // left holding memory until its TTL.
+  const overflow = await connection.zrange(DEAD_LETTER_INDEX, 0, -(MAX_DEAD_LETTERS + 1));
+  if (overflow.length > 0) {
+    await connection
+      .multi()
+      .del(...overflow.map(entryKey))
+      .zrem(DEAD_LETTER_INDEX, ...overflow)
+      .exec();
+  }
 
   logger.error('job dead-lettered', {
     queue: entry.queue,
