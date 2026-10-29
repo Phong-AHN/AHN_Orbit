@@ -126,6 +126,7 @@ produces a localhost callback that TikTok refuses.
 | `META_MESSAGING_ENABLED` | **Vercel** and **Railway**, identically | `true` only after `pages_messaging`, `pages_manage_metadata` and `instagram_business_manage_messages` are on the Meta app — an unknown scope fails the whole connect dialog, publishing included. |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | **Vercel** and **Railway**, identically, when the AI assistant answers messages | The worker sends the assistant's automatic replies (**D-108**); without a key there, a brand in AUTO hands every message to a person. |
 | `GEMINI_TIER` | **Vercel** | `free` (default) or `paid`. Only changes the warning on the assistant settings page; the tier itself is Google's billing setting. |
+| `GOOGLE_REVIEW_ACCESS_CODE` | **Vercel**, only during Google OAuth verification | Opens `/review/youtube` for Google's reviewers (16+ characters). Unset, the page is a 404. Remove after approval — see docs/GOOGLE-VERIFICATION.md. |
 | `META_HUMAN_AGENT_ENABLED` | **Vercel** and **Railway**, identically | `true` only once Meta has approved Human Agent. Extends the reply window from 24 hours to 7 days. |
 
 Webhook callback URLs, registered in the Meta App Dashboard:

@@ -326,6 +326,19 @@ export const serverEnvSchema = z.object({
    */
   GEMINI_TIER: z.enum(['free', 'paid']).default('free'),
 
+  /**
+   * Opens `/review/youtube`, a page Google's verification team uses to test
+   * the YouTube integration without an Orbit account, behind this code. Unset,
+   * the page does not exist. At least 16 characters: it is the only thing
+   * between the public internet and a page that uploads to a YouTube channel.
+   * Remove it once verification is granted.
+   */
+  GOOGLE_REVIEW_ACCESS_CODE: z
+    .string()
+    .min(16)
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+
   // ── Billing (SRS §38) ─────────────────────────────────────────────────────
   STRIPE_SECRET_KEY: optionalString,
   STRIPE_WEBHOOK_SECRET: optionalString,
