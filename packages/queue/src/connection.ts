@@ -50,17 +50,23 @@ function createConnection(role: string): Redis {
   return connection;
 }
 
-/** The shared pool. Safe for queues, locks and buckets; never for a Worker. */
+/**
+ * The shared connection. Safe for queues, locks, buckets — and a Worker's
+ * ordinary commands: BullMQ duplicates whatever it is given for the blocking
+ * read, so Workers pass this rather than a connection of their own.
+ */
 export function redis(): Redis {
   shared ??= createConnection('shared');
   return shared;
 }
 
 /**
- * A dedicated connection for one Worker.
+ * A dedicated connection, for something that blocks on it outside BullMQ.
  *
- * Each call returns a new connection on purpose — BullMQ blocks on it, so
- * reusing one across workers would serialise them.
+ * Not for a Worker: BullMQ already makes its own blocking duplicate, and
+ * giving each Worker a dedicated connection as well doubled the worker's
+ * connections — enough, on a 30-client Redis, to refuse every web request
+ * (2026-10-27).
  */
 export function blockingConnection(role: string): Redis {
   return createConnection(role);

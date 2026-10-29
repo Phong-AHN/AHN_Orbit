@@ -1,7 +1,7 @@
 import { Worker, UnrecoverableError, type Job } from 'bullmq';
 import { newCorrelationId } from '@orbit/core';
 import { logger, logError, recordJobOutcome, withLogContext } from '@orbit/observability';
-import { blockingConnection, isWorkerProcess } from './connection.js';
+import { isWorkerProcess, redis } from './connection.js';
 import { QUEUE_DEFINITIONS, parsePayload, type PayloadOf, type QueueName } from './queues.js';
 import { decideRetry, describeFailure, errorCodeOf, MAX_ATTEMPTS } from './retry.js';
 import { recordDeadLetter } from './dead-letter.js';
@@ -215,7 +215,12 @@ export function startWorker<Q extends QueueName>(
       });
     },
     {
-      connection: blockingConnection(`worker:${name}`),
+      // The shared connection, for this worker's ordinary commands. BullMQ
+      // duplicates it for the blocking read itself, so a dedicated one here
+      // was a second connection per queue for nothing — twenty-two for the
+      // worker, against a hosted Redis that allows thirty clients in total,
+      // which is how "ERR max number of clients reached" happened (2026-10-27).
+      connection: redis(),
       concurrency,
       // If a worker dies mid-job, this is how long before another may take it.
       // Long enough to cover a slow provider call, short enough that a crashed

@@ -1,4 +1,5 @@
 import { RateLimitedError, isUserPrincipal, type TenantContext } from '@orbit/core';
+import { logger } from '@orbit/observability';
 import { takeToken } from '@orbit/queue';
 
 /**
@@ -43,7 +44,7 @@ export function aiRateLimitKey(scope: 'user' | 'org', id: string): string {
  * else caused.
  */
 export async function assertAIRateLimit(ctx: TenantContext): Promise<void> {
-  const org = await takeToken(aiRateLimitKey('org', ctx.organizationId), PER_ORGANIZATION);
+  const org = await bucket(ctx, aiRateLimitKey('org', ctx.organizationId), PER_ORGANIZATION);
 
   if (!org.allowed) {
     throw new RateLimitedError('Organization AI rate limit reached', {
@@ -55,12 +56,38 @@ export async function assertAIRateLimit(ctx: TenantContext): Promise<void> {
 
   if (!isUserPrincipal(ctx.principal)) return;
 
-  const user = await takeToken(aiRateLimitKey('user', ctx.principal.userId), PER_USER);
+  const user = await bucket(ctx, aiRateLimitKey('user', ctx.principal.userId), PER_USER);
 
   if (!user.allowed) {
     throw new RateLimitedError('User AI rate limit reached', {
       retryAfterSeconds: Math.ceil(user.retryAfterMs / 1_000),
       userMessage: 'That is faster than the assistant runs. Try again in a moment.',
     });
+  }
+}
+
+/**
+ * One bucket, and what happens when Redis cannot be reached: the request goes
+ * ahead, loudly.
+ *
+ * This limiter guards the *pace* of spend. The *amount* is capped by the
+ * monthly credit check that follows, which reads the database and does not
+ * depend on Redis. Refusing every AI request because the limiter's store is
+ * unavailable — a full Redis refused new clients on 2026-10-27 and again on
+ * 2026-10-29 — turned a guard into an outage of the feature it guards.
+ */
+async function bucket(
+  ctx: TenantContext,
+  key: string,
+  config: { capacity: number; refillWindowMs: number },
+): Promise<{ allowed: boolean; retryAfterMs: number }> {
+  try {
+    return await takeToken(key, config);
+  } catch (error) {
+    logger.warn('AI rate limiter unavailable; allowing the request', {
+      organizationId: ctx.organizationId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { allowed: true, retryAfterMs: 0 };
   }
 }
