@@ -21,7 +21,7 @@ import { withTenant, type TenantDb } from '@orbit/db';
 import { notify } from '@orbit/notifications';
 import { logger } from '@orbit/observability';
 import { capabilitiesFor, getProvider } from '@orbit/providers';
-import { enqueue } from '@orbit/queue';
+import { LOCK_UNAVAILABLE, enqueue, withLock } from '@orbit/queue';
 import { loadAccountCredential } from '../credentials.js';
 
 /**
@@ -217,7 +217,47 @@ async function creditsLeft(ctx: TenantContext): Promise<boolean> {
   });
 }
 
+/** How long one conversation's assistant run may hold its lock. */
+const CONVERSATION_LOCK_MS = 120_000;
+
+/** When the lock is taken, how long before asking again. */
+const LOCKED_RETRY_MS = 15_000;
+
+/**
+ * One conversation at a time.
+ *
+ * Every customer message schedules its own job, so two messages in a row — or
+ * a backlog drained at once after an outage — run in parallel. Both then read
+ * "not handed over yet" and both act: on 2026-10-29 a customer received the
+ * holding message twice, seven seconds apart, and two replies were as likely.
+ * The second job waits instead, and when it runs it reads what the first did
+ * — the brand has spoken since, or the conversation is with a person — and
+ * stays out.
+ */
 export async function runAssistant(input: {
+  ctx: TenantContext;
+  conversationId: string;
+  correlationId: string;
+}): Promise<AssistantOutcome> {
+  const { ctx, conversationId } = input;
+
+  const result = await withLock(`lock:assistant:${conversationId}`, CONVERSATION_LOCK_MS, () =>
+    runAssistantLocked(input),
+  );
+  if (result !== LOCK_UNAVAILABLE) return result;
+
+  await enqueue(
+    'assistant',
+    { organizationId: ctx.organizationId, correlationId: input.correlationId, conversationId },
+    {
+      jobId: `assistant-${conversationId}-locked-${clock.now().getTime()}`,
+      delayMs: LOCKED_RETRY_MS,
+    },
+  );
+  return 'DEFERRED';
+}
+
+async function runAssistantLocked(input: {
   ctx: TenantContext;
   conversationId: string;
   correlationId: string;
