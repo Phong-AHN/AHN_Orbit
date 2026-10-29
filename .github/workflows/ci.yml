@@ -95,9 +95,16 @@ jobs:
       - uses: actions/checkout@v4
 
       # MinIO needs a `server` argument, which a job service cannot pass.
+      #
+      # Not `minio/minio`: that repository is gone from Docker Hub ("pull access
+      # denied ... repository does not exist", 2026-10-29). Chainguard's build is
+      # the same server; the Bitnami legacy image is the fallback, and starts the
+      # server itself from the same two variables.
       - name: Start MinIO
         run: |
-          docker run -d --name minio -p 9000:9000 -e MINIO_ROOT_USER=orbit_local -e MINIO_ROOT_PASSWORD=orbit_local_dev minio/minio server /data
+          creds="-e MINIO_ROOT_USER=orbit_local -e MINIO_ROOT_PASSWORD=orbit_local_dev"
+          docker run -d --name minio -p 9000:9000 $creds cgr.dev/chainguard/minio:latest server /tmp/data ||
+            docker run -d --name minio -p 9000:9000 $creds bitnamilegacy/minio:latest
           for i in $(seq 1 30); do
             curl -sf http://localhost:9000/minio/health/live && exit 0
             sleep 1
