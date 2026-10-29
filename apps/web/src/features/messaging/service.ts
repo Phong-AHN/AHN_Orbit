@@ -16,6 +16,7 @@ import { logger } from '@orbit/observability';
 import { capabilitiesFor, getProvider, isSupported } from '@orbit/providers';
 import { assertCan, canSomewhere } from '@orbit/rbac';
 import { audit, type AuditInput } from '@/server/audit';
+import { ensureProvidersRegistered } from '@/server/providers';
 import { loadCredential } from '@/features/social/service';
 import type { ConversationAssignInput, MessageReplyInput } from './contracts';
 
@@ -53,6 +54,10 @@ const MESSAGING_PLATFORMS: readonly Platform[] = ['FACEBOOK', 'INSTAGRAM'];
  * username-login surface, which is the only one that carries messaging.
  */
 export function messagingAvailable(): boolean {
+  // The registry is per process, and a cold serverless instance has an empty
+  // one: without this, a route reached before any page had registered the
+  // adapters answered "Facebook isn't available yet" (2026-10-29).
+  ensureProvidersRegistered();
   return MESSAGING_PLATFORMS.some(
     (platform) =>
       isSupported(platform) &&
@@ -429,6 +434,7 @@ type ConversationRow = {
 };
 
 function messagingOf(conversation: ConversationRow) {
+  ensureProvidersRegistered();
   return capabilitiesFor(
     conversation.socialAccount.platform,
     conversation.socialAccount.accountType,

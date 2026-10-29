@@ -15,6 +15,7 @@ import { assertCan, canSomewhere } from '@orbit/rbac';
 import { logger } from '@orbit/observability';
 import { capabilitiesFor, getProvider } from '@orbit/providers';
 import { audit, type AuditInput } from '@/server/audit';
+import { ensureProvidersRegistered } from '@/server/providers';
 import { loadCredential } from '@/features/social/service';
 import type { AssignInput, CommentQuery, ReplyInput } from './contracts';
 import { comparePosts, summariesFromGroups, type PostSummary } from './thread';
@@ -378,6 +379,10 @@ export async function replyToComment(
     });
   }
 
+  // The registry is per process, and a cold serverless instance has an empty
+  // one: without this, a route reached before any page had registered the
+  // adapters answered "Facebook isn't available yet" (2026-10-29).
+  ensureProvidersRegistered();
   const provider = getProvider(comment.socialAccount.platform);
   const engagement = capabilitiesFor(
     comment.socialAccount.platform,

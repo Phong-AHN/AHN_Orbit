@@ -25,6 +25,7 @@ import { capabilitiesFor } from '@orbit/providers';
 import { assertCan, can } from '@orbit/rbac';
 import { audit, type AuditInput } from '@/server/audit';
 import { aiProvider } from '@/server/ai-provider';
+import { ensureProvidersRegistered } from '@/server/providers';
 import { assertAIAllowance, recordAIUsage } from '@/features/ai/service';
 import {
   MAX_ENTRIES_PER_BRAND,
@@ -427,6 +428,10 @@ export async function suggestReply(ctx: TenantContext, conversationId: string) {
   await assertAIAllowance(ctx);
 
   const turns = await recentTurns(ctx, conversationId);
+  // The registry is per process, and a cold serverless instance has an empty
+  // one: without this, a route reached before any page had registered the
+  // adapters answered "Facebook isn't available yet" (2026-10-29).
+  ensureProvidersRegistered();
   const messaging = capabilitiesFor(
     conversation.socialAccount.platform,
     conversation.socialAccount.accountType,
