@@ -140,9 +140,7 @@ beforeAll(async () => {
   };
 
   await seed(OWNER, 'owner@surface-sep.test', 'OWNER');
-  await seed(CLIENT, 'client@surface-sep.test', 'CLIENT', [
-    { id: WS, role: 'CLIENT_APPROVER' },
-  ]);
+  await seed(CLIENT, 'client@surface-sep.test', 'CLIENT', [{ id: WS, role: 'CLIENT_APPROVER' }]);
   await seed(CLIENT_TWO_WS, 'client-two@surface-sep.test', 'CLIENT', [
     { id: WS, role: 'CLIENT_APPROVER' },
     { id: WS_OTHER, role: 'CLIENT_VIEWER' },

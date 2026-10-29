@@ -194,10 +194,8 @@ export default function TermsOfServicePage() {
             platform&rsquo;s own rules about what an app may read.
           </P>
           <P>
-            <Strong>
-              Where a figure is unavailable we say so rather than showing zero.
-            </Strong>{' '}
-            A zero is a measurement and an absence is not, and conflating them is how somebody
+            <Strong>Where a figure is unavailable we say so rather than showing zero.</Strong> A
+            zero is a measurement and an absence is not, and conflating them is how somebody
             concludes a campaign failed when it was simply never measured.
           </P>
         </Section>

@@ -57,7 +57,8 @@ export default async function ContinuePage({
   if (!home) {
     // No session. Back to the door they came through, preserving where they
     // were heading so the round trip is invisible.
-    const back = entrance === 'ops' ? '/sign-in/ops' : entrance === 'portal' ? '/sign-in/client' : '/sign-in';
+    const back =
+      entrance === 'ops' ? '/sign-in/ops' : entrance === 'portal' ? '/sign-in/client' : '/sign-in';
     redirect(params.next ? `${back}?next=${encodeURIComponent(params.next)}` : back);
   }
 

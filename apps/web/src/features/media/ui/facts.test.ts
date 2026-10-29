@@ -175,9 +175,9 @@ describe('describeFacts', () => {
    */
   it('omits what was never measured rather than reporting zero', () => {
     expect(describeFacts({ kind: 'IMAGE', mimeType: 'image/png' })).toEqual([]);
-    expect(
-      describeFacts({ kind: 'IMAGE', mimeType: 'image/png', width: 800, height: 0 }),
-    ).toEqual([]);
+    expect(describeFacts({ kind: 'IMAGE', mimeType: 'image/png', width: 800, height: 0 })).toEqual(
+      [],
+    );
   });
 });
 
@@ -255,9 +255,9 @@ describe('describeMediaNeed', () => {
   });
 
   it('says plainly when a platform takes no attachment at all', () => {
-    expect(
-      describeMediaNeed(capability({ image: null, video: null, maxAttachments: 0 })),
-    ).toBe('Text only — no attachments.');
+    expect(describeMediaNeed(capability({ image: null, video: null, maxAttachments: 0 }))).toBe(
+      'Text only — no attachments.',
+    );
   });
 
   /**
@@ -297,7 +297,10 @@ describe('pinMediaIssues', () => {
   };
 
   it('pins each issue to the attachment the engine named', () => {
-    const pinned = pinMediaIssues([], [{ accountName: 'AHN on TikTok', issues: [tooLong, tooWide] }]);
+    const pinned = pinMediaIssues(
+      [],
+      [{ accountName: 'AHN on TikTok', issues: [tooLong, tooWide] }],
+    );
 
     expect(pinned).toEqual([
       {
@@ -369,7 +372,10 @@ describe('pinMediaIssues', () => {
       [],
       [
         { accountName: 'AHN on TikTok', issues: [tooLong] },
-        { accountName: 'AHN on Instagram', issues: [{ ...tooLong, message: 'Too long for Reels.' }] },
+        {
+          accountName: 'AHN on Instagram',
+          issues: [{ ...tooLong, message: 'Too long for Reels.' }],
+        },
       ],
     );
 

@@ -58,9 +58,7 @@ export interface OutboxResult {
  * Stamping stale rows needs no mailer, so it happens either way: those are
  * being *abandoned*, not sent.
  */
-export async function drainEmailOutbox(
-  resolveMailer: () => Mailer,
-): Promise<OutboxResult> {
+export async function drainEmailOutbox(resolveMailer: () => Mailer): Promise<OutboxResult> {
   const now = clock.now();
   const cutoff = new Date(now.getTime() - MAX_AGE_MS);
   const result: OutboxResult = { sent: 0, failed: 0, abandoned: 0 };

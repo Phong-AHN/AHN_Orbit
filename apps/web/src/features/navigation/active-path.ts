@@ -32,10 +32,7 @@ export interface MatchableItem {
  * Matching is on **path segments**, not characters: `/posts` must not match
  * `/posts-archive`, which a bare `startsWith` would.
  */
-export function bestMatch(
-  pathname: string,
-  items: readonly MatchableItem[],
-): string | undefined {
+export function bestMatch(pathname: string, items: readonly MatchableItem[]): string | undefined {
   let best: string | undefined;
 
   for (const item of items) {

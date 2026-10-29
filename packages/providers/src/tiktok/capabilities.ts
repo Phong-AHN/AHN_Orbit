@@ -50,10 +50,7 @@ export const TIKTOK_DEFAULT_SCOPES = ['user.info.basic', 'user.info.profile'] as
  * target TikTok user must have authorized your app for the `video.publish`
  * scope".
  */
-export const TIKTOK_PUBLISH_SCOPES = [
-  ...TIKTOK_DEFAULT_SCOPES,
-  'video.publish',
-] as const;
+export const TIKTOK_PUBLISH_SCOPES = [...TIKTOK_DEFAULT_SCOPES, 'video.publish'] as const;
 
 /**
  * Upload to the creator's inbox — they finish the post in TikTok's editor.
@@ -61,10 +58,7 @@ export const TIKTOK_PUBLISH_SCOPES = [
  * Verified: the upload guide requires `video.upload` rather than
  * `video.publish`, and needs no audit.
  */
-export const TIKTOK_UPLOAD_SCOPES = [
-  ...TIKTOK_DEFAULT_SCOPES,
-  'video.upload',
-] as const;
+export const TIKTOK_UPLOAD_SCOPES = [...TIKTOK_DEFAULT_SCOPES, 'video.upload'] as const;
 
 /** Reading back post metrics needs the user's video list. */
 export const TIKTOK_ANALYTICS_SCOPES = ['video.list'] as const;

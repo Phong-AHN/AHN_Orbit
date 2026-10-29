@@ -63,9 +63,9 @@ describe('resolveHome', () => {
   });
 
   it('honours the operations entrance for an admin who asks for it', () => {
-    expect(
-      resolveHome(facts({ agency: [{ slug: 'ahn' }], isPlatformAdmin: true }), 'ops'),
-    ).toEqual({ surface: 'ops', path: '/admin' });
+    expect(resolveHome(facts({ agency: [{ slug: 'ahn' }], isPlatformAdmin: true }), 'ops')).toEqual(
+      { surface: 'ops', path: '/admin' },
+    );
   });
 
   /**

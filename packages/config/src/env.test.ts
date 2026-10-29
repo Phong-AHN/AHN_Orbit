@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  EnvValidationError,
-  describeEnv,
-  parseServerEnv,
-  workerHealthPort,
-} from './env.js';
+import { EnvValidationError, describeEnv, parseServerEnv, workerHealthPort } from './env.js';
 
 const key32 = Buffer.alloc(32, 7).toString('base64');
 

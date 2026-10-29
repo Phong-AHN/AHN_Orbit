@@ -44,13 +44,7 @@ export interface SignInPanelProps {
   footer?: React.ReactNode;
 }
 
-export function SignInPanel({
-  entrance,
-  eyebrow,
-  title,
-  description,
-  footer,
-}: SignInPanelProps) {
+export function SignInPanel({ entrance, eyebrow, title, description, footer }: SignInPanelProps) {
   const env = serverEnv();
   const provider = selectIdentityProvider();
 

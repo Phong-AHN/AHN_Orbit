@@ -307,9 +307,7 @@ export function describeMediaNeed(media: MediaCapabilityView): string {
   const limit =
     media.maxAttachments === 1 ? 'one attachment' : `up to ${media.maxAttachments} attachments`;
 
-  return media.required
-    ? `Needs ${list} — ${limit}.`
-    : `Optional ${list} — ${limit}.`;
+  return media.required ? `Needs ${list} — ${limit}.` : `Optional ${list} — ${limit}.`;
 }
 
 /**
@@ -364,13 +362,9 @@ export function describeConstraint(constraint: MediaConstraintView): string[] {
 
   if (constraint.minAspectRatio !== undefined || constraint.maxAspectRatio !== undefined) {
     const tallest =
-      constraint.minAspectRatio === undefined
-        ? null
-        : formatAspectRatio(constraint.minAspectRatio);
+      constraint.minAspectRatio === undefined ? null : formatAspectRatio(constraint.minAspectRatio);
     const widest =
-      constraint.maxAspectRatio === undefined
-        ? null
-        : formatAspectRatio(constraint.maxAspectRatio);
+      constraint.maxAspectRatio === undefined ? null : formatAspectRatio(constraint.maxAspectRatio);
 
     lines.push(
       tallest && widest
