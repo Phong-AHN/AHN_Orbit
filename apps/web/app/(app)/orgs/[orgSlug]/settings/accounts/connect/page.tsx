@@ -63,11 +63,11 @@ const PLATFORM_NOTE: Record<ConnectablePlatform, string> = {
   THREADS:
     'You will sign in at Threads with the account itself. Threads connections last 60 days and renew themselves while they are in use — one left idle for longer has to be reconnected by hand.',
   LINKEDIN:
-    'You will sign in at LinkedIn, and Orbit will list the company pages you administer. A LinkedIn account with no admin role on a page has nothing to connect — the role has to be granted on the page first.',
+    'You will sign in at LinkedIn, and Social Square will list the company pages you administer. A LinkedIn account with no admin role on a page has nothing to connect — the role has to be granted on the page first.',
   YOUTUBE:
-    'You will sign in with Google, and Orbit will list the YouTube channels that account owns. A Google account with no channel has nothing to connect — create one on YouTube first.',
+    'You will sign in with Google, and Social Square will list the YouTube channels that account owns. A Google account with no channel has nothing to connect — create one on YouTube first.',
   PINTEREST:
-    'You will sign in at Pinterest with the account itself. One sign-in connects one account, and Orbit will read the boards you can pin to so a post can be filed on the right one.',
+    'You will sign in at Pinterest with the account itself. One sign-in connects one account, and Social Square will read the boards you can pin to so a post can be filed on the right one.',
 };
 
 /** The sign-in each platform actually shows, so the button does not mislead. */

@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
   try {
     const { videoId } = await uploadVideo(session.accessToken, {
       title,
-      description: 'Uploaded from the AHN Orbit verification review page.',
+      description: 'Uploaded from the Social Square verification review page.',
       privacyStatus: privacy as 'private' | 'unlisted' | 'public',
       madeForKids: madeForKids === 'yes',
       file,

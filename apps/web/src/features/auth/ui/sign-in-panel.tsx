@@ -100,7 +100,7 @@ export function SignInPanel({ entrance, eyebrow, title, description, footer }: S
           </CardHeader>
           <CardBody>
             <p className="text-sm text-ink-muted">
-              AHN Orbit stores no password material at all — Firebase owns credentials in
+              Social Square stores no password material at all — Firebase owns credentials in
               production, and this is its local stand-in. The provider refuses to run when{' '}
               <span className="font-mono text-xs">APP_ENV=production</span>, so this form cannot
               reach a real deployment.

@@ -77,7 +77,7 @@ export default async function ContinuePage({
 
   return (
     <main id="main" className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 py-16">
-      <PageHeader eyebrow="AHN Orbit" title="You are signed in" />
+      <PageHeader eyebrow="Social Square" title="You are signed in" />
 
       <Card className="mt-8">
         <CardBody>

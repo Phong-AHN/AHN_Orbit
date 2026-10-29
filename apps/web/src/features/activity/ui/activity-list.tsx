@@ -100,8 +100,8 @@ export function ActivityList({ entries }: { entries: ActivityEntry[] }) {
 
 function actor(entry: ActivityEntry): string {
   if (entry.actorUser) return entry.actorUser.name ?? entry.actorUser.email;
-  if (entry.actorType === 'WORKER') return 'Orbit';
-  if (entry.actorType === 'SYSTEM') return 'Orbit';
+  if (entry.actorType === 'WORKER') return 'Social Square';
+  if (entry.actorType === 'SYSTEM') return 'Social Square';
   // A USER row with no user is a person who has since been removed. Their
   // actions still happened, and the log says so rather than hiding the row.
   return 'A removed member';

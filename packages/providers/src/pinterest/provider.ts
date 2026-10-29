@@ -761,7 +761,7 @@ export class PinterestProvider implements SocialProvider {
     throw toAppError('PINTEREST', {
       kind: 'VALIDATION',
       message: 'Pinterest account analytics are not built',
-      userMessage: 'Orbit does not collect account-level Pinterest figures yet.',
+      userMessage: 'Social Square does not collect account-level Pinterest figures yet.',
     });
   }
 

@@ -107,7 +107,7 @@ nó chạy song song với việc phát triển, không phụ thuộc gì vào c
 > **Scope cần nộp: `instagram_business_manage_comments`** — production dùng
 > Business Login (đã xác nhận, §1d). Mô tả dưới đây đã là bản cho luồng đó.
 >
-> Nếu sau này bỏ `INSTAGRAM_APP_ID` khỏi production, Orbit lùi về Facebook
+> Nếu sau này bỏ `INSTAGRAM_APP_ID` khỏi production, Social Square lùi về Facebook
 > Login và scope đổi thành `instagram_manage_comments` — lúc đó bỏ hai câu
 > "no Facebook Page is required" và câu về posts/Stories có gắn thẻ.
 
@@ -156,14 +156,14 @@ người duyệt tự bình luận rồi ngồi đợi một bot không tồn t�
 Tiếng Anh, vì review bằng tiếng Anh. **Thay `[LINK]` bằng link thật** trước
 khi nộp — Meta bắt buộc có nó.
 
-> AHN Orbit is a social media management platform used by agencies to operate
+> Social Square is a social media management platform used by agencies to operate
 > accounts on behalf of their client businesses. Each client is an isolated
 > workspace; agency staff are granted access per client, and every action is
 > recorded in an audit log the client can be shown.
 >
 > We request `instagram_business_manage_comments` to read and reply to the
 > public comments left on media that our app published, for Instagram
-> professional accounts whose owners have connected them to Orbit through
+> professional accounts whose owners have connected them to Social Square through
 > Business Login for Instagram.
 >
 > **The problem it solves.** An agency managing ten client brands otherwise has
@@ -198,7 +198,7 @@ khi nộp — Meta bắt buộc có nó.
 > **Why it is necessary.** There is no alternative route: Instagram comments
 > cannot be read or answered without this permission, so without it the inbox
 > cannot include Instagram at all — an agency would see its Facebook comments
-> in Orbit and have to leave the product to answer the Instagram ones.
+> in Social Square and have to leave the product to answer the Instagram ones.
 >
 > **Data handling.** We store the comment text, the time it was posted, and the
 > public username displayed beside it, scoped to the workspace of the client
@@ -216,7 +216,7 @@ khi nộp — Meta bắt buộc có nó.
 >
 > Test post: [LINK]
 >
-> This post was published through AHN Orbit to a connected Instagram
+> This post was published through Social Square to a connected Instagram
 > professional account. Our app only reads comments on media it published
 > itself, so please comment on this specific post rather than another one on
 > the account.
@@ -224,7 +224,7 @@ khi nộp — Meta bắt buộc có nó.
 > 1. Leave a comment on the post above. **Any text works** — our app does not
 >    use trigger keywords or automated replies, so there is no phrase you need
 >    to use. Every comment on the post enters the queue.
-> 2. In the screencast you will see our staff user open **Community** in Orbit,
+> 2. In the screencast you will see our staff user open **Community** in Social Square,
 >    press **Check now** to read the account immediately, and see the comment
 >    appear in the queue within a few seconds.
 > 3. The staff user then types a reply and sends it. The reply appears threaded
@@ -261,16 +261,16 @@ là phạm vi không giải trình được. Đừng xóa đoạn đó để "xi
 **Mô tả để dán vào ô "Hãy mô tả chi tiết…"** (tiếng Anh, vì review bằng
 tiếng Anh):
 
-> AHN Orbit is a social media management platform used by agencies to publish
+> Social Square is a social media management platform used by agencies to publish
 > and manage content on behalf of their client businesses. Each client is an
 > isolated workspace; agency staff are granted access per client, and every
 > publish is recorded in an audit log the client can be shown.
 >
 > We request `instagram_business_content_publish` to publish organic feed
 > content to Instagram professional accounts whose owners have connected them
-> to Orbit through Business Login for Instagram.
+> to Social Square through Business Login for Instagram.
 >
-> **How the permission is used.** Agency staff compose a post in Orbit — a
+> **How the permission is used.** Agency staff compose a post in Social Square — a
 > caption of up to 2,200 characters with up to 30 hashtags, plus either a
 > single image, a single video published as a Reel, or a carousel of 2 to 10
 > images. At the scheduled time we create a media container on the connected
@@ -377,9 +377,9 @@ Cả bốn quyền Instagram **đã gắn sẵn** trên app — không phải th
 > 1. Nó chỉ nằm trong `INSTAGRAM_PUBLISH_SCOPES` — luồng Facebook Login cho
 >    Instagram, mà production không dùng.
 > 2. **Rất có thể ngay cả trên luồng đó cũng không cần.** Docstring ghi đây
->    là bộ mặc định *wizard của Meta tự thêm*, không phải bộ Orbit cần. Và
+>    là bộ mặc định *wizard của Meta tự thêm*, không phải bộ Social Square cần. Và
 >    blurb nói quyền này dùng để quản lý tài sản doanh nghiệp như **tài
->    khoản quảng cáo** — Orbit không có ad account nào.
+>    khoản quảng cáo** — Social Square không có ad account nào.
 >
 >    **Nguồn không thống nhất, nên ghi đúng mức chắc chắn:** bảng chính thức
 >    trong Instagram Platform overview của Meta liệt kê `instagram_basic`,
@@ -462,7 +462,7 @@ Facebook thì các scope `threads_*` đang nằm sai chỗ. Anh xem trên dashbo
 giúp em: danh sách này thuộc app nào?
 
 > `threads_manage_replies` và `threads_read_replies` thì **không cần** — chúng
-> được khai trong code nhưng không bao giờ đưa vào hộp thoại, và Orbit không
+> được khai trong code nhưng không bao giờ đưa vào hộp thoại, và Social Square không
 > đọc hay viết reply trên Threads.
 
 ---
@@ -489,13 +489,13 @@ thì ô mô tả sẽ hiện ra, dán đoạn dưới vào.
 **Mô tả để dán vào ô "Hãy mô tả chi tiết…"** (tiếng Anh, vì review bằng
 tiếng Anh):
 
-> AHN Orbit is a social media management platform used by agencies to publish
+> Social Square is a social media management platform used by agencies to publish
 > and report on content for their client businesses. Each client is an isolated
 > workspace, and every client can be shown the analytics for their own brand.
 >
 > We request `instagram_manage_insights` to retrieve performance metrics for
 > Instagram professional accounts whose owners have explicitly connected them
-> to Orbit, and for the media we published to those accounts.
+> to Social Square, and for the media we published to those accounts.
 >
 > **How the permission is used.** For each published post we read `views`,
 > `reach`, `likes`, `comments`, `saved` and `shares`. At account level we read
@@ -508,7 +508,7 @@ tiếng Anh):
 >
 > **The value it adds.** An agency managing ten client brands otherwise logs
 > into ten Instagram accounts to copy numbers into ten spreadsheets by hand.
-> Orbit puts each client's figures beside the posts that produced them, and the
+> Social Square puts each client's figures beside the posts that produced them, and the
 > client sees their own results in their portal without being given access to
 > anyone else's. Reporting is the deliverable an agency is paid for, and this
 > permission is what makes it accurate rather than retyped.
@@ -528,7 +528,7 @@ tiếng Anh):
 > no analytics at all rather than one missing number.
 >
 > **What we do not do.** We do not read insights for accounts that have not
-> connected to Orbit, and we do not read other businesses' public profiles —
+> connected to Social Square, and we do not read other businesses' public profiles —
 > only the connected account's own. We collect no audience demographic data. We
 > do not use the aggregated, de-identified or anonymised analytics allowance
 > that accompanies this permission: the metrics we read are shown to the client
@@ -618,7 +618,7 @@ Orbit dùng cho **hai việc**:
 > **Blurb cấp quyền đọc dữ liệu người theo dõi: tên, **PSID**, ảnh đại diện.**
 >
 > PSID là mã định danh một con người. Đây là thứ rộng nhất mà bất kỳ quyền
-> nào trong bộ này cấp, và Orbit **không đọc một chứt nào**: không endpoint
+> nào trong bộ này cấp, và Social Square **không đọc một chứt nào**: không endpoint
 > follower nào trong adapter, không bảng nào lưu, không màn hình nào hiển thị.
 > Và vì không xin quyền tin nhắn nên không bao giờ có PSID.
 >
@@ -644,7 +644,7 @@ Metric Orbit thực sự gọi ở cấp Page (`fetchAccountAnalytics` lọc `pa
 >
 > Khai giống nhau cho cả hai là một câu sai — và là loại sai mà người duyệt
 > đối chiếu hai hồ sơ sẽ thấy. Cách viết đúng: đây là **số đếm tổng hợp theo
-> địa điểm** như Meta trả về, không phải dữ liệu cá nhân, và Orbit không
+> địa điểm** như Meta trả về, không phải dữ liệu cá nhân, và Social Square không
 > nhận thông tin về bất kỳ follower cụ thể nào.
 
 **Từ chối:** blurb cấp Insights cho **Trang, ứng dụng và miền web**. Orbit chỉ
@@ -715,7 +715,7 @@ trong sản phẩm.
 
 > **Điểm vận hành — không đưa vào mô tả, nhưng anh cần biết.** Ngoài scope,
 > Meta còn đòi Page token phải đến từ người giữ **task MODERATE** trên Page đó.
-> Đó là cấu hình phía chủ Page, không phải phía Orbit — nên reply có thể bị từ
+> Đó là cấu hình phía chủ Page, không phải phía Social Square — nên reply có thể bị từ
 > chối trên **một Page cụ thể** dù quyền đã được duyệt và các Page khác vẫn chạy.
 > Nếu gặp, xem vai trò của người đã kết nối Page đó trước, đừng đi tìm lỗi scope.
 
@@ -791,7 +791,7 @@ khác nhau — cách chia đúng là **theo nền tảng**.
 | 10 | `Analytics`: số liệu Page và bài | **`read_insights`** |
 
 > Bước 6 không chứng minh quyền nào, nhưng **đó là lý do sản phẩm tồn tại** và
-> là thứ phân biệt Orbit với một bot đăng bài. Mọi mô tả ở §1b–§1g đều nói
+> là thứ phân biệt Social Square với một bot đăng bài. Mọi mô tả ở §1b–§1g đều nói
 > "nothing reaches the platform until the client has approved it" — quay nó
 > là bằng chứng cho câu đó.
 
@@ -821,7 +821,7 @@ khác nhau — cách chia đúng là **theo nền tảng**.
 > Đó là lý do nút đó được làm (**D-104**).
 
 > **Đừng giả vở là bot.** Chữ của Meta giả định một bot trả lời tự động theo từ
-> khoá. Orbit là hộp thư cho người thật, và mô tả ở §1b nói rõ điều đó. Quay
+> khoá. Social Square là hộp thư cho người thật, và mô tả ở §1b nói rõ điều đó. Quay
 > đúng sự thật: một nhân viên đọc và gõ câu trả lời.
 
 ---
@@ -1049,7 +1049,7 @@ Meta trả "Invalid Scopes" và làm hỏng **toàn bộ** luồng kết nối (
 nếu Orbit xin một quyền mà app chưa có. Chỉ bật sau bước 3 dưới đây.
 
 > **Sửa ghi chú cũ:** mục này trước đây ghi tên quyền là
-> `instagram_manage_messages` vì "Orbit dùng Facebook Login". Sai — production
+> `instagram_manage_messages` vì "Social Square dùng Facebook Login". Sai — production
 > kết nối Instagram bằng **Instagram login** (D-105), nên quyền đúng là
 > **`instagram_business_manage_messages`**.
 
@@ -1098,22 +1098,22 @@ vẫn chạy độc lập.
 
 **Bản mô tả để nộp** (tiếng Anh). Chỉ dùng sau khi đã quay video tính năng thật:
 
-> AHN Orbit is a social media management platform used by agencies to operate
+> Social Square is a social media management platform used by agencies to operate
 > accounts on behalf of their client businesses. Each client is an isolated
 > workspace; agency staff are granted access per client, and every action is
 > recorded in an audit log.
 >
 > We request `pages_messaging` and `instagram_business_manage_messages` to
 > provide a unified inbox for the Messenger and Instagram Direct conversations
-> of business accounts that have explicitly connected to Orbit, and
+> of business accounts that have explicitly connected to Social Square, and
 > `pages_manage_metadata` to subscribe those Pages to message webhooks so new
 > messages arrive in real time.
 >
 > **How the permissions are used.** When a person messages a connected
-> account, Orbit receives the message by webhook and shows it in the inbox.
+> account, Social Square receives the message by webhook and shows it in the inbox.
 > Staff can assign the conversation to a colleague, mark it handled, and reply
 > as the brand. Replies are sent only in response to the person's own message
-> and only within the platform's messaging window; Orbit never initiates a
+> and only within the platform's messaging window; Social Square never initiates a
 > conversation.
 >
 > **Data handling.** Messages are stored only to render the inbox, scoped to

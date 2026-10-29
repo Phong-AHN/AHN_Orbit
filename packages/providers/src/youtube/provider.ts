@@ -731,7 +731,7 @@ export class YouTubeProvider implements SocialProvider {
     throw toAppError('YOUTUBE', {
       kind: 'VALIDATION',
       message: 'Channel analytics need the YouTube Analytics API, which is not built',
-      userMessage: 'Orbit does not collect channel-level YouTube figures yet.',
+      userMessage: 'Social Square does not collect channel-level YouTube figures yet.',
     });
   }
 

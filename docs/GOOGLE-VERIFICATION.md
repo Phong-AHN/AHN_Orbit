@@ -14,13 +14,13 @@ test. Tài liệu này là toàn bộ việc cần làm để nộp lại.
 | *Step-by-step instructions* | Email trả lời phải có các bước đi qua tính năng |
 | *Critical note for live apps* | Không để người dùng thật gặp scope chưa được duyệt; quay video ở môi trường riêng nếu cần. Trạng thái app giữ **In Production** |
 
-Orbit xin đúng 2 scope, lấy từ `YOUTUBE_PUBLISH_SCOPES`
+Social Square xin đúng 2 scope, lấy từ `YOUTUBE_PUBLISH_SCOPES`
 (`packages/providers/src/youtube/capabilities.ts`):
 
 | Scope | Dùng để | Vì sao không hẹp hơn được |
 |---|---|---|
 | `https://www.googleapis.com/auth/youtube.upload` | `videos.insert` — đăng video agency đã lên lịch | Đây đã là scope hẹp nhất cho việc upload |
-| `https://www.googleapis.com/auth/youtube.readonly` | `channels.list?mine=true` — biết tài khoản sở hữu kênh nào; `videos.list` — trạng thái và lượt xem của video đã đăng | `youtube.upload` không cho đọc danh sách kênh hay số liệu. Scope rộng hơn (`youtube`, `youtube.force-ssl`) cho xoá/sửa — Orbit không làm |
+| `https://www.googleapis.com/auth/youtube.readonly` | `channels.list?mine=true` — biết tài khoản sở hữu kênh nào; `videos.list` — trạng thái và lượt xem của video đã đăng | `youtube.upload` không cho đọc danh sách kênh hay số liệu. Scope rộng hơn (`youtube`, `youtube.force-ssl`) cho xoá/sửa — Social Square không làm |
 
 ## 2. Việc anh làm trước khi quay
 
@@ -43,7 +43,7 @@ Gỡ `GOOGLE_REVIEW_ACCESS_CODE` sau khi được duyệt: không có biến nà
 
 ## 3. Trang test cho Google — `/review/youtube`
 
-Không cần tài khoản Orbit. Được bảo vệ bằng mã truy cập ở trên.
+Không cần tài khoản Social Square. Được bảo vệ bằng mã truy cập ở trên.
 
 - Xin **đúng 2 scope như sản phẩm** (dùng chung adapter YouTube).
 - **Không lưu gì**: token chỉ nằm trong cookie mã hoá, 30 phút, không ghi
@@ -52,7 +52,7 @@ Không cần tài khoản Orbit. Được bảo vệ bằng mã truy cập ở t
   (`youtube.readonly`) → upload một video (`youtube.upload`) → Disconnect (thu hồi
   quyền với Google).
 - File video tối đa 4 MB (giới hạn của Vercel). Mặc định **Private**. Bắt buộc
-  chọn "made for kids" — giống sản phẩm, Orbit không bao giờ tự chọn thay.
+  chọn "made for kids" — giống sản phẩm, Social Square không bao giờ tự chọn thay.
 
 Code: `apps/web/app/review/youtube/`, `apps/web/src/features/google-review/`.
 
@@ -61,13 +61,13 @@ Code: `apps/web/app/review/youtube/`, `apps/web/src/features/google-review/`.
 Quay toàn màn hình, thấy rõ thanh địa chỉ. Dùng một tài khoản Google có kênh.
 
 1. **Giới thiệu (15 giây)** — `https://www.anhoi.co`:
-   "AHN Orbit is a social media management platform. Agencies connect their
+   "Social Square is a social media management platform. Agencies connect their
    clients' YouTube channels to schedule and publish videos."
-2. **Luồng thật trong sản phẩm (60–90 giây)** — đăng nhập Orbit → *Accounts* →
+2. **Luồng thật trong sản phẩm (60–90 giây)** — đăng nhập Social Square → *Accounts* →
    *Connect YouTube*. Đến màn hình của Google: nếu scope bị thu gọn, **bấm "Show
    all services"** / mở rộng để thấy đủ 2 scope, dừng lại 3–4 giây. Allow.
-   Quay lại Orbit, kênh hiện trong danh sách.
-   Nói: "Orbit requests youtube.upload to publish videos, and youtube.readonly to
+   Quay lại Social Square, kênh hiện trong danh sách.
+   Nói: "Social Square requests youtube.upload to publish videos, and youtube.readonly to
    list the channels this account owns and to read a published video's status
    and view counts."
 3. **Dùng `youtube.readonly` (20 giây)** — chỉ vào tên kênh vừa kết nối (lấy từ
@@ -77,7 +77,7 @@ Quay toàn màn hình, thấy rõ thanh địa chỉ. Dùng một tài khoản G
    *Published* → bấm *View on YouTube* để thấy video trên YouTube Studio.
 5. **Vì sao không hẹp hơn (15 giây)**:
    "youtube.upload alone cannot list a user's channels or read video statistics.
-   We do not request the broader youtube or youtube.force-ssl scopes because Orbit
+   We do not request the broader youtube or youtube.force-ssl scopes because Social Square
    never edits, deletes or manages videos, playlists or comments."
 6. **Disconnect (10 giây)** — *Accounts* → *Disconnect* kênh đó.
 
@@ -98,7 +98,7 @@ Tải video lên YouTube ở chế độ **Unlisted**, lấy link.
 >
 > **Scopes requested** (identical to those configured in the Cloud Console):
 > - `https://www.googleapis.com/auth/youtube.upload` — to publish a video that an
->   agency scheduled for its client's channel (`videos.insert`). Orbit only creates
+>   agency scheduled for its client's channel (`videos.insert`). Social Square only creates
 >   videos.
 > - `https://www.googleapis.com/auth/youtube.readonly` — to list the channels the
 >   signed-in account owns (`channels.list?mine=true`) so the agency connects the
@@ -106,10 +106,10 @@ Tải video lên YouTube ở chế độ **Unlisted**, lấy link.
 >   (`videos.list`) for the client's report.
 >
 > `youtube.upload` alone cannot list channels or read statistics. We do not request
-> `youtube` or `youtube.force-ssl`, because Orbit never edits, deletes or manages
+> `youtube` or `youtube.force-ssl`, because Social Square never edits, deletes or manages
 > videos, playlists or comments.
 >
-> **How to test without an Orbit account**
+> **How to test without a Social Square account**
 > 1. Open https://www.anhoi.co/review/youtube
 > 2. Enter the access code: **[GOOGLE_REVIEW_ACCESS_CODE]**
 > 3. Click "Connect with Google" and sign in with any Google account that has a
@@ -126,4 +126,4 @@ Tải video lên YouTube ở chế độ **Unlisted**, lấy link.
 > cookie), and needs no phone verification or payment.
 >
 > Best regards,
-> AHN Media — AHN Orbit
+> AHN Media — Social Square

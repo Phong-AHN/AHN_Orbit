@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Data deletion',
-  description: 'What happens to your data when a social account is removed from AHN Orbit.',
+  description: 'What happens to your data when a social account is removed from Social Square.',
   // The app-wide default is `noindex, nofollow` while Orbit is pre-launch, and
   // this page was inheriting it while the privacy policy deliberately opted
   // out. All three of the URLs Meta asks for are public documents, and the
@@ -43,7 +43,7 @@ export default async function DataDeletionPage({
         </p>
       ) : (
         <p className="mt-4 text-sm text-ink-secondary">
-          This page explains what happens when a social account is removed from AHN Orbit.
+          This page explains what happens when a social account is removed from Social Square.
         </p>
       )}
 

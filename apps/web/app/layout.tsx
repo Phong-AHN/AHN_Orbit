@@ -36,8 +36,8 @@ const body = Source_Sans_3({
 
 export const metadata: Metadata = {
   title: {
-    default: 'AHN Orbit',
-    template: '%s · AHN Orbit',
+    default: 'Social Square',
+    template: '%s · Social Square',
   },
   description:
     'Multi-tenant social media and content operations for agencies — clients, brands, approvals, scheduling, publishing and analytics.',

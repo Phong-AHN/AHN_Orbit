@@ -22,7 +22,7 @@ export default function SignInPage() {
   return (
     <SignInPanel
       entrance="agency"
-      eyebrow="AHN Orbit"
+      eyebrow="Social Square"
       title="Sign in"
       footer={
         <>

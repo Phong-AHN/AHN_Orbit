@@ -31,7 +31,7 @@ export default function OpsSignInPage() {
       entrance="ops"
       eyebrow="Platform operations"
       title="Operations sign-in"
-      description="For the team running AHN Orbit itself. Signing in here does not grant access — it only asks to land on operations."
+      description="For the team running Social Square itself. Signing in here does not grant access — it only asks to land on operations."
     />
   );
 }

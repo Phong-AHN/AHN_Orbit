@@ -107,7 +107,7 @@ export function PlatformSettingsPanel({
       <CardBody className="space-y-3">
         {summary ? (
           <Alert tone="warning" title="This post cannot publish yet">
-            {summary} Orbit does not choose these for you — each one is a decision about a
+            {summary} Social Square does not choose these for you — each one is a decision about a
             client&rsquo;s content or audience.
           </Alert>
         ) : (

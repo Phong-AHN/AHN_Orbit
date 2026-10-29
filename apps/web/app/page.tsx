@@ -10,7 +10,7 @@ export default function HomePage() {
       <p className="mb-3 font-mono text-xs uppercase tracking-[0.2em] text-accent">
         AHN Group · content operations
       </p>
-      <h1 className="text-4xl font-semibold tracking-tight text-ink">AHN Orbit</h1>
+      <h1 className="text-4xl font-semibold tracking-tight text-ink">Social Square</h1>
       <p className="mt-3 max-w-prose text-ink-muted">
         Plan, approve, schedule and publish social content for every client and brand — with an
         auditable trail from idea to published.

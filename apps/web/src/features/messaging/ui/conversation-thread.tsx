@@ -212,7 +212,7 @@ export function ConversationThread(props: ConversationThreadProps) {
         {props.needsReconnect ? (
           <p className="text-sm text-ink-secondary">
             {conversation.account.displayName} was connected before messages were switched on.
-            Reconnect it under Settings → Accounts to reply from Orbit.
+            Reconnect it under Settings → Accounts to reply from Social Square.
           </p>
         ) : !canReply ? (
           <p className="text-sm text-ink-muted">You can read this conversation but not reply.</p>
@@ -371,7 +371,9 @@ function Bubble({ message, now }: { message: ThreadMessageView; now: Date }) {
           <time dateTime={message.sentAt}>{compactAge(message.sentAt, now)}</time>
           {ours && message.createdBy?.name ? ` · ${message.createdBy.name}` : null}
           {ours && message.sentByAssistant ? ' · AI assistant' : null}
-          {ours && !message.createdBy && !message.sentByAssistant ? ' · sent outside Orbit' : null}
+          {ours && !message.createdBy && !message.sentByAssistant
+            ? ' · sent outside Social Square'
+            : null}
         </p>
       </div>
     </li>

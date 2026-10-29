@@ -153,7 +153,7 @@ export function PinterestOptionsPanel({
           <Field
             label="Board"
             htmlFor={`pinterest-board-${socialAccountId}`}
-            hint="Secret boards are not listed — Orbit does not have access to them."
+            hint="Secret boards are not listed — Social Square does not have access to them."
           >
             <Select
               id={`pinterest-board-${socialAccountId}`}
@@ -180,15 +180,15 @@ export function PinterestOptionsPanel({
 
           {missingBoard ? (
             <Alert tone="warning" title="That board is no longer there">
-              The board this pin was filed on has been deleted or is no longer visible to Orbit.
-              Pick another one.
+              The board this pin was filed on has been deleted or is no longer visible to Social
+              Square. Pick another one.
             </Alert>
           ) : null}
 
           {!value.boardId ? (
             <p className="text-xs text-warning">
               Until a board is chosen, the post will not publish — Pinterest has no default and
-              Orbit will not pick one for you.
+              Social Square will not pick one for you.
             </p>
           ) : null}
 

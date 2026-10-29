@@ -39,7 +39,7 @@ const LAST_UPDATED = '13 October 2026';
 
 export const metadata: Metadata = {
   title: 'Terms of service',
-  description: `The agreement between ${OPERATOR} and the agencies that use AHN Orbit.`,
+  description: `The agreement between ${OPERATOR} and the agencies that use Social Square.`,
   // The rest of the app is noindex while it is pre-launch. These terms are a
   // public document and there is no reason to hide them — the same decision the
   // privacy policy makes, for the same reason.
@@ -50,7 +50,9 @@ export default function TermsOfServicePage() {
   return (
     <main id="main" className="mx-auto max-w-3xl px-6 py-16">
       <header className="mb-10">
-        <p className="mb-3 font-mono text-xs uppercase tracking-[0.2em] text-accent">AHN Orbit</p>
+        <p className="mb-3 font-mono text-xs uppercase tracking-[0.2em] text-accent">
+          Social Square
+        </p>
         <h1 className="text-3xl font-semibold tracking-tight text-ink">Terms of service</h1>
         <p className="mt-2 text-sm text-ink-muted">Last updated {LAST_UPDATED}</p>
       </header>
@@ -59,25 +61,27 @@ export default function TermsOfServicePage() {
         <Section title="The agreement">
           <P>
             These terms are between {OPERATOR} (&ldquo;we&rdquo;) and the organization using AHN
-            Orbit (&ldquo;you&rdquo;). Creating an organization, or signing in to one somebody
-            invited you to, means accepting them.
+            Social Square (&ldquo;you&rdquo;). Creating an organization, or signing in to one
+            somebody invited you to, means accepting them.
           </P>
           <P>
             If you accept on behalf of an agency or a company, you are confirming that you have the
-            authority to bind it. Orbit is a tool for businesses rather than consumers, and an
-            organization&rsquo;s owner is accountable for what everyone they invite does inside it.
+            authority to bind it. Social Square is a tool for businesses rather than consumers, and
+            an organization&rsquo;s owner is accountable for what everyone they invite does inside
+            it.
           </P>
         </Section>
 
-        <Section title="What AHN Orbit does">
+        <Section title="What Social Square does">
           <P>
-            Orbit is a workspace where a social media agency plans content, has it reviewed
+            Social Square is a workspace where a social media agency plans content, has it reviewed
             internally and by its client, schedules it, and publishes it to social platforms on the
             client&rsquo;s behalf. It also reads back how published posts performed.
           </P>
           <P>
             It is not a social network, and it does not reach the audience who eventually sees a
-            post. Orbit hands a post to a platform; everything after that is the platform&rsquo;s.
+            post. Social Square hands a post to a platform; everything after that is the
+            platform&rsquo;s.
           </P>
         </Section>
 
@@ -92,8 +96,8 @@ export default function TermsOfServicePage() {
               .
             </li>
             <li>
-              You must be old enough to enter a contract where you live, and at least 18. Orbit is
-              not for children.
+              You must be old enough to enter a contract where you live, and at least 18. Social
+              Square is not for children.
             </li>
             <li>
               Keep your sign-in secure. Anything done from a signed-in session is treated as done by
@@ -108,8 +112,9 @@ export default function TermsOfServicePage() {
 
         <Section title="Your content stays yours">
           <P>
-            The posts, images, video, captions, comments and client records you put into Orbit
-            remain yours. We claim no ownership of them and we do not use them to train models.
+            The posts, images, video, captions, comments and client records you put into Social
+            Square remain yours. We claim no ownership of them and we do not use them to train
+            models.
           </P>
           <P>
             You grant us only the licence we need to run the service: to store your content, show it
@@ -134,11 +139,11 @@ export default function TermsOfServicePage() {
           <List>
             <li>
               <Strong>Each platform&rsquo;s own terms still apply to you.</Strong> Publishing
-              through Orbit does not exempt you from Meta&rsquo;s, TikTok&rsquo;s or any other
-              platform&rsquo;s rules, and you are responsible for content that breaks them.
+              through Social Square does not exempt you from Meta&rsquo;s, TikTok&rsquo;s or any
+              other platform&rsquo;s rules, and you are responsible for content that breaks them.
             </li>
             <li>
-              <Strong>You may disconnect at any time</Strong>, from Orbit or from the
+              <Strong>You may disconnect at any time</Strong>, from Social Square or from the
               platform&rsquo;s own settings. Either removes our ability to publish to that account.
               What happens to the stored credential and what does not is set out on the{' '}
               <Link href="/data-deletion" className="text-accent hover:underline">
@@ -189,8 +194,8 @@ export default function TermsOfServicePage() {
 
         <Section title="Analytics">
           <P>
-            Orbit reads engagement and reach figures back from the platforms. Those figures are the
-            platforms&rsquo;, not ours: they can be delayed, revised, or restricted by a
+            Social Square reads engagement and reach figures back from the platforms. Those figures
+            are the platforms&rsquo;, not ours: they can be delayed, revised, or restricted by a
             platform&rsquo;s own rules about what an app may read.
           </P>
           <P>
@@ -202,14 +207,14 @@ export default function TermsOfServicePage() {
 
         <Section title="AI features">
           <P>
-            Orbit can draft captions, suggest ideas and rewrite a post for a particular platform.
-            Two rules hold:
+            Social Square can draft captions, suggest ideas and rewrite a post for a particular
+            platform. Two rules hold:
           </P>
           <List>
             <li>
               <Strong>Nothing a model writes becomes your content until you accept it.</Strong>{' '}
-              Suggestions are presented for a person to take, edit or discard. Orbit does not write
-              into a post, publish, or schedule on a model&rsquo;s initiative.
+              Suggestions are presented for a person to take, edit or discard. Social Square does
+              not write into a post, publish, or schedule on a model&rsquo;s initiative.
             </li>
             <li>
               <Strong>You remain the author.</Strong> Check what a model produces before it goes
@@ -239,8 +244,8 @@ export default function TermsOfServicePage() {
               breaks the rules of the platform it is going to.
             </li>
             <li>
-              Use Orbit for spam, engagement farming, coordinated inauthentic behaviour, or to
-              operate accounts that impersonate a person or organization.
+              Use Social Square for spam, engagement farming, coordinated inauthentic behaviour, or
+              to operate accounts that impersonate a person or organization.
             </li>
             <li>
               Try to reach another organization&rsquo;s data, probe for tenant boundaries, or work
@@ -275,10 +280,10 @@ export default function TermsOfServicePage() {
 
         <Section title="Availability">
           <P>
-            We aim to keep Orbit running and we monitor it, but we do not offer an uptime guarantee
-            under these terms. The product depends on third-party platforms and infrastructure
-            providers, and an outage at one of those can stop a post going out at the moment it was
-            scheduled.
+            We aim to keep Social Square running and we monitor it, but we do not offer an uptime
+            guarantee under these terms. The product depends on third-party platforms and
+            infrastructure providers, and an outage at one of those can stop a post going out at the
+            moment it was scheduled.
           </P>
           <P>
             We may change, add or remove features. Where a change removes something you rely on, we
@@ -288,8 +293,8 @@ export default function TermsOfServicePage() {
 
         <Section title="Ending the agreement">
           <P>
-            You can stop using Orbit at any time and ask us to close your organization. What is
-            deleted and when is described in the{' '}
+            You can stop using Social Square at any time and ask us to close your organization. What
+            is deleted and when is described in the{' '}
             <Link href="/privacy-policy" className="text-accent hover:underline">
               privacy policy
             </Link>
@@ -308,7 +313,7 @@ export default function TermsOfServicePage() {
 
         <Section title="Liability">
           <P>
-            Orbit is provided as it is. To the extent the law allows, we do not give implied
+            Social Square is provided as it is. To the extent the law allows, we do not give implied
             warranties of merchantability or fitness for a particular purpose, and we are not liable
             for lost profits, lost audience or indirect loss.
           </P>
@@ -328,7 +333,7 @@ export default function TermsOfServicePage() {
           <P>
             We may update these terms. The date at the top changes with them, and for a change that
             materially affects you we will give notice in the product or by email before it takes
-            effect. Continuing to use Orbit after that means accepting the new version.
+            effect. Continuing to use Social Square after that means accepting the new version.
           </P>
         </Section>
 

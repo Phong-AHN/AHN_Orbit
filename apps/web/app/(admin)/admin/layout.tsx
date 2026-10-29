@@ -19,7 +19,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <AppShell
       tone="ops"
-      brand={{ label: 'AHN Orbit', href: '/admin', sublabel: 'Platform operations' }}
+      brand={{ label: 'Social Square', href: '/admin', sublabel: 'Platform operations' }}
       groups={shellGroups('/admin', ADMIN_NAV)}
       utilities={<span className="truncate text-xs text-ink-muted">{admin.email}</span>}
     >

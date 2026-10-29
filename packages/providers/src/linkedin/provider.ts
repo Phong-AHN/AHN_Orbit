@@ -632,7 +632,7 @@ export class LinkedInProvider implements SocialProvider {
     throw toAppError('LINKEDIN', {
       kind: 'VALIDATION',
       message: 'LinkedIn analytics are not implemented',
-      userMessage: 'Orbit does not collect LinkedIn analytics yet.',
+      userMessage: 'Social Square does not collect LinkedIn analytics yet.',
     });
   }
 
@@ -640,7 +640,7 @@ export class LinkedInProvider implements SocialProvider {
     throw toAppError('LINKEDIN', {
       kind: 'VALIDATION',
       message: 'LinkedIn analytics are not implemented',
-      userMessage: 'Orbit does not collect LinkedIn analytics yet.',
+      userMessage: 'Social Square does not collect LinkedIn analytics yet.',
     });
   }
 

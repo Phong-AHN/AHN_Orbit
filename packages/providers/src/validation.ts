@@ -437,7 +437,7 @@ export function validateDraft(
           'WARNING',
           'SCHEDULE_TOO_SOON',
           'scheduledFor',
-          'Too soon for the platform to hold this post; it will be published by Orbit instead.',
+          'Too soon for the platform to hold this post; it will be published by Social Square instead.',
           {
             leadMs: lead,
             minLeadMs,
@@ -451,7 +451,7 @@ export function validateDraft(
           'WARNING',
           'SCHEDULE_TOO_FAR',
           'scheduledFor',
-          'Further ahead than the platform will hold; Orbit will publish it at the right time.',
+          'Further ahead than the platform will hold; Social Square will publish it at the right time.',
           {
             leadMs: lead,
             maxLeadMs,
@@ -475,7 +475,8 @@ export function canEditPublished(
   if (capabilities.lifecycle.editOwnPostsOnly && !createdByThisApp) {
     return {
       allowed: false,
-      reason: 'This post was created outside Orbit, so the platform will not let us edit it.',
+      reason:
+        'This post was created outside Social Square, so the platform will not let us edit it.',
     };
   }
   return { allowed: true };

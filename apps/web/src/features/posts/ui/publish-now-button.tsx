@@ -81,7 +81,7 @@ export function PublishNowButton({
     <div className="space-y-3 rounded border border-warning/40 bg-warning/5 p-3">
       <p className="text-sm text-ink">
         This goes out to {accountCount} {accountCount === 1 ? 'account' : 'accounts'} straight away.
-        Published posts cannot be unpublished from Orbit.
+        Published posts cannot be unpublished from Social Square.
       </p>
 
       {error ? (

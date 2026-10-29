@@ -139,7 +139,7 @@ export function YouTubeOptionsPanel({
       {value.madeForKids === undefined ? (
         <p className="text-xs text-warning">
           Until this is answered, the post will not publish — YouTube will not accept an upload
-          without it, and Orbit will not answer it for you.
+          without it, and Social Square will not answer it for you.
         </p>
       ) : null}
 
@@ -157,7 +157,7 @@ export function YouTubeOptionsPanel({
           }}
         >
           {/* Private is first *and* the default: an upload that goes out
-              publicly by accident cannot be taken back, and Orbit does not hold
+              publicly by accident cannot be taken back, and Social Square does not hold
               the scope to delete it. */}
           <option value="private">Private</option>
           <option value="unlisted">Unlisted</option>

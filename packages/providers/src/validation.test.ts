@@ -283,7 +283,7 @@ describe('canEditPublished', () => {
   it('refuses a post this app did not create, where the platform requires it', () => {
     const result = canEditPublished(caps(), false);
     expect(result.allowed).toBe(false);
-    expect(result.reason).toMatch(/created outside Orbit/);
+    expect(result.reason).toMatch(/created outside Social Square/);
   });
 
   it('allows editing our own post', () => {

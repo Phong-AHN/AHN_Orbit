@@ -36,7 +36,7 @@ export function renderEmail(input: EmailNotification): Email {
       input.url,
       '',
       '—',
-      `${input.organizationName} · AHN Orbit`,
+      `${input.organizationName} · Social Square`,
       'You are receiving this because you are a member of this organization.',
     ].join('\n'),
   };

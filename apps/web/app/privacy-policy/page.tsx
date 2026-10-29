@@ -24,7 +24,7 @@ const LAST_UPDATED = '26 October 2026';
 
 export const metadata: Metadata = {
   title: 'Privacy policy',
-  description: `How ${OPERATOR} collects, uses and protects data in AHN Orbit.`,
+  description: `How ${OPERATOR} collects, uses and protects data in Social Square.`,
   // The rest of the app is noindex while it is pre-launch. A privacy policy is
   // a public document and there is no reason to hide it.
   robots: { index: true, follow: true },
@@ -34,7 +34,9 @@ export default function PrivacyPolicyPage() {
   return (
     <main id="main" className="mx-auto max-w-3xl px-6 py-16">
       <header className="mb-10">
-        <p className="mb-3 font-mono text-xs uppercase tracking-[0.2em] text-accent">AHN Orbit</p>
+        <p className="mb-3 font-mono text-xs uppercase tracking-[0.2em] text-accent">
+          Social Square
+        </p>
         <h1 className="text-3xl font-semibold tracking-tight text-ink">Privacy policy</h1>
         <p className="mt-2 text-sm text-ink-muted">Last updated {LAST_UPDATED}</p>
       </header>
@@ -42,8 +44,8 @@ export default function PrivacyPolicyPage() {
       <div className="space-y-10">
         <Section title="Who this covers">
           <P>
-            AHN Orbit is a tool that social media agencies use to plan, review, schedule and publish
-            content on behalf of their clients. It is operated by {OPERATOR}.
+            Social Square is a tool that social media agencies use to plan, review, schedule and
+            publish content on behalf of their clients. It is operated by {OPERATOR}.
           </P>
           <P>Two kinds of people have accounts, and they see deliberately different things:</P>
           <List>
@@ -58,21 +60,21 @@ export default function PrivacyPolicyPage() {
           </List>
           <P>
             A third group is not an account holder and never signs in:{' '}
-            <Strong>people who comment on a published post</Strong>. Orbit reads those comments back
-            so an agency can answer them, which means it holds something they wrote in public. What
-            is kept, and what is deliberately not, is set out under{' '}
+            <Strong>people who comment on a published post</Strong>. Social Square reads those
+            comments back so an agency can answer them, which means it holds something they wrote in
+            public. What is kept, and what is deliberately not, is set out under{' '}
             <Strong>Comments from the public</Strong> below.
           </P>
           <P>
             A fourth group, where an agency has switched private messages on:{' '}
             <Strong>people who send a private message</Strong> to a client&rsquo;s connected
-            Facebook Page or Instagram account. Orbit shows those conversations to the agency so it
-            can answer them; see <Strong>Private messages</Strong> below.
+            Facebook Page or Instagram account. Social Square shows those conversations to the
+            agency so it can answer them; see <Strong>Private messages</Strong> below.
           </P>
           <P>
             Beyond those comments and messages we collect nothing about the audience who sees a
-            published post. Orbit sends a post to a social platform; what happens after that is
-            governed by that platform&rsquo;s own privacy policy.
+            published post. Social Square sends a post to a social platform; what happens after that
+            is governed by that platform&rsquo;s own privacy policy.
           </P>
         </Section>
 
@@ -100,10 +102,10 @@ export default function PrivacyPolicyPage() {
               exactly what was approved and by whom.
             </li>
             <li>
-              <Strong>Comments from the public</Strong> — the text of a comment left on a post Orbit
-              published, the public display name shown beside it, the platform&rsquo;s own id for
-              the comment and when it was posted. No identifier for the person is stored; see the
-              section below.
+              <Strong>Comments from the public</Strong> — the text of a comment left on a post
+              Social Square published, the public display name shown beside it, the platform&rsquo;s
+              own id for the comment and when it was posted. No identifier for the person is stored;
+              see the section below.
             </li>
             <li>
               <Strong>Private messages</Strong> — where an agency has switched them on, the messages
@@ -141,7 +143,7 @@ export default function PrivacyPolicyPage() {
             </li>
             <li>
               <Code>pages_read_engagement</Code> — to read back how posts published through AHN
-              Orbit performed.
+              Social Square performed.
             </li>
             <li>
               <Code>pages_manage_posts</Code> — to publish the posts you schedule.
@@ -187,9 +189,10 @@ export default function PrivacyPolicyPage() {
         <Section title="Comments from the public">
           <P>
             An agency that publishes for a client is usually expected to answer the comments that
-            arrive. So Orbit reads comments back from the platforms on posts it published, shows
-            them to the agency in one place, and lets the agency reply — the reply is posted to the
-            platform under the client&rsquo;s own account, exactly as if it had been written there.
+            arrive. So Social Square reads comments back from the platforms on posts it published,
+            shows them to the agency in one place, and lets the agency reply — the reply is posted
+            to the platform under the client&rsquo;s own account, exactly as if it had been written
+            there.
           </P>
           <P>
             The person who wrote a comment has no relationship with us and did not agree to
@@ -203,31 +206,31 @@ export default function PrivacyPolicyPage() {
             </li>
             <li>
               <Strong>What is not stored</Strong> — any identifier for the person. Not their
-              platform user id, not a profile link, not a picture, not an email. Orbit cannot group
-              one person&rsquo;s comments together, recognise them on another post, or build any
-              profile of them, because it has nothing to key one on. The database has no column for
-              it.
+              platform user id, not a profile link, not a picture, not an email. Social Square
+              cannot group one person&rsquo;s comments together, recognise them on another post, or
+              build any profile of them, because it has nothing to key one on. The database has no
+              column for it.
             </li>
           </List>
           <P>
-            This applies only to posts published through Orbit. A post made directly on the platform
-            is not read, and comments on it are never collected.
+            This applies only to posts published through Social Square. A post made directly on the
+            platform is not read, and comments on it are never collected.
           </P>
           <P>
             A comment is public at the moment it is written, and deleting it on the platform does
-            not reach into our copy automatically. To have a comment removed from Orbit, or to ask
-            what is held, write to <Mail /> — the agency that published the post can also delete it,
-            and anyone may ask us directly.
+            not reach into our copy automatically. To have a comment removed from Social Square, or
+            to ask what is held, write to <Mail /> — the agency that published the post can also
+            delete it, and anyone may ask us directly.
           </P>
         </Section>
 
         <Section title="Private messages">
           <P>
             Many of a brand&rsquo;s customers ask their questions in a private message rather than a
-            comment. Where an agency has switched this on, Orbit shows the private conversations of
-            a client&rsquo;s connected Facebook Page or Instagram account in one inbox, and lets the
-            agency answer — the reply is sent under the client&rsquo;s own account, exactly as if it
-            had been written there.
+            comment. Where an agency has switched this on, Social Square shows the private
+            conversations of a client&rsquo;s connected Facebook Page or Instagram account in one
+            inbox, and lets the agency answer — the reply is sent under the client&rsquo;s own
+            account, exactly as if it had been written there.
           </P>
           <List>
             <li>
@@ -240,17 +243,19 @@ export default function PrivacyPolicyPage() {
               <Strong>Why the identifier</Strong> — a reply to a private message is addressed to a
               person, and without it nothing can be sent. Facebook and Instagram issue a different
               identifier for each account a person writes to, so it identifies nobody outside that
-              one conversation, and Orbit cannot link the same person across different clients.
+              one conversation, and Social Square cannot link the same person across different
+              clients.
             </li>
             <li>
               <Strong>What the brand can do</Strong> — only answer. The platforms allow a business
               to reply for a limited time after the person last wrote, and never to message somebody
-              first; Orbit enforces the same rule.
+              first; Social Square enforces the same rule.
             </li>
             <li>
               <Strong>How long it is kept</Strong> — while the account stays connected, and never
               more than twelve months. Disconnecting the account deletes its conversations. A
-              message the person unsends is erased from Orbit as soon as the platform tells us.
+              message the person unsends is erased from Social Square as soon as the platform tells
+              us.
             </li>
             <li>
               <Strong>Automatic replies</Strong> — an agency may switch on an AI assistant for a
@@ -267,15 +272,15 @@ export default function PrivacyPolicyPage() {
               <Strong>What the assistant sends to Google</Strong> — to write an answer, the recent
               messages of that one conversation and the brand&rsquo;s written information are sent
               to Google&rsquo;s Gemini API. Phone numbers, card and ID numbers, codes and email
-              addresses are removed first. Orbit does not send the person&rsquo;s name or
+              addresses are removed first. Social Square does not send the person&rsquo;s name or
               identifier. On Google&rsquo;s free tier, Google&rsquo;s terms allow it to use that
               content to improve its products; on paid tiers they do not.
             </li>
           </List>
           <P>
-            Orbit never uses messages for advertising, profiling or training machine learning
-            models, and they are never shown in the client portal. They are visible only to the
-            agency staff working on that client. To ask what is held about you, or to have a
+            Social Square never uses messages for advertising, profiling or training machine
+            learning models, and they are never shown in the client portal. They are visible only to
+            the agency staff working on that client. To ask what is held about you, or to have a
             conversation deleted, write to <Mail />.
           </P>
         </Section>
@@ -295,7 +300,7 @@ export default function PrivacyPolicyPage() {
 
         <Section title="Where it is stored, and who else handles it">
           <P>
-            AHN Orbit runs on infrastructure operated by the following providers. Each processes
+            Social Square runs on infrastructure operated by the following providers. Each processes
             data only to provide its service to us.
           </P>
           <Processors />
@@ -363,8 +368,8 @@ export default function PrivacyPolicyPage() {
           <List>
             <li>Disconnect a social account — Settings → Connected accounts.</li>
             <li>
-              Revoke AHN Orbit&rsquo;s access to your Facebook Pages — Facebook Settings → Business
-              integrations.
+              Revoke Social Square&rsquo;s access to your Facebook Pages — Facebook Settings →
+              Business integrations.
             </li>
             <li>Delete a post, a comment or an uploaded asset from inside the app.</li>
           </List>
@@ -391,7 +396,7 @@ export default function PrivacyPolicyPage() {
 
         <Section title="Children">
           <P>
-            AHN Orbit is a business tool and is not directed at children. We do not knowingly
+            Social Square is a business tool and is not directed at children. We do not knowingly
             collect data from anyone under 16.
           </P>
         </Section>
@@ -418,7 +423,7 @@ export default function PrivacyPolicyPage() {
           Data deletion
         </Link>
         <Link href="/" className="text-ink-muted hover:underline">
-          Back to AHN Orbit
+          Back to Social Square
         </Link>
       </footer>
     </main>

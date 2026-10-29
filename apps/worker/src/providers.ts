@@ -103,7 +103,7 @@ function wholeMediaReader(platform: Platform) {
       toAppError(platform, {
         kind: 'MEDIA',
         message: `Media ${media.id} is ${bytes} bytes, over the ${limitMb} MB in-memory limit`,
-        userMessage: `This file is larger than ${limitMb} MB, which Orbit cannot send to this platform yet. Use a smaller file.`,
+        userMessage: `This file is larger than ${limitMb} MB, which Social Square cannot send to this platform yet. Use a smaller file.`,
       });
 
     if (media.sizeBytes > limitMb * 1024 * 1024) throw tooLarge(media.sizeBytes);

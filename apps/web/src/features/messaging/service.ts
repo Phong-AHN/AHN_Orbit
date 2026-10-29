@@ -256,7 +256,7 @@ export async function replyToConversation(
   const missing = missingScopes(conversation);
   if (missing.length > 0) {
     throw new ConflictError('The connection cannot send messages', {
-      userMessage: `${account.displayName} needs to be reconnected before the team can reply to messages from Orbit.`,
+      userMessage: `${account.displayName} needs to be reconnected before the team can reply to messages from Social Square.`,
       context: { missingScopes: missing },
     });
   }

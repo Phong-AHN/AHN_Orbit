@@ -68,8 +68,8 @@ export function AcceptInvitation() {
           />
         ) : (
           <p className="text-sm text-ink-secondary">
-            You have been invited to join an agency on AHN Orbit. Accepting adds this account — the
-            one you are signed in as — to their organization.
+            You have been invited to join an agency on Social Square. Accepting adds this account —
+            the one you are signed in as — to their organization.
           </p>
         )}
 

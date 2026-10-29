@@ -415,7 +415,7 @@ export async function replyToComment(
   );
   if (missing.length > 0) {
     throw new ConflictError('The connection cannot reply', {
-      userMessage: `${comment.socialAccount.displayName} needs to be reconnected before the team can reply from Orbit.`,
+      userMessage: `${comment.socialAccount.displayName} needs to be reconnected before the team can reply from Social Square.`,
       context: { missingScopes: missing },
     });
   }

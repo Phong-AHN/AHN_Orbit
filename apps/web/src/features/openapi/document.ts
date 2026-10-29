@@ -170,7 +170,7 @@ export function buildOpenApiDocument(version: string): Record<string, unknown> {
   return {
     openapi: '3.1.0',
     info: {
-      title: 'AHN Orbit API',
+      title: 'Social Square API',
       version,
       description: [
         'Multi-tenant agency social media management.',

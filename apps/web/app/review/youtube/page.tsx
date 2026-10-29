@@ -38,13 +38,13 @@ const ERRORS: Record<string, string> = {
   type: 'That is not a video file.',
   title: 'Give the video a title.',
   privacy: 'Choose who can see the video.',
-  kids: 'Say whether the video is made for children. YouTube requires it, and Orbit never assumes it.',
+  kids: 'Say whether the video is made for children. YouTube requires it, and Social Square never assumes it.',
   upload: 'YouTube did not accept the upload. Try again with a different clip.',
 };
 
 const SCOPE_USE: Record<string, string> = {
   'https://www.googleapis.com/auth/youtube.upload':
-    'Upload a video the agency scheduled for this channel. Orbit only ever creates videos — it never edits or deletes one.',
+    'Upload a video the agency scheduled for this channel. Social Square only ever creates videos — it never edits or deletes one.',
   'https://www.googleapis.com/auth/youtube.readonly':
     'List the channels the signed-in account owns, so the agency picks the right one, and read a published video’s status and view counts for the client’s report.',
 };
@@ -82,16 +82,18 @@ export default async function YouTubeReviewPage({ searchParams }: PageProps) {
   return (
     <main id="main" className="mx-auto max-w-3xl px-6 py-16">
       <header className="mb-10">
-        <p className="mb-3 font-mono text-xs uppercase tracking-[0.2em] text-accent">AHN Orbit</p>
+        <p className="mb-3 font-mono text-xs uppercase tracking-[0.2em] text-accent">
+          Social Square
+        </p>
         <h1 className="text-3xl font-semibold tracking-tight text-ink">
           YouTube integration — verification review
         </h1>
         <p className="mt-3 max-w-prose text-sm leading-relaxed text-ink-secondary">
-          AHN Orbit is a social media management platform. Agencies use it to schedule and publish
-          content to their clients’ channels. This page lets the Google review team exercise exactly
-          the YouTube integration our customers use, without creating an Orbit account. It requests
-          the same two scopes as the product, stores nothing, and revokes access when you press
-          Disconnect.
+          Social Square is a social media management platform. Agencies use it to schedule and
+          publish content to their clients’ channels. This page lets the Google review team exercise
+          exactly the YouTube integration our customers use, without creating a Social Square
+          account. It requests the same two scopes as the product, stores nothing, and revokes
+          access when you press Disconnect.
         </p>
       </header>
 
@@ -140,7 +142,7 @@ export default async function YouTubeReviewPage({ searchParams }: PageProps) {
             ))}
           </ul>
           <P>
-            Orbit does not request the broader <code className="font-mono">youtube</code> or{' '}
+            Social Square does not request the broader <code className="font-mono">youtube</code> or{' '}
             <code className="font-mono">youtube.force-ssl</code> scopes: it never deletes videos,
             edits playlists or manages comments. Listing a user’s own channels and reading a video’s
             statistics are not possible with <code className="font-mono">youtube.upload</code>{' '}
@@ -219,9 +221,9 @@ export default async function YouTubeReviewPage({ searchParams }: PageProps) {
 
             <Section title="Step 3 — Publish a video (youtube.upload)">
               <P>
-                This is how Orbit publishes a scheduled video: a resumable upload to the channel.
-                Use any short clip under {REVIEW_MAX_UPLOAD_BYTES / 1024 / 1024} MB. It is private
-                unless you choose otherwise.
+                This is how Social Square publishes a scheduled video: a resumable upload to the
+                channel. Use any short clip under {REVIEW_MAX_UPLOAD_BYTES / 1024 / 1024} MB. It is
+                private unless you choose otherwise.
               </P>
               <form
                 method="post"
@@ -245,7 +247,7 @@ export default async function YouTubeReviewPage({ searchParams }: PageProps) {
                     name="title"
                     required
                     maxLength={100}
-                    defaultValue="AHN Orbit verification test"
+                    defaultValue="Social Square verification test"
                     className="mt-1 block w-full rounded-md border border-line bg-surface px-3 py-2"
                   />
                 </label>

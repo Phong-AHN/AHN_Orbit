@@ -89,7 +89,7 @@ export function DisconnectButton({
         onClose={() => setOpen(false)}
         onConfirm={disconnect}
         title={`Disconnect ${accountName}?`}
-        description={`Orbit will stop publishing to this ${platform.toLowerCase()} account.`}
+        description={`Social Square will stop publishing to this ${platform.toLowerCase()} account.`}
         confirmLabel="Disconnect"
         tone="danger"
       >
@@ -101,7 +101,7 @@ export function DisconnectButton({
           <li>Posts already published stay where they are, and keep their analytics.</li>
           <li>
             Anything still scheduled to this account has to be cancelled or rescheduled first —
-            Orbit will say so rather than quietly dropping it.
+            Social Square will say so rather than quietly dropping it.
           </li>
         </ul>
 

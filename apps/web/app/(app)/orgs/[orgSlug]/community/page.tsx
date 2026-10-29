@@ -132,7 +132,7 @@ export default async function CommunityPage({ params, searchParams }: PageProps)
               description={
                 waitingOnly
                   ? 'Every comment on your published posts has been handled.'
-                  : 'Comments on posts published through Orbit are read back every few minutes and appear here. Comments on posts made outside Orbit are not collected.'
+                  : 'Comments on posts published through Social Square are read back every few minutes and appear here. Comments on posts made outside Social Square are not collected.'
               }
             />
           </CardBody>
@@ -154,8 +154,8 @@ export default async function CommunityPage({ params, searchParams }: PageProps)
       {/* Said once, at the bottom, rather than on every card: the boundary is
           a property of the feature, not of any one post. */}
       <p className="mt-8 max-w-prose text-xs text-ink-muted">
-        Orbit reads comments on posts it published. A post made directly on the platform has no
-        client or brand to file its comments under, so it is not collected &mdash; and no
+        Social Square reads comments on posts it published. A post made directly on the platform has
+        no client or brand to file its comments under, so it is not collected &mdash; and no
         commenter&rsquo;s identity is stored, only the public name shown beside what they wrote.
       </p>
     </main>
