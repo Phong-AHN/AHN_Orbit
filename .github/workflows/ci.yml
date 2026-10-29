@@ -12,11 +12,23 @@ concurrency:
 env:
   # Values are non-secret placeholders sufficient for schema validation, codegen
   # and unit tests. Unit tests never touch infrastructure.
-  DATABASE_URL: postgresql://orbit:orbit@localhost:5432/orbit?schema=public
-  DIRECT_URL: postgresql://orbit:orbit@localhost:5432/orbit?schema=public
+  #
+  # The same as docker-compose.yml, on purpose. The RLS suite derives the
+  # non-owner `orbit_app` URL by replacing `orbit:orbit_local_dev@` in this one;
+  # with any other password it silently connected as the owner, whom Postgres
+  # exempts from RLS, and eight isolation tests failed for the wrong reason.
+  DATABASE_URL: postgresql://orbit:orbit_local_dev@localhost:5432/orbit?schema=public
+  DIRECT_URL: postgresql://orbit:orbit_local_dev@localhost:5432/orbit?schema=public
   REDIS_URL: redis://localhost:6379
   CREDENTIAL_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
   STATE_SIGNING_SECRET: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=
+  # Required by the environment schema, which the logger reads on import — so
+  # every suite importing @orbit/observability failed without them. MinIO's
+  # local credentials, matching docker-compose.yml.
+  S3_REGION: us-east-1
+  S3_BUCKET: orbit-media-dev
+  S3_ACCESS_KEY_ID: orbit_local
+  S3_SECRET_ACCESS_KEY: orbit_local_dev
 
 jobs:
   verify:
@@ -58,12 +70,16 @@ jobs:
   integration:
     name: integration tests
     runs-on: ubuntu-latest
+    env:
+      # The media suite uploads to real S3-compatible storage.
+      S3_ENDPOINT: http://localhost:9000
+      S3_FORCE_PATH_STYLE: 'true'
     services:
       postgres:
         image: postgres:17-alpine
         env:
           POSTGRES_USER: orbit
-          POSTGRES_PASSWORD: orbit
+          POSTGRES_PASSWORD: orbit_local_dev
           POSTGRES_DB: orbit
         ports: ['5432:5432']
         options: >-
@@ -77,6 +93,17 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
+
+      # MinIO needs a `server` argument, which a job service cannot pass.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 -e MINIO_ROOT_USER=orbit_local -e MINIO_ROOT_PASSWORD=orbit_local_dev minio/minio server /data
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:9000/minio/health/live && exit 0
+            sleep 1
+          done
+          echo "MinIO did not become ready" && docker logs minio && exit 1
+
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -87,6 +114,10 @@ jobs:
       - run: pnpm -r --filter=./packages/* build
       - name: Apply migrations
         run: pnpm db:migrate:deploy
+      # The migration creates `orbit_app` as NOLOGIN; this lets it log in, so
+      # the RLS suite can connect as a role the policies actually apply to.
+      - name: Let the application role log in
+        run: pnpm exec prisma db execute --file packages/db/prisma/dev-app-role.sql --schema packages/db/prisma/schema.prisma
       - name: Integration tests
         run: pnpm test:integration
 
