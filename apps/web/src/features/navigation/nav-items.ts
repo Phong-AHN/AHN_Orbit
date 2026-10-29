@@ -56,6 +56,13 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     ],
   },
   {
+    // Its own group: the assistant is a capability of the product, configured
+    // per brand but not a detail of one (D-108). Shown to whoever may configure
+    // it for at least one brand.
+    label: 'AI',
+    items: [{ label: 'AI Assistant', path: '/assistant', permission: 'ai_assistant:manage' }],
+  },
+  {
     label: 'Clients',
     items: [
       { label: 'Clients', path: '/settings/workspaces', permission: 'workspace:read' },

@@ -56,10 +56,10 @@ export default async function BrandPage({ params }: PageProps) {
       {pageCan(ctx, 'ai_assistant:manage', { workspaceId: brand.workspaceId, brandId }) ? (
         <p className="mt-6 text-sm">
           <Link
-            href={`/orgs/${orgSlug}/brands/${brandId}/assistant`}
+            href={`/orgs/${orgSlug}/assistant/${brandId}`}
             className="font-medium text-accent underline-offset-2 hover:underline"
           >
-            AI assistant for messages →
+            Configure this brand in AI Assistant →
           </Link>
         </p>
       ) : null}

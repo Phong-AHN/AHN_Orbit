@@ -1134,7 +1134,7 @@ brand. Mặc định **tắt** ở mọi brand.
 1. ~~Chạy migration `20261026000000_ai_assistant`~~ — đã chạy 2026-10-27.
 2. Đặt `GEMINI_API_KEY` (và `GEMINI_MODEL` nếu đổi) trên **Railway (worker)** —
    worker là bên gửi tin tự động.
-3. Brand → **AI assistant for messages** → nhập FAQ/tài liệu → dùng nút
+3. Menu **AI → AI Assistant** → chọn brand → nhập FAQ/tài liệu → dùng nút
    **Try it** để hỏi thử.
 4. Chọn **Suggest replies**. Trong mỗi hội thoại sẽ có nút **Suggest a reply**:
    AI soạn nháp, nhân viên đọc, sửa rồi tự gửi.

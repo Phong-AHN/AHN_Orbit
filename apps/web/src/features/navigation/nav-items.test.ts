@@ -40,6 +40,20 @@ describe('shellGroups', () => {
     expect(labels).toContain('Posts');
     expect(labels).not.toContain('Team');
     expect(labels).not.toContain('Analytics');
+    expect(labels).not.toContain('AI Assistant');
+  });
+
+  /** A feature of its own, not a detail of a brand's page (D-108). */
+  it('gives the AI Assistant its own section for whoever may configure it', () => {
+    const groups = shellGroups(
+      '/orgs/ahn',
+      NAV_GROUPS,
+      (permission) => permission === 'ai_assistant:manage',
+    );
+
+    expect(groups.find((group) => group.label === 'AI')?.items).toEqual([
+      { label: 'AI Assistant', href: '/orgs/ahn/assistant' },
+    ]);
   });
 
   /** An unguarded destination belongs to everyone who reached the surface. */

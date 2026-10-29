@@ -2,6 +2,7 @@ import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
+  accessibleWorkspaceIds,
   actorUserId,
   clock,
   isUserPrincipal,
@@ -22,7 +23,7 @@ import {
 } from '@orbit/ai';
 import { logger } from '@orbit/observability';
 import { capabilitiesFor } from '@orbit/providers';
-import { assertCan, can } from '@orbit/rbac';
+import { assertCan, can, canSomewhere } from '@orbit/rbac';
 import { audit, type AuditInput } from '@/server/audit';
 import { aiProvider } from '@/server/ai-provider';
 import { ensureProvidersRegistered } from '@/server/providers';
@@ -95,6 +96,107 @@ const DEFAULT_SETTINGS = {
   suggestSince: null,
   updatedAt: null,
 };
+
+// ── Every brand's assistant ─────────────────────────────────────────────────
+
+/** Platforms the assistant can answer on. */
+const MESSAGING_PLATFORMS = ['FACEBOOK', 'INSTAGRAM'] as const;
+
+/**
+ * The assistant across every brand the person may configure — the overview
+ * the AI Assistant section opens on.
+ *
+ * Narrowed to the person's workspaces in the query, then to the brands their
+ * grant covers, so an Account Manager sees their clients and nobody else's.
+ * Thirty days of what the assistant did, and how many conversations are
+ * waiting on a person because it handed them over.
+ */
+export async function listAssistants(ctx: TenantContext) {
+  requireUser(ctx);
+  if (!canSomewhere(ctx, 'ai_assistant:manage')) {
+    throw new ForbiddenError('Permission denied: ai_assistant:manage', {
+      userMessage: 'You do not have access to the AI assistant settings.',
+      context: { permission: 'ai_assistant:manage' },
+    });
+  }
+
+  const accessible = accessibleWorkspaceIds(ctx);
+  const since = new Date(clock.now().getTime() - 30 * DAY_MS);
+
+  const brands = await withTenant(ctx, (db) =>
+    db.brand.findMany({
+      where: {
+        deletedAt: null,
+        ...(accessible === 'ALL' ? {} : { workspaceId: { in: [...accessible] } }),
+      },
+      select: {
+        id: true,
+        name: true,
+        workspaceId: true,
+        workspace: { select: { name: true } },
+        assistant: { select: { mode: true, updatedAt: true } },
+        _count: { select: { knowledgeEntries: true } },
+        socialAccounts: {
+          where: { deletedAt: null, platform: { in: [...MESSAGING_PLATFORMS] } },
+          select: { platform: true },
+        },
+      },
+      orderBy: [{ workspace: { name: 'asc' } }, { name: 'asc' }],
+    }),
+  );
+
+  const visible = brands.filter((brand) =>
+    can(ctx, 'ai_assistant:manage', { workspaceId: brand.workspaceId, brandId: brand.id }),
+  );
+  const ids = visible.map((brand) => brand.id);
+
+  const [waiting, decisions] = ids.length
+    ? await withTenant(ctx, (db) =>
+        Promise.all([
+          db.socialConversation.groupBy({
+            by: ['brandId'],
+            where: { brandId: { in: ids }, needsHuman: true, socialAccount: { deletedAt: null } },
+            _count: { _all: true },
+          }),
+          db.assistantDecision.findMany({
+            where: { createdAt: { gte: since }, conversation: { brandId: { in: ids } } },
+            select: { action: true, conversation: { select: { brandId: true } } },
+            // A ceiling on an overview, not a report: past this the counts are
+            // a floor, which the page does not need to be exact about.
+            take: 20_000,
+          }),
+        ]),
+      )
+    : [[], []];
+
+  const tally = new Map<string, { suggested: number; replied: number; escalated: number }>();
+  for (const decision of decisions) {
+    const brandId = decision.conversation.brandId;
+    const row = tally.get(brandId) ?? { suggested: 0, replied: 0, escalated: 0 };
+    if (decision.action === 'SUGGESTED') row.suggested += 1;
+    if (decision.action === 'REPLIED') row.replied += 1;
+    if (decision.action === 'ESCALATED') row.escalated += 1;
+    tally.set(brandId, row);
+  }
+
+  return {
+    brands: visible.map((brand) => ({
+      id: brand.id,
+      name: brand.name,
+      workspaceName: brand.workspace.name,
+      mode: brand.assistant?.mode ?? ('OFF' as const),
+      updatedAt: brand.assistant?.updatedAt ?? null,
+      knowledgeEntries: brand._count.knowledgeEntries,
+      messagingPlatforms: [...new Set(brand.socialAccounts.map((account) => account.platform))],
+      waitingForPerson: waiting.find((row) => row.brandId === brand.id)?._count._all ?? 0,
+      last30Days: tally.get(brand.id) ?? { suggested: 0, replied: 0, escalated: 0 },
+    })),
+    freeTier: serverEnv().GEMINI_TIER === 'free',
+    disclosure: AI_DISCLOSURE,
+  };
+}
+
+export type AssistantList = Awaited<ReturnType<typeof listAssistants>>;
 
 // ── The brand's assistant ───────────────────────────────────────────────────
 
