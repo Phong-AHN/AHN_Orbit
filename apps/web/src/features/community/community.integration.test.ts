@@ -11,6 +11,7 @@ import { platformDb } from '@orbit/db';
 import { closeQueues, closeSharedConnection, redis } from '@orbit/queue';
 import { CredentialCipher, registerProvider, resetRegistry } from '@orbit/providers';
 import { MOCK_SECOND_ACCOUNT_TYPE, MockProvider } from '@orbit/providers/mock';
+import { ensureProvidersRegistered } from '@/server/providers';
 import {
   assignComment,
   getPostThread,
@@ -173,6 +174,9 @@ async function seedComment(
 }
 
 beforeAll(async () => {
+  // Spend the services' own bootstrap first: they now register the adapters
+  // themselves on first use, which would otherwise replace the ones below.
+  ensureProvidersRegistered();
   resetRegistry();
   mock = new MockProvider();
   registerProvider(mock);

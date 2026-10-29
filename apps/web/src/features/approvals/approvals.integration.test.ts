@@ -470,8 +470,19 @@ describe('an internal workspace', () => {
   const internal = () =>
     platformDb.workspace.update({ where: { id: WS_A }, data: { requiresClientApproval: false } });
 
-  // Comfortably in the future whatever the test clock says.
-  const later = { localTime: { year: 2030, month: 6, day: 1, hour: 9, minute: 0 } };
+  // A month ahead of whenever this runs. A fixed date was refused as "more than
+  // a year away" — scheduling is capped at a year — so it failed from the day
+  // it was written.
+  const inAMonth = new Date(Date.now() + 30 * 24 * 60 * 60 * 1_000);
+  const later = {
+    localTime: {
+      year: inAMonth.getUTCFullYear(),
+      month: inAMonth.getUTCMonth() + 1,
+      day: inAMonth.getUTCDate(),
+      hour: 9,
+      minute: 0,
+    },
+  };
 
   it('lets the author approve their own post through the decision, recorded as theirs', async () => {
     await internal();

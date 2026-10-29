@@ -14,6 +14,7 @@ import { closeQueues, closeSharedConnection } from '@orbit/queue';
 import { CredentialCipher, registerProvider, resetRegistry } from '@orbit/providers';
 import { FacebookProvider } from '@orbit/providers/facebook';
 import { resetAIProvider } from '@/server/ai-provider';
+import { ensureProvidersRegistered } from '@/server/providers';
 import { replyToConversation } from '../messaging/service';
 import {
   createKnowledgeEntry,
@@ -151,6 +152,9 @@ beforeAll(async () => {
   restoreClock = setClock(fixedClock(NOW));
   resetAIProvider();
 
+  // Spend the services' own bootstrap first: they now register the adapters
+  // themselves on first use, which would otherwise replace the ones below.
+  ensureProvidersRegistered();
   resetRegistry();
   registerProvider(
     new FacebookProvider({

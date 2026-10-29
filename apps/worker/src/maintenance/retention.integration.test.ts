@@ -431,6 +431,7 @@ describe('safety', () => {
       reports: 0,
       messages: 0,
       conversations: 0,
+      decisions: 0,
       storageFailures: 0,
     });
   });

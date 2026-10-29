@@ -12,6 +12,7 @@ import { platformDb } from '@orbit/db';
 import { closeQueues, closeSharedConnection } from '@orbit/queue';
 import { CredentialCipher, registerProvider, resetRegistry } from '@orbit/providers';
 import { FacebookProvider } from '@orbit/providers/facebook';
+import { ensureProvidersRegistered } from '@/server/providers';
 import { disconnectAccount } from '../social/service';
 import {
   getConversation,
@@ -187,6 +188,9 @@ async function seedConversation(
 beforeAll(async () => {
   restoreClock = setClock(fixedClock(NOW));
 
+  // Spend the services' own bootstrap first: they now register the adapters
+  // themselves on first use, which would otherwise replace the ones below.
+  ensureProvidersRegistered();
   resetRegistry();
   registerProvider(
     new FacebookProvider({

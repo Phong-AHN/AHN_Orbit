@@ -141,13 +141,16 @@ describe('queue depth and age', () => {
       [
         'account-health',
         'analytics',
+        'assistant',
         'engagement',
         'maintenance',
         'media',
+        'messaging',
         'notifications',
         'publish',
         'reports',
         'scheduler',
+        'webhooks',
       ].sort(),
     );
   });
