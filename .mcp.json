@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "social-square": {
+      "type": "http",
+      "url": "https://www.anhoi.co/api/mcp"
+    }
+  }
+}
