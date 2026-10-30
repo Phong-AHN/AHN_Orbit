@@ -60,7 +60,12 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     // per brand but not a detail of one (D-108). Shown to whoever may configure
     // it for at least one brand.
     label: 'AI',
-    items: [{ label: 'AI Assistant', path: '/assistant', permission: 'ai_assistant:manage' }],
+    items: [
+      { label: 'AI Assistant', path: '/assistant', permission: 'ai_assistant:manage' },
+      // What a connected AI agent prepared, waiting for confirmation (D-109).
+      { label: 'AI agent actions', path: '/agent-actions', permission: 'ai:generate' },
+      { label: 'Connected AI apps', path: '/settings/ai-apps', permission: 'ai:generate' },
+    ],
   },
   {
     label: 'Clients',

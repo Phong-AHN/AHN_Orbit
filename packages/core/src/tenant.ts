@@ -30,6 +30,38 @@ export interface UserPrincipal {
   membershipStatus: MembershipStatus;
   workspaces: readonly WorkspaceGrant[];
   brands: readonly BrandGrant[];
+  /**
+   * Present when an AI agent is acting for this user (**D-109**) — through the
+   * MCP server or the in-app Copilot. Absent for a person clicking in the UI.
+   *
+   * It only ever narrows: `@orbit/rbac` intersects the user's own grants with
+   * what these scopes cover, so an agent can never do something its user
+   * could not. It is built by the server from a stored grant or from the
+   * Copilot route, never from anything the model sent.
+   */
+  delegation?: AgentDelegation;
+}
+
+/** What a user allowed an agent to do on their behalf (D-109). */
+export const AGENT_SCOPES = ['read', 'content', 'workflow', 'engagement'] as const;
+export type AgentScope = (typeof AGENT_SCOPES)[number];
+
+export interface AgentDelegation {
+  channel: 'MCP' | 'COPILOT';
+  /** The OAuth grant an MCP call came in on. Absent for the Copilot. */
+  grantId?: string;
+  scopes: readonly AgentScope[];
+  /**
+   * Set **only** by the confirmation executor, after the user confirmed this
+   * exact action outside the model (D-109 §5). Permissions that act outside
+   * the agency — publishing, scheduling, replying — are refused under a
+   * delegation without it, so a tool that forgot to ask cannot act anyway.
+   */
+  confirmedActionId?: string;
+}
+
+export function agentDelegation(ctx: TenantContext): AgentDelegation | undefined {
+  return isUserPrincipal(ctx.principal) ? ctx.principal.delegation : undefined;
 }
 
 /**

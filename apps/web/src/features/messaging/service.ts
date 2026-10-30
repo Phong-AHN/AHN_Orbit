@@ -14,7 +14,7 @@ import {
 import { withTenant } from '@orbit/db';
 import { logger } from '@orbit/observability';
 import { capabilitiesFor, getProvider, isSupported } from '@orbit/providers';
-import { assertCan, canSomewhere } from '@orbit/rbac';
+import { assertAgentConfirmed, assertCan, canSomewhere } from '@orbit/rbac';
 import { audit, type AuditInput } from '@/server/audit';
 import { ensureProvidersRegistered } from '@/server/providers';
 import { loadCredential } from '@/features/social/service';
@@ -216,6 +216,8 @@ export async function replyToConversation(
   input: MessageReplyInput,
   fingerprint: Pick<AuditInput, 'ip' | 'userAgent'>,
 ) {
+  // An agent sends only what its user confirmed (D-109 §5).
+  assertAgentConfirmed(ctx, 'message:reply');
   const conversation = await requireConversation(ctx, conversationId, 'message:reply');
   const account = conversation.socialAccount;
   const messaging = messagingOf(conversation);

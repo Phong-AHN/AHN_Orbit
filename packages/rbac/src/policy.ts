@@ -7,6 +7,7 @@ import {
 } from '@orbit/core';
 import { PLATFORM_PERMISSIONS, UNGRANTABLE_PERMISSIONS, type Permission } from './permissions.js';
 import { PLATFORM_ADMIN_GRANTS, ROLE_GRANTS, type Grant } from './matrix.js';
+import { agentDenial, agentScopeCovers } from './agent.js';
 
 /**
  * The single authorization decision point (docs/RBAC.md §6).
@@ -63,7 +64,10 @@ export type DenialReason =
   | 'STATUS_NOT_PERMITTED'
   | 'EDIT_LOCKED'
   | 'NO_APPROVAL_RIGHT'
-  | 'MISSING_SCOPE_INFORMATION';
+  | 'MISSING_SCOPE_INFORMATION'
+  | 'OUTSIDE_AGENT_SCOPE'
+  | 'AGENT_CONFIRMATION_REQUIRED'
+  | 'AGENT_NOT_PERMITTED';
 
 export type Decision =
   | { allowed: true; grant: Grant | 'PLATFORM' | 'SYSTEM' }
@@ -95,6 +99,16 @@ export function decide(
   }
 
   const principal = ctx.principal;
+
+  // An agent acting for this user (D-109) can only ever be narrower than the
+  // user: platform operations are never delegated, and the scopes the user
+  // gave it — plus a confirmation for anything outward — must cover the
+  // permission *before* the user's own grants are consulted below.
+  if (principal.delegation) {
+    if (PLATFORM_ONLY.has(permission)) return { allowed: false, reason: 'AGENT_NOT_PERMITTED' };
+    const denial = agentDenial(principal.delegation, permission);
+    if (denial) return { allowed: false, reason: denial };
+  }
 
   if (PLATFORM_ONLY.has(permission)) {
     return decidePlatform(principal, permission);
@@ -254,6 +268,7 @@ export function canSomewhere(ctx: TenantContext, permission: Permission): boolea
 
   if (principal.kind === 'SYSTEM') return principal.capabilities.includes(permission);
   if (PLATFORM_ONLY.has(permission)) return false;
+  if (principal.delegation && !agentScopeCovers(principal.delegation, permission)) return false;
   if (principal.membershipStatus !== 'ACTIVE') return false;
 
   return Boolean(ROLE_GRANTS[principal.organizationRole][permission]);
@@ -293,6 +308,10 @@ export function effectivePermissions(ctx: TenantContext): Permission[] {
   if (ctx.principal.membershipStatus !== 'ACTIVE') return [];
 
   const granted = Object.keys(ROLE_GRANTS[ctx.principal.organizationRole]) as Permission[];
+  const delegation = ctx.principal.delegation;
+  // An agent sees what it may actually reach: its user's grants within its
+  // scopes, and never the platform's.
+  if (delegation) return granted.filter((permission) => agentScopeCovers(delegation, permission));
   const platform = ctx.principal.isPlatformAdmin ? [...PLATFORM_ADMIN_GRANTS] : [];
   return [...granted, ...platform];
 }

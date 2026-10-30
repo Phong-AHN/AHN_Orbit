@@ -31,3 +31,15 @@ export {
 } from './policy.js';
 
 export { assertTransitionAllowed, canTransition, allowedTransitions } from './transitions.js';
+
+export {
+  AGENT_SCOPE_PERMISSIONS,
+  AGENT_CONFIRMATION_REQUIRED,
+  AGENT_DIRECT_TRANSITIONS,
+  agentDenial,
+  assertAgentConfirmed,
+  agentScopeCovers,
+  isAgentDirectTransition,
+  requiresAgentConfirmation,
+  type AgentDenial,
+} from './agent.js';

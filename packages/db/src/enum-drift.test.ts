@@ -54,6 +54,9 @@ const PAIRS: ReadonlyArray<[string, readonly string[]]> = [
   ['ContentIdeaState', core.CONTENT_IDEA_STATES],
   ['ReportStatus', core.REPORT_STATUSES],
   ['ReportFormat', core.REPORT_FORMATS],
+  ['AgentChannel', core.AGENT_CHANNELS],
+  ['AgentTokenKind', core.AGENT_TOKEN_KINDS],
+  ['AgentActionStatus', core.AGENT_ACTION_STATUSES],
 ];
 
 describe('enum parity between @orbit/core and schema.prisma', () => {
@@ -79,6 +82,8 @@ describe('tenant discriminator coverage', () => {
     Organization: 'is the tenant root; scoped by its own id',
     WebhookEvent:
       'arrives before a tenant is known; the tenant is resolved through our account mapping',
+    AgentClient:
+      'an MCP client is software used by people in many organizations; what it may do lives in the tenant-scoped AgentGrant (D-109)',
   };
 
   it('every model is either tenant-scoped or explicitly exempt', () => {

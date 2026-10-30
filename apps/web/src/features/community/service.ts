@@ -11,7 +11,7 @@ import {
 } from '@orbit/core';
 import { withTenant } from '@orbit/db';
 import { enqueue, takeToken } from '@orbit/queue';
-import { assertCan, canSomewhere } from '@orbit/rbac';
+import { assertAgentConfirmed, assertCan, canSomewhere } from '@orbit/rbac';
 import { logger } from '@orbit/observability';
 import { capabilitiesFor, getProvider } from '@orbit/providers';
 import { audit, type AuditInput } from '@/server/audit';
@@ -371,6 +371,8 @@ export async function replyToComment(
   input: ReplyInput,
   fingerprint: Pick<AuditInput, 'ip' | 'userAgent'>,
 ) {
+  // An agent sends only what its user confirmed (D-109 §5).
+  assertAgentConfirmed(ctx, 'comment:reply');
   const comment = await requireComment(ctx, commentId, 'comment:reply');
 
   if (comment.origin === 'ORBIT') {

@@ -915,7 +915,9 @@ bình thường.
 (chính mục này) — Vercel build không chạy. File nằm trong repo không có nghĩa là
 nó đã được áp dụng.
 
-**Hiện không còn migration nào chờ** (kiểm tra 2026-10-27 bằng `prisma migrate status`).
+**Đang chờ: `20261030000000_ai_agents`** (2026-10-30, **D-109** — AI agent qua MCP). Chạy
+xong mới đặt `AGENT_ENABLED_ORGS` trên Vercel (ví dụ `ahn` để chỉ bật cho AHN trước); thiếu biến
+này agent tắt hoàn toàn, nên deploy code trước migration vẫn an toàn.
 
 Đã chạy (ghi lại để khỏi chạy lại): `20260814000000_variant_provider_ref`,
 `20260814010000_report`, `20261013000000_social_comments` (2026-10-20),

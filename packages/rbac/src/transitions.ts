@@ -1,4 +1,5 @@
 import {
+  ForbiddenError,
   assertTransition,
   humanTransitionsFrom,
   isUserPrincipal,
@@ -7,7 +8,8 @@ import {
   type TransitionRule,
 } from '@orbit/core';
 import { assertCan, can, type ResourceScope } from './policy.js';
-import { isPermission } from './permissions.js';
+import { isPermission, type Permission } from './permissions.js';
+import { agentDenial, isAgentDirectTransition } from './agent.js';
 
 /**
  * Bridges the domain state machine (@orbit/core) to the policy engine.
@@ -110,6 +112,10 @@ export function assertTransitionAllowed(
   // `intent: 'TRANSITION'` exempts this from the edit lock — but only because
   // the machine has already ruled, one line above, that this transition exists
   // from this status. The reachable set is still the transition table's.
+  // An agent (D-109) passes its own gate first, and the author shortcut below
+  // does not bypass it.
+  assertAgentMayTransition(ctx, from, to, rule.permission);
+
   // The machine has already confirmed this transition exists, so an author
   // finishing their own internal post is allowed past the grant check — and
   // only that. The transition table is still the only source of what is
@@ -119,6 +125,44 @@ export function assertTransitionAllowed(
   assertCan(ctx, rule.permission, { ...resource, status: from, intent: 'TRANSITION' });
 
   return rule;
+}
+
+/**
+ * The agent's gate on a status change (D-109 §3).
+ *
+ * Two things the permission check alone would miss. The author shortcut of
+ * D-106 skips the named permission, so the agent's scope is checked against
+ * it here instead. And several transitions carry an editing permission —
+ * SCHEDULED → DRAFT is `post:update` — while taking a post off the schedule
+ * is exactly the kind of move a user must confirm. So outside a short
+ * allowlist, every transition an agent makes needs a confirmed action.
+ */
+function assertAgentMayTransition(
+  ctx: TenantContext,
+  from: PostStatus,
+  to: PostStatus,
+  permission: Permission,
+): void {
+  if (!isUserPrincipal(ctx.principal) || !ctx.principal.delegation) return;
+  const delegation = ctx.principal.delegation;
+
+  const denial =
+    agentDenial(delegation, permission) ??
+    (isAgentDirectTransition(from, to) || delegation.confirmedActionId
+      ? null
+      : 'AGENT_CONFIRMATION_REQUIRED');
+  if (!denial) return;
+
+  throw new ForbiddenError(`Permission denied: ${permission}`, {
+    context: {
+      permission,
+      reason: denial,
+      transition: `${from}->${to}`,
+      organizationId: ctx.organizationId,
+      actor: ctx.principal.userId,
+      channel: delegation.channel,
+    },
+  });
 }
 
 export function canTransition(

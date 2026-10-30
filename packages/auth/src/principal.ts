@@ -149,6 +149,38 @@ export async function resolveUser(identity: VerifiedIdentity): Promise<Authentic
   return user;
 }
 
+/**
+ * Load a user by our own id, for an agent acting on their behalf (D-109).
+ *
+ * The id comes from a stored OAuth grant or from the session that started a
+ * Copilot turn, never from a request. A deleted user is refused here exactly
+ * as `resolveUser` refuses one at sign-in, so revoking a person revokes every
+ * agent working for them on its next call.
+ */
+export async function resolveUserById(userId: string): Promise<AuthenticatedUser> {
+  const user = await platformDb.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      avatarUrl: true,
+      timezone: true,
+      isPlatformAdmin: true,
+      deletedAt: true,
+    },
+  });
+
+  if (!user || user.deletedAt) {
+    throw new UnauthenticatedError('Account is no longer active', {
+      context: { reason: user ? 'user soft-deleted' : 'user missing', userId },
+    });
+  }
+
+  const { deletedAt: _deletedAt, ...active } = user;
+  return active;
+}
+
 export interface OrganizationSummary {
   id: string;
   name: string;

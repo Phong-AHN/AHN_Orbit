@@ -9,6 +9,7 @@ import {
 import { canPlatform, type Permission } from '@orbit/rbac';
 import { logger, withLogContext } from '@orbit/observability';
 import { handleRouteError } from './api-response';
+import { assertNoAgent } from './with-auth';
 
 /**
  * The platform admin surface (SRS §28, docs/RBAC.md §1 rule 4).
@@ -68,6 +69,7 @@ export function withPlatformAdmin<P extends Record<string, string> = Record<stri
     return withLogContext({ correlationId, route, surface: 'admin' }, async () => {
       try {
         // ── 1. AUTHENTICATE ────────────────────────────────────────────────
+        assertNoAgent(route);
         const identity = await requireSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
 
         // ── 2. RESOLVE USER — and with it the authoritative platform flag ──

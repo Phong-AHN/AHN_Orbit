@@ -339,6 +339,15 @@ export const serverEnvSchema = z.object({
     .optional()
     .or(z.literal('').transform(() => undefined)),
 
+  // ── AI agents (D-109) ─────────────────────────────────────────────────────
+  /**
+   * Which organizations may use AI agents — the MCP server and the Copilot.
+   * Comma-separated organization slugs or ids, or `*` for all. Unset, agents
+   * are off everywhere: `/api/mcp` answers 404 and no grant can be made. The
+   * rollout switch and the kill switch both.
+   */
+  AGENT_ENABLED_ORGS: optionalString,
+
   // ── Billing (SRS §38) ─────────────────────────────────────────────────────
   STRIPE_SECRET_KEY: optionalString,
   STRIPE_WEBHOOK_SECRET: optionalString,

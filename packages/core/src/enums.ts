@@ -219,3 +219,21 @@ export type ReportFormat = (typeof REPORT_FORMATS)[number];
 
 export const WORKSPACE_STATUSES = ['ACTIVE', 'ARCHIVED'] as const;
 export type WorkspaceStatus = (typeof WORKSPACE_STATUSES)[number];
+
+/** AI agents (D-109). Where an agent call came from. */
+export const AGENT_CHANNELS = ['MCP', 'COPILOT'] as const;
+export type AgentChannel = (typeof AGENT_CHANNELS)[number];
+
+export const AGENT_TOKEN_KINDS = ['ACCESS', 'REFRESH'] as const;
+export type AgentTokenKind = (typeof AGENT_TOKEN_KINDS)[number];
+
+/** An outward action an agent prepared, and what became of it (D-109 §5). */
+export const AGENT_ACTION_STATUSES = [
+  'PENDING',
+  'EXECUTING',
+  'EXECUTED',
+  'FAILED',
+  'REJECTED',
+  'EXPIRED',
+] as const;
+export type AgentActionStatus = (typeof AGENT_ACTION_STATUSES)[number];

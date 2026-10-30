@@ -30,6 +30,17 @@ export interface AuditInput {
  * Record an audited action. Must be called with the same `db` handle as the
  * mutation, so a rollback discards both together.
  */
+function agentNote(ctx: TenantContext): string | null {
+  const delegation = isUserPrincipal(ctx.principal) ? ctx.principal.delegation : undefined;
+  if (!delegation) return null;
+  return [
+    `via AI agent (${delegation.channel})`,
+    delegation.confirmedActionId ? `confirmed action ${delegation.confirmedActionId}` : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+}
+
 export async function audit(db: TenantDb, ctx: TenantContext, input: AuditInput): Promise<void> {
   await db.auditLog.create({
     data: {
@@ -49,7 +60,10 @@ export async function audit(db: TenantDb, ctx: TenantContext, input: AuditInput)
       // that lands in a changed field never becomes durable history.
       before: input.before === undefined ? undefined : redactJson(input.before),
       after: input.after === undefined ? undefined : redactJson(input.after),
-      reason: input.reason ?? null,
+      // An agent's change is marked as one here, once, rather than by every
+      // caller remembering to (D-109): who acted is still the person, and how
+      // is part of the record.
+      reason: [input.reason, agentNote(ctx)].filter(Boolean).join(' · ') || null,
       ip: input.ip ?? null,
       userAgent: input.userAgent ?? null,
       correlationId: ctx.correlationId,

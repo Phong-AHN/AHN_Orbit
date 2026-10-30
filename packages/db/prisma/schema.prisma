@@ -258,22 +258,22 @@ enum ContentIdeaState {
 /// App-owned identity record. Firebase Auth owns credentials — there is no
 /// password column here, ever (decision D-004).
 model User {
-  id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  firebaseUid  String    @unique
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  firebaseUid     String    @unique
   /// Always stored lowercase; normalised on write.
-  email        String    @unique
-  name         String?
-  avatarUrl    String?
-  timezone     String    @default("UTC")
-  locale       String    @default("en")
+  email           String    @unique
+  name            String?
+  avatarUrl       String?
+  timezone        String    @default("UTC")
+  locale          String    @default("en")
   /// The only role held outside a membership. Mirrored to a Firebase custom
   /// claim as a fast path, but always re-verified here before any privileged
   /// action (docs/RBAC.md §1 rule 2).
-  isPlatformAdmin Boolean @default(false)
-  lastSeenAt   DateTime?
-  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
-  deletedAt    DateTime? @db.Timestamptz(3)
+  isPlatformAdmin Boolean   @default(false)
+  lastSeenAt      DateTime?
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt       DateTime? @db.Timestamptz(3)
 
   organizationMemberships OrganizationMembership[] @relation("MembershipUser")
   invitedMemberships      OrganizationMembership[] @relation("MembershipInviter")
@@ -296,6 +296,10 @@ model User {
   editedKnowledgeEntries  BrandKnowledgeEntry[]    @relation("KnowledgeEntryEditor")
   editedAssistants        BrandAssistant[]         @relation("AssistantEditor")
   reviewedDecisions       AssistantDecision[]      @relation("AssistantDecisionReviewer")
+  agentAuthorizationCodes AgentAuthorizationCode[]
+  agentGrants             AgentGrant[]             @relation("AgentGrantUser")
+  revokedAgentGrants      AgentGrant[]             @relation("AgentGrantRevoker")
+  agentActions            AgentAction[]
   uploadedMedia           MediaAsset[]
   connectedAccounts       SocialAccount[]
   notifications           Notification[]
@@ -321,40 +325,44 @@ model Organization {
   updatedAt DateTime  @updatedAt @db.Timestamptz(3)
   deletedAt DateTime? @db.Timestamptz(3)
 
-  memberships        OrganizationMembership[]
-  workspaces         Workspace[]
-  brands             Brand[]
-  brandAssignments   BrandAssignment[]
-  workspaceMembers   WorkspaceMembership[]
-  socialAccounts     SocialAccount[]
-  socialCredentials  SocialCredential[]
-  posts              Post[]
-  postVariants       PostVariant[]
-  postMedia          PostMedia[]
-  mediaAssets        MediaAsset[]
-  mediaFolders       MediaFolder[]
-  approvals          Approval[]
-  productionTasks    ProductionTask[]
-  comments           Comment[]
-  socialComments     SocialComment[]
-  socialConversations SocialConversation[]
-  socialMessages     SocialMessage[]
-  knowledgeEntries   BrandKnowledgeEntry[]
-  brandAssistants    BrandAssistant[]
-  assistantDecisions AssistantDecision[]
-  queueSlots         QueueSlot[]
-  publishingJobs     PublishingJob[]
-  publishingAttempts PublishingAttempt[]
-  postAnalytics      PostAnalytics[]
-  analyticsSnapshots AnalyticsSnapshot[]
-  brandVoices        BrandVoice[]
-  contentIdeas       ContentIdea[]
-  aiUsage            AIUsage[]
-  notifications      Notification[]
-  auditLogs          AuditLog[]
-  invitations        Invitation[]
-  reports            Report[]
-  subscription       Subscription?
+  memberships             OrganizationMembership[]
+  workspaces              Workspace[]
+  brands                  Brand[]
+  brandAssignments        BrandAssignment[]
+  workspaceMembers        WorkspaceMembership[]
+  socialAccounts          SocialAccount[]
+  socialCredentials       SocialCredential[]
+  posts                   Post[]
+  postVariants            PostVariant[]
+  postMedia               PostMedia[]
+  mediaAssets             MediaAsset[]
+  mediaFolders            MediaFolder[]
+  approvals               Approval[]
+  productionTasks         ProductionTask[]
+  comments                Comment[]
+  socialComments          SocialComment[]
+  socialConversations     SocialConversation[]
+  socialMessages          SocialMessage[]
+  knowledgeEntries        BrandKnowledgeEntry[]
+  brandAssistants         BrandAssistant[]
+  assistantDecisions      AssistantDecision[]
+  agentAuthorizationCodes AgentAuthorizationCode[]
+  agentGrants             AgentGrant[]
+  agentTokens             AgentToken[]
+  agentActions            AgentAction[]
+  queueSlots              QueueSlot[]
+  publishingJobs          PublishingJob[]
+  publishingAttempts      PublishingAttempt[]
+  postAnalytics           PostAnalytics[]
+  analyticsSnapshots      AnalyticsSnapshot[]
+  brandVoices             BrandVoice[]
+  contentIdeas            ContentIdea[]
+  aiUsage                 AIUsage[]
+  notifications           Notification[]
+  auditLogs               AuditLog[]
+  invitations             Invitation[]
+  reports                 Report[]
+  subscription            Subscription?
 
   @@index([slug])
   @@index([deletedAt])
@@ -383,16 +391,16 @@ model OrganizationMembership {
 
 /// A client of the agency (assumption C1 — pending question Q1).
 model Workspace {
-  id                String          @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  organizationId    String          @db.Uuid
-  name              String
-  slug              String
+  id                     String          @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId         String          @db.Uuid
+  name                   String
+  slug                   String
   /// IANA zone, required. Scheduling resolves here (SRS §36, assumption C5).
-  timezone          String
-  clientCompanyName String?
-  status            WorkspaceStatus @default(ACTIVE)
+  timezone               String
+  clientCompanyName      String?
+  status                 WorkspaceStatus @default(ACTIVE)
   /// Per-workspace toggle for whether clients may upload assets (RBAC.md O2).
-  clientUploadsEnabled Boolean      @default(false)
+  clientUploadsEnabled   Boolean         @default(false)
   /// Whether this workspace has a client who approves posts (**D-106**).
   ///
   /// `true` for a client workspace, and the default, so a workspace is never
@@ -400,25 +408,25 @@ model Workspace {
   /// where there is no client to wait for: the gate is skipped and a post's
   /// author may approve and schedule their own work. Combined with
   /// `Post.approvalRequired` — client approval applies only when *both* hold.
-  requiresClientApproval Boolean    @default(true)
-  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime        @updatedAt @db.Timestamptz(3)
-  deletedAt         DateTime?       @db.Timestamptz(3)
+  requiresClientApproval Boolean         @default(true)
+  createdAt              DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime        @updatedAt @db.Timestamptz(3)
+  deletedAt              DateTime?       @db.Timestamptz(3)
 
-  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  memberships  WorkspaceMembership[]
-  brands       Brand[]
-  mediaAssets  MediaAsset[]
-  mediaFolders MediaFolder[]
-  socialAccounts SocialAccount[]
-  posts        Post[]
-  queueSlots   QueueSlot[]
-  contentIdeas ContentIdea[]
-  reports      Report[]
-  socialComments SocialComment[]
+  organization        Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberships         WorkspaceMembership[]
+  brands              Brand[]
+  mediaAssets         MediaAsset[]
+  mediaFolders        MediaFolder[]
+  socialAccounts      SocialAccount[]
+  posts               Post[]
+  queueSlots          QueueSlot[]
+  contentIdeas        ContentIdea[]
+  reports             Report[]
+  socialComments      SocialComment[]
   socialConversations SocialConversation[]
-  knowledgeEntries BrandKnowledgeEntry[]
-  brandAssistants BrandAssistant[]
+  knowledgeEntries    BrandKnowledgeEntry[]
+  brandAssistants     BrandAssistant[]
 
   @@unique([organizationId, slug])
   /// Target for composite foreign keys from tenant-scoped children. Every
@@ -460,19 +468,19 @@ model Brand {
   updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
   deletedAt      DateTime? @db.Timestamptz(3)
 
-  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  workspace      Workspace         @relation(fields: [organizationId, workspaceId], references: [organizationId, id], onDelete: Cascade)
-  assignments    BrandAssignment[]
-  socialAccounts SocialAccount[]
-  posts          Post[]
-  mediaAssets    MediaAsset[]
-  voice          BrandVoice?
-  contentIdeas   ContentIdea[]
-  socialComments SocialComment[]
+  organization        Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace           Workspace             @relation(fields: [organizationId, workspaceId], references: [organizationId, id], onDelete: Cascade)
+  assignments         BrandAssignment[]
+  socialAccounts      SocialAccount[]
+  posts               Post[]
+  mediaAssets         MediaAsset[]
+  voice               BrandVoice?
+  contentIdeas        ContentIdea[]
+  socialComments      SocialComment[]
   socialConversations SocialConversation[]
-  knowledgeEntries BrandKnowledgeEntry[]
-  assistant      BrandAssistant?
-  aiUsage        AIUsage[]
+  knowledgeEntries    BrandKnowledgeEntry[]
+  assistant           BrandAssistant?
+  aiUsage             AIUsage[]
 
   @@unique([workspaceId, slug])
   @@unique([organizationId, id])
@@ -504,46 +512,46 @@ model BrandAssignment {
 // ═══════════════════════════════════════════════════════════════════════════
 
 model SocialAccount {
-  id              String              @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  organizationId  String              @db.Uuid
-  workspaceId     String              @db.Uuid
-  brandId         String              @db.Uuid
-  platform        Platform
+  id                String              @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId    String              @db.Uuid
+  workspaceId       String              @db.Uuid
+  brandId           String              @db.Uuid
+  platform          Platform
   /// The Page/account id at the provider.
-  externalId      String
+  externalId        String
   /// The id the platform's webhooks name this account by, where it is not
   /// `externalId` (**D-107**). Instagram's username login stores an app-scoped
   /// id but delivers webhooks under the professional account id; null means
   /// the two are the same.
   webhookExternalId String?
-  handle          String?
-  displayName     String
-  avatarUrl       String?
+  handle            String?
+  displayName       String
+  avatarUrl         String?
   /// Provider-specific account kind, e.g. PAGE for Facebook.
-  accountType     String?
-  status          SocialAccountStatus @default(ACTIVE)
+  accountType       String?
+  status            SocialAccountStatus @default(ACTIVE)
   /// Health is probe-driven, not expiry-driven — Page tokens die silently
   /// without expiring (docs/SOCIAL_PROVIDERS.md §4).
-  healthCheckedAt DateTime?           @db.Timestamptz(3)
-  healthError     String?
-  scopes          String[]            @default([])
-  connectedById   String?             @db.Uuid
-  connectedAt     DateTime            @default(now()) @db.Timestamptz(3)
-  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt       DateTime            @updatedAt @db.Timestamptz(3)
-  deletedAt       DateTime?           @db.Timestamptz(3)
+  healthCheckedAt   DateTime?           @db.Timestamptz(3)
+  healthError       String?
+  scopes            String[]            @default([])
+  connectedById     String?             @db.Uuid
+  connectedAt       DateTime            @default(now()) @db.Timestamptz(3)
+  createdAt         DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime            @updatedAt @db.Timestamptz(3)
+  deletedAt         DateTime?           @db.Timestamptz(3)
 
-  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  workspace    Workspace          @relation(fields: [organizationId, workspaceId], references: [organizationId, id], onDelete: Cascade)
-  brand        Brand              @relation(fields: [organizationId, brandId], references: [organizationId, id], onDelete: Cascade)
-  connectedBy  User?              @relation(fields: [connectedById], references: [id], onDelete: SetNull)
-  credential   SocialCredential?
-  variants     PostVariant[]
-  socialComments SocialComment[]
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace           Workspace            @relation(fields: [organizationId, workspaceId], references: [organizationId, id], onDelete: Cascade)
+  brand               Brand                @relation(fields: [organizationId, brandId], references: [organizationId, id], onDelete: Cascade)
+  connectedBy         User?                @relation(fields: [connectedById], references: [id], onDelete: SetNull)
+  credential          SocialCredential?
+  variants            PostVariant[]
+  socialComments      SocialComment[]
   socialConversations SocialConversation[]
-  socialMessages SocialMessage[]
-  queueSlots   QueueSlot[]
-  snapshots    AnalyticsSnapshot[]
+  socialMessages      SocialMessage[]
+  queueSlots          QueueSlot[]
+  snapshots           AnalyticsSnapshot[]
 
   /// The same Page cannot be connected twice within one org, but different
   /// orgs may legitimately manage the same Page.
@@ -562,22 +570,22 @@ model SocialAccount {
 /// AES-256-GCM; the key comes from KMS/Secrets Manager and `keyVersion` exists
 /// so keys rotate without a migration (SRS §6).
 model SocialCredential {
-  id                    String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  organizationId        String    @db.Uuid
-  socialAccountId       String    @unique @db.Uuid
-  accessTokenCiphertext Bytes
-  accessTokenIv         Bytes
-  accessTokenAuthTag    Bytes
+  id                     String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId         String    @db.Uuid
+  socialAccountId        String    @unique @db.Uuid
+  accessTokenCiphertext  Bytes
+  accessTokenIv          Bytes
+  accessTokenAuthTag     Bytes
   refreshTokenCiphertext Bytes?
-  refreshTokenIv        Bytes?
-  refreshTokenAuthTag   Bytes?
-  keyVersion            Int       @default(1)
-  expiresAt             DateTime? @db.Timestamptz(3)
-  refreshableUntil      DateTime? @db.Timestamptz(3)
-  lastRefreshedAt       DateTime? @db.Timestamptz(3)
-  scopes                String[]  @default([])
-  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
+  refreshTokenIv         Bytes?
+  refreshTokenAuthTag    Bytes?
+  keyVersion             Int       @default(1)
+  expiresAt              DateTime? @db.Timestamptz(3)
+  refreshableUntil       DateTime? @db.Timestamptz(3)
+  lastRefreshedAt        DateTime? @db.Timestamptz(3)
+  scopes                 String[]  @default([])
+  createdAt              DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime  @updatedAt @db.Timestamptz(3)
 
   organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   socialAccount SocialAccount @relation(fields: [organizationId, socialAccountId], references: [organizationId, id], onDelete: Cascade)
@@ -653,12 +661,12 @@ model PostVariant {
 
   /// Layer 2 of the idempotency strategy: the atomic publish claim
   /// (docs/ARCHITECTURE.md §5.2). Only the worker writes these.
-  claimedAt       DateTime?     @db.Timestamptz(3)
-  claimToken      String?
+  claimedAt  DateTime? @db.Timestamptz(3)
+  claimToken String?
 
   externalPostId    String?
   externalPermalink String?
-  publishedAt       DateTime?   @db.Timestamptz(3)
+  publishedAt       DateTime? @db.Timestamptz(3)
   lastError         Json?
   /// An opaque handle the provider recorded *before* a call whose outcome could
   /// be ambiguous, so reconciliation can ask the platform directly instead of
@@ -667,17 +675,17 @@ model PostVariant {
   providerRef       Json?
   /// Reconciliation fingerprint (layer 4).
   contentHash       String?
-  createdAt         DateTime    @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime    @updatedAt @db.Timestamptz(3)
-  deletedAt         DateTime?   @db.Timestamptz(3)
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt         DateTime? @db.Timestamptz(3)
 
-  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  post          Post            @relation(fields: [organizationId, postId], references: [organizationId, id], onDelete: Cascade)
-  socialAccount SocialAccount   @relation(fields: [organizationId, socialAccountId], references: [organizationId, id], onDelete: Cascade)
-  media         PostMedia[]
-  jobs          PublishingJob[]
-  analytics     PostAnalytics[]
-  comments      Comment[]
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  post           Post            @relation(fields: [organizationId, postId], references: [organizationId, id], onDelete: Cascade)
+  socialAccount  SocialAccount   @relation(fields: [organizationId, socialAccountId], references: [organizationId, id], onDelete: Cascade)
+  media          PostMedia[]
+  jobs           PublishingJob[]
+  analytics      PostAnalytics[]
+  comments       Comment[]
   socialComments SocialComment[]
 
   @@unique([postId, socialAccountId])
@@ -957,12 +965,12 @@ model PublishingAttempt {
 /// `availability` records per-metric status so a metric the provider
 /// deprecated is never stored or charted as 0 (SRS §18, decision D-010).
 model PostAnalytics {
-  id                String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  organizationId    String   @db.Uuid
-  postVariantId     String   @db.Uuid
-  capturedAt        DateTime @db.Timestamptz(3)
-  metrics           Json     @default("{}")
-  availability      Json     @default("{}")
+  id                 String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId     String   @db.Uuid
+  postVariantId      String   @db.Uuid
+  capturedAt         DateTime @db.Timestamptz(3)
+  metrics            Json     @default("{}")
+  availability       Json     @default("{}")
   providerApiVersion String
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -973,12 +981,12 @@ model PostAnalytics {
 }
 
 model AnalyticsSnapshot {
-  id                String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  organizationId    String   @db.Uuid
-  socialAccountId   String   @db.Uuid
-  date              DateTime @db.Date
-  metrics           Json     @default("{}")
-  availability      Json     @default("{}")
+  id                 String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId     String   @db.Uuid
+  socialAccountId    String   @db.Uuid
+  date               DateTime @db.Date
+  metrics            Json     @default("{}")
+  availability       Json     @default("{}")
   providerApiVersion String
 
   organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1099,14 +1107,14 @@ model AIUsage {
 /// A Page's older posts have no workspace or brand to attribute them to, and
 /// guessing would put one client's comments in another client's queue.
 model SocialComment {
-  id               String              @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  organizationId   String              @db.Uuid
-  workspaceId      String              @db.Uuid
+  id              String @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId  String @db.Uuid
+  workspaceId     String @db.Uuid
   /// Denormalized so a brand-scoped grant can be checked without loading the
   /// post — `comment:*` is BRAND scope for several roles.
-  brandId          String              @db.Uuid
-  socialAccountId  String              @db.Uuid
-  postVariantId    String              @db.Uuid
+  brandId         String @db.Uuid
+  socialAccountId String @db.Uuid
+  postVariantId   String @db.Uuid
 
   /// The platform's own id. Dedupes ingestion, and addresses a reply.
   externalId       String
@@ -1120,15 +1128,15 @@ model SocialComment {
   permalink        String?
   postedAt         DateTime            @db.Timestamptz(3)
 
-  state            SocialCommentState  @default(NEW)
-  assignedToId     String?             @db.Uuid
-  handledAt        DateTime?           @db.Timestamptz(3)
-  handledById      String?             @db.Uuid
+  state        SocialCommentState @default(NEW)
+  assignedToId String?            @db.Uuid
+  handledAt    DateTime?          @db.Timestamptz(3)
+  handledById  String?            @db.Uuid
   /// Who sent this, when `origin` is ORBIT.
-  createdById      String?             @db.Uuid
+  createdById  String?            @db.Uuid
 
-  createdAt        DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt        DateTime            @updatedAt @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   workspace     Workspace     @relation(fields: [organizationId, workspaceId], references: [organizationId, id], onDelete: Cascade)
@@ -1175,22 +1183,22 @@ model Notification {
 /// Append-only. The application role holds no UPDATE or DELETE grant, so the
 /// log cannot drift from what actually happened (SRS §16, §31).
 model AuditLog {
-  id            String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  organizationId String   @db.Uuid
-  actorUserId   String?   @db.Uuid
-  actorType     ActorType @default(USER)
-  action        String
-  resourceType  String
-  resourceId    String?   @db.Uuid
-  workspaceId   String?   @db.Uuid
-  brandId       String?   @db.Uuid
-  before        Json?
-  after         Json?
-  reason        String?
-  ip            String?
-  userAgent     String?
-  correlationId String?
-  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  id             String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId String    @db.Uuid
+  actorUserId    String?   @db.Uuid
+  actorType      ActorType @default(USER)
+  action         String
+  resourceType   String
+  resourceId     String?   @db.Uuid
+  workspaceId    String?   @db.Uuid
+  brandId        String?   @db.Uuid
+  before         Json?
+  after          Json?
+  reason         String?
+  ip             String?
+  userAgent      String?
+  correlationId  String?
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   actorUser    User?        @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
@@ -1294,11 +1302,11 @@ model Invitation {
 /// only because a reply cannot be addressed without it. Kept while the account
 /// stays connected; deleted with it, and aged out after twelve months.
 model SocialConversation {
-  id                    String                  @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  organizationId        String                  @db.Uuid
-  workspaceId           String                  @db.Uuid
-  brandId               String                  @db.Uuid
-  socialAccountId       String                  @db.Uuid
+  id              String @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId  String @db.Uuid
+  workspaceId     String @db.Uuid
+  brandId         String @db.Uuid
+  socialAccountId String @db.Uuid
 
   /// The person's id as this account sees it (Messenger PSID, Instagram IGSID).
   /// Scoped by the platform to this one account: it identifies nobody elsewhere.
@@ -1308,35 +1316,35 @@ model SocialConversation {
   /// The platform's own conversation id, when the Conversations API supplied one.
   externalThreadId      String?
 
-  lastMessageAt         DateTime                @db.Timestamptz(3)
+  lastMessageAt DateTime  @db.Timestamptz(3)
   /// The person's latest message. The reply window is counted from this.
-  lastInboundAt         DateTime?               @db.Timestamptz(3)
+  lastInboundAt DateTime? @db.Timestamptz(3)
 
-  state                 SocialConversationState @default(NEW)
-  assignedToId          String?                 @db.Uuid
-  handledAt             DateTime?               @db.Timestamptz(3)
-  handledById           String?                 @db.Uuid
+  state        SocialConversationState @default(NEW)
+  assignedToId String?                 @db.Uuid
+  handledAt    DateTime?               @db.Timestamptz(3)
+  handledById  String?                 @db.Uuid
 
   /// The latest message a person sent here, from Orbit or the platform's app.
   /// The assistant stays out while this is recent (**D-108**).
-  lastHumanReplyAt      DateTime?               @db.Timestamptz(3)
+  lastHumanReplyAt    DateTime? @db.Timestamptz(3)
   /// The customer asked the assistant to stop, or a colleague switched it off here.
-  assistantPaused       Boolean                 @default(false)
+  assistantPaused     Boolean   @default(false)
   /// The assistant handed this to a person, who has not dealt with it yet.
-  needsHuman            Boolean                 @default(false)
-  escalationReason      String?
+  needsHuman          Boolean   @default(false)
+  escalationReason    String?
   /// Automatic replies sent in this conversation, against the brand's cap.
-  assistantReplyCount   Int                     @default(0)
+  assistantReplyCount Int       @default(0)
 
-  createdAt             DateTime                @default(now()) @db.Timestamptz(3)
-  updatedAt             DateTime                @updatedAt @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
-  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  workspace     Workspace       @relation(fields: [organizationId, workspaceId], references: [organizationId, id], onDelete: Cascade)
-  brand         Brand           @relation(fields: [organizationId, brandId], references: [organizationId, id], onDelete: Cascade)
-  socialAccount SocialAccount   @relation(fields: [organizationId, socialAccountId], references: [organizationId, id], onDelete: Cascade)
-  assignedTo    User?           @relation("SocialConversationAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
-  handledBy     User?           @relation("SocialConversationHandler", fields: [handledById], references: [id], onDelete: SetNull)
+  organization  Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workspace     Workspace           @relation(fields: [organizationId, workspaceId], references: [organizationId, id], onDelete: Cascade)
+  brand         Brand               @relation(fields: [organizationId, brandId], references: [organizationId, id], onDelete: Cascade)
+  socialAccount SocialAccount       @relation(fields: [organizationId, socialAccountId], references: [organizationId, id], onDelete: Cascade)
+  assignedTo    User?               @relation("SocialConversationAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  handledBy     User?               @relation("SocialConversationHandler", fields: [handledById], references: [id], onDelete: SetNull)
   messages      SocialMessage[]
   decisions     AssistantDecision[]
 
@@ -1350,11 +1358,11 @@ model SocialConversation {
 
 /// One private message, in either direction (**D-107**).
 model SocialMessage {
-  id              String                 @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  organizationId  String                 @db.Uuid
-  conversationId  String                 @db.Uuid
+  id              String @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId  String @db.Uuid
+  conversationId  String @db.Uuid
   /// Denormalized for the dedupe key: a platform's message ids are unique per account.
-  socialAccountId String                 @db.Uuid
+  socialAccountId String @db.Uuid
 
   /// The platform's message id (`mid`). Dedupes webhook retries and backfill.
   externalId      String
@@ -1372,7 +1380,7 @@ model SocialMessage {
   /// Sent by the AI assistant, on its own (**D-108**).
   sentByAssistant Boolean                @default(false)
 
-  createdAt       DateTime               @default(now()) @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
 
   organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   conversation  SocialConversation @relation(fields: [organizationId, conversationId], references: [organizationId, id], onDelete: Cascade)
@@ -1417,25 +1425,25 @@ model BrandKnowledgeEntry {
 
 /// How the AI assistant behaves for one brand (**D-108**). One row per brand.
 model BrandAssistant {
-  id               String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  organizationId   String        @db.Uuid
-  workspaceId      String        @db.Uuid
-  brandId          String        @db.Uuid
-  mode             AssistantMode @default(OFF)
+  id                        String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId            String        @db.Uuid
+  workspaceId               String        @db.Uuid
+  brandId                   String        @db.Uuid
+  mode                      AssistantMode @default(OFF)
   /// `[{ day, start, end }]` in the workspace's time zone. Empty means never staffed.
-  staffedHours     Json          @default("[]")
+  staffedHours              Json          @default("[]")
   /// Minutes to leave a colleague, during staffed hours, before the assistant answers.
-  graceMinutes     Int           @default(10)
+  graceMinutes              Int           @default(10)
   /// Sent when the assistant hands over. Null uses the default wording.
-  holdingMessage   String?
-  maxRepliesPerConversation Int  @default(3)
+  holdingMessage            String?
+  maxRepliesPerConversation Int           @default(3)
   /// The brand's own phrases that always go to a person.
-  escalationTerms  String[]      @default([])
+  escalationTerms           String[]      @default([])
   /// When suggestions were first switched on. AUTO needs seven days of them.
-  suggestSince     DateTime?     @db.Timestamptz(3)
-  updatedById      String?       @db.Uuid
-  createdAt        DateTime      @default(now()) @db.Timestamptz(3)
-  updatedAt        DateTime      @updatedAt @db.Timestamptz(3)
+  suggestSince              DateTime?     @db.Timestamptz(3)
+  updatedById               String?       @db.Uuid
+  createdAt                 DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt                 DateTime      @updatedAt @db.Timestamptz(3)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   workspace    Workspace    @relation(fields: [organizationId, workspaceId], references: [organizationId, id], onDelete: Cascade)
@@ -1451,24 +1459,24 @@ model BrandAssistant {
 /// Kept so a colleague can see what the assistant said on the brand's behalf
 /// and rate it. Goes with its conversation, and ages out with it.
 model AssistantDecision {
-  id               String          @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
-  organizationId   String          @db.Uuid
-  conversationId   String          @db.Uuid
-  action           AssistantAction
+  id             String          @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId String          @db.Uuid
+  conversationId String          @db.Uuid
+  action         AssistantAction
   /// The escalation category, when it handed over.
-  category         String?
-  reason           String?
+  category       String?
+  reason         String?
   /// What it drafted or sent.
-  text             String?
-  citedEntryIds    String[]        @default([])
-  model            String?
-  inputTokens      Int             @default(0)
-  outputTokens     Int             @default(0)
-  latencyMs        Int?
+  text           String?
+  citedEntryIds  String[]        @default([])
+  model          String?
+  inputTokens    Int             @default(0)
+  outputTokens   Int             @default(0)
+  latencyMs      Int?
   /// A colleague's verdict on it: true good, false bad, null not reviewed.
-  rating           Boolean?
-  reviewedById     String?         @db.Uuid
-  createdAt        DateTime        @default(now()) @db.Timestamptz(3)
+  rating         Boolean?
+  reviewedById   String?         @db.Uuid
+  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
 
   organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   conversation SocialConversation @relation(fields: [organizationId, conversationId], references: [organizationId, id], onDelete: Cascade)
@@ -1477,6 +1485,143 @@ model AssistantDecision {
   @@unique([organizationId, id])
   @@index([organizationId, conversationId, createdAt])
   @@index([organizationId, createdAt])
+}
+
+// ── AI agents (D-109) ──────────────────────────────────────────────────────────
+
+enum AgentChannel {
+  MCP
+  COPILOT
+}
+
+enum AgentTokenKind {
+  ACCESS
+  REFRESH
+}
+
+enum AgentActionStatus {
+  PENDING
+  EXECUTING
+  EXECUTED
+  FAILED
+  REJECTED
+  EXPIRED
+}
+
+/// An MCP client registered with Social Square's authorization server.
+/// Platform-level: a client is software, not a tenant's data, and one client
+/// (Claude, ChatGPT) serves people in many organizations.
+model AgentClient {
+  id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  /// The public `client_id`. Random, never the row id.
+  clientId     String    @unique
+  name         String
+  /// Exact-match list; https, or loopback http for desktop clients.
+  redirectUris String[]
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  lastUsedAt   DateTime? @db.Timestamptz(3)
+
+  codes  AgentAuthorizationCode[]
+  grants AgentGrant[]
+}
+
+/// A one-time authorization code, for 60 seconds. Only its hash is stored.
+model AgentAuthorizationCode {
+  id             String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId String    @db.Uuid
+  codeHash       String    @unique
+  clientId       String    @db.Uuid
+  userId         String    @db.Uuid
+  scopes         String[]
+  redirectUri    String
+  /// PKCE S256 challenge; plain is refused.
+  codeChallenge  String
+  resource       String
+  expiresAt      DateTime  @db.Timestamptz(3)
+  usedAt         DateTime? @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       AgentClient  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, id])
+  @@index([expiresAt])
+}
+
+/// What one person allowed one agent client to do in one organization.
+model AgentGrant {
+  id             String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId String    @db.Uuid
+  userId         String    @db.Uuid
+  clientId       String    @db.Uuid
+  scopes         String[]
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  lastUsedAt     DateTime? @db.Timestamptz(3)
+  revokedAt      DateTime? @db.Timestamptz(3)
+  revokedById    String?   @db.Uuid
+  /// Why it was revoked: by the user, an admin, or refresh-token reuse.
+  revokedReason  String?
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User          @relation("AgentGrantUser", fields: [userId], references: [id], onDelete: Cascade)
+  client       AgentClient   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  revokedBy    User?         @relation("AgentGrantRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+  tokens       AgentToken[]
+  actions      AgentAction[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, userId])
+}
+
+/// An issued token. Only its SHA-256 is stored; the token itself is shown once.
+model AgentToken {
+  id             String         @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId String         @db.Uuid
+  grantId        String         @db.Uuid
+  kind           AgentTokenKind
+  tokenHash      String         @unique
+  /// Refresh tokens rotate; a reused one revokes the grant.
+  usedAt         DateTime?      @db.Timestamptz(3)
+  expiresAt      DateTime       @db.Timestamptz(3)
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  grant        AgentGrant   @relation(fields: [organizationId, grantId], references: [organizationId, id], onDelete: Cascade)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, grantId])
+  @@index([expiresAt])
+}
+
+/// An outward action an agent prepared, waiting for its user (D-109 §5).
+model AgentAction {
+  id             String            @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId String            @db.Uuid
+  userId         String            @db.Uuid
+  channel        AgentChannel
+  grantId        String?           @db.Uuid
+  tool           String
+  /// Written by the server from `request`; what the user reads and confirms.
+  summary        String
+  /// The exact route call that runs on confirmation, and nothing else.
+  request        Json
+  requestHash    String
+  status         AgentActionStatus @default(PENDING)
+  expiresAt      DateTime          @db.Timestamptz(3)
+  decidedAt      DateTime?         @db.Timestamptz(3)
+  /// The route's response, or its safe error message.
+  result         Json?
+  error          String?
+  createdAt      DateTime          @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  grant        AgentGrant?  @relation(fields: [organizationId, grantId], references: [organizationId, id], onDelete: Cascade)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, userId, status])
+  @@index([expiresAt])
 }
 
 model WebhookEvent {

@@ -11,6 +11,7 @@ import { platformDb } from '@orbit/db';
 import { assertCan, type Permission, type ResourceScope } from '@orbit/rbac';
 import { logger, withLogContext } from '@orbit/observability';
 import { handleRouteError } from './api-response';
+import { assertNoAgent } from './with-auth';
 
 /**
  * The client portal's entry point (SRS §21, decision D-012).
@@ -114,6 +115,7 @@ export function withPortalAuth<P extends Record<string, string>>(
     return withLogContext({ correlationId, route, surface: 'portal' }, async () => {
       try {
         // ── 1. AUTHENTICATE ────────────────────────────────────────────────
+        assertNoAgent(route);
         const identity = await requireSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
 
         // ── 2. RESOLVE USER ────────────────────────────────────────────────

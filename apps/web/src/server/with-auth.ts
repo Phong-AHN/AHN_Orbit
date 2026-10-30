@@ -12,12 +12,14 @@ import {
   requireSession,
   resolveTenantContext,
   resolveUser,
+  resolveUserById,
   type AuthenticatedUser,
   type OrganizationSummary,
 } from '@orbit/auth';
 import { assertCan, type Permission, type ResourceScope } from '@orbit/rbac';
 import { logger, withLogContext } from '@orbit/observability';
 import { handleRouteError } from './api-response';
+import { currentAgentInvocation, type AgentInvocation } from './agent-invocation';
 
 /**
  * The single authenticated entry point for route handlers and server actions.
@@ -106,6 +108,45 @@ function assertNotClient(ctx: TenantContext, route: string): void {
 }
 
 /**
+ * Attach an agent's delegation to the resolved principal (D-109).
+ *
+ * The grant names one organization. A tool call that reached a route for any
+ * other — whatever the path said — is refused as not found, the same answer a
+ * person gets for an organization they do not belong to.
+ */
+function delegate(ctx: TenantContext, agent: AgentInvocation, route: string): TenantContext {
+  if (ctx.organizationId !== agent.organizationId || !isUserPrincipal(ctx.principal)) {
+    logger.warn('agent call outside its organization', {
+      securityEvent: true,
+      route,
+      organizationId: ctx.organizationId,
+      grantOrganizationId: agent.organizationId,
+      userId: agent.userId,
+    });
+    throw new NotFoundError('Not found');
+  }
+
+  return { ...ctx, principal: { ...ctx.principal, delegation: agent.delegation } };
+}
+
+/**
+ * Refuse an agent on a route that is not tenant-scoped (D-109).
+ *
+ * Agents reach the tenant API through `withAuth` and nothing else: no account
+ * settings, no portal, no platform administration.
+ */
+export function assertNoAgent(route: string): void {
+  const agent = currentAgentInvocation();
+  if (!agent) return;
+  logger.warn('agent call refused on a route agents cannot use', {
+    securityEvent: true,
+    route,
+    userId: agent.userId,
+  });
+  throw new NotFoundError('Not found');
+}
+
+/**
  * Wrap a tenant-scoped route handler.
  *
  * The organization is taken from `params.orgSlug` — i.e. from the URL. It is
@@ -122,11 +163,16 @@ export function withAuth<P extends Record<string, string>>(
 
     return withLogContext({ correlationId, route }, async () => {
       try {
-        // ── 1. AUTHENTICATE ────────────────────────────────────────────────
-        const identity = await requireSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
-
-        // ── 2. RESOLVE USER ────────────────────────────────────────────────
-        const user = await resolveUser(identity);
+        // ── 1–2. AUTHENTICATE, RESOLVE USER ────────────────────────────────
+        // An agent tool call (D-109) arrives already authenticated, inside an
+        // invocation the MCP or Copilot route set; everything else needs the
+        // session cookie.
+        const agent = currentAgentInvocation();
+        const user = agent
+          ? await resolveUserById(agent.userId)
+          : await resolveUser(
+              await requireSession(request.cookies.get(SESSION_COOKIE_NAME)?.value),
+            );
 
         // ── 3. RESOLVE TENANT ──────────────────────────────────────────────
         const params = await routeContext.params;
@@ -137,11 +183,9 @@ export function withAuth<P extends Record<string, string>>(
           });
         }
 
-        const { ctx, organization } = await resolveTenantContext(
-          user,
-          organizationRef,
-          correlationId,
-        );
+        const resolved = await resolveTenantContext(user, organizationRef, correlationId);
+        const { organization } = resolved;
+        const ctx = agent ? delegate(resolved.ctx, agent, route) : resolved.ctx;
 
         return await withLogContext(
           { organizationId: ctx.organizationId, userId: user.id },
@@ -183,6 +227,7 @@ export function withUser<P extends Record<string, string> = Record<string, never
 
     return withLogContext({ correlationId, route }, async () => {
       try {
+        assertNoAgent(route);
         const identity = await requireSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
         const user = await resolveUser(identity);
         const params = ((await routeContext?.params) ?? {}) as P;

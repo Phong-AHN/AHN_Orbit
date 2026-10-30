@@ -1,6 +1,13 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      // Mirrors the `@/*` path alias in apps/web/tsconfig.json.
+      '@': fileURLToPath(new URL('./apps/web/src', import.meta.url)),
+    },
+  },
   test: {
     // Unit tests must run with no infrastructure (no Postgres, no Redis, no network).
     // The other two projects are opt-in once `pnpm infra:up` is running:

@@ -4284,6 +4284,91 @@ anything. Every model call is metered against the organization's AI credits
 
 ---
 
+## D-109 — AI agents that act for a person, and can never do more than that person
+
+The owner asked for people to be able to run Social Square entirely by
+chatting with an AI — ideas, drafts, scheduling, publishing, analytics,
+replies — with one condition stated plainly: **nobody may use the chatbot to
+get past their own permissions.** The plan is docs/AGENT-MCP-PLAN.md; the
+owner accepted every recommendation in its §15 on 2026-10-30.
+
+### Decisions taken with the owner
+
+- **MCP server first, in-app Copilot second.** `/api/mcp` lets Claude, ChatGPT
+  or any MCP client operate Social Square; the client's model does the
+  thinking. The Copilot reuses the same tools later.
+- **Every internal role may use an agent; Clients may not.** Their role still
+  limits them, so a Content Creator's agent cannot publish either.
+- **Outward actions always wait for the person**, confirmed in Social Square.
+- Agents never manage the AI Assistant (D-108) or act for portal users in v1.
+
+### An agent has no rights of its own
+
+`UserPrincipal` gains an optional `delegation` (channel, grant, scopes,
+`confirmedActionId`). Under one, `@orbit/rbac` allows a permission only if the
+person's own role allows it **and** one of the four scopes covers it
+(`AGENT_SCOPE_PERMISSIONS`, an allowlist) **and**, for outward permissions,
+the action was confirmed. Anything in no scope — members, accounts, billing,
+deleting, the assistant's settings, every platform permission — is refused to
+every agent at every role. A test asserts an agent is never allowed anything
+its person is not, for every role and every permission in the catalogue.
+
+Two holes the permission check alone would have left, closed in the engine:
+
+- **Transitions.** Taking a post off the schedule (SCHEDULED → DRAFT) needs
+  only `post:update`. So an agent may make three transitions on its own —
+  towards review — and every other transition needs a confirmed action.
+- **The D-106 author shortcut** skips the named permission; under a delegation
+  the agent's gate runs first and the shortcut cannot bypass it.
+
+Replying is the other outward act. `message:reply` also covers drafting a
+suggestion and triage, so it is not gated on the permission; instead
+`replyToConversation` and `replyToComment` call `assertAgentConfirmed`, and a
+test holds them to it.
+
+### Tools call the real routes
+
+A tool is a thin wrapper over one tenant API route, called in process with
+`runAsAgent`: `withAuth` reads the agent invocation in place of the session
+cookie and runs every other step unchanged — membership cross-check, Client
+refusal, permission and resource checks, the route's own zod contract. The
+organization in the URL must equal the grant's, or the answer is 404.
+`withUser`, the portal and platform-admin wrappers refuse agents outright.
+Routes are a closed table (`features/agent/routes.ts`); confirming, rejecting,
+granting and OAuth are deliberately absent from it.
+
+### Confirmation
+
+An outward tool stores an `AgentAction`: the exact route call (HMAC-signed)
+and a summary the server wrote from it. The person confirms on
+`/orgs/{org}/agent-actions` in their own session; the claim is one conditional
+update (PENDING → EXECUTING), so it runs once; the grant is re-read, so a
+revoked app's actions do not run; the person's rights are resolved again at
+that moment. Elicitation is not used: the server is stateless, and a click in
+Social Square is the one confirmation no client or model can fake.
+
+### OAuth
+
+Social Square is its own authorization server: dynamic registration, code +
+PKCE S256 only, refresh tokens that rotate and revoke the grant on reuse, only
+hashes stored. A grant binds one person, one client, one organization. People
+see and revoke grants in *Connected AI apps*; Owners and Admins see everyone's.
+`AGENT_ENABLED_ORGS` is the rollout switch and the kill switch, read on every
+call. Every audited change an agent makes carries "via AI agent" in its reason.
+
+### Text from outside is data
+
+Tools that return what customers or commenters wrote are fenced as untrusted
+before the model reads them, and the server instructions say so. The defence
+that does not depend on the model is the confirmation: an injected "publish
+this everywhere" produces at most a card the person rejects.
+
+### Not done yet
+
+Phase 4 (idea generation, research, best posting times, explained analytics)
+and phase 5 (the in-app Copilot) of the plan. The migration
+`20261030000000_ai_agents` is **not applied to production**.
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`
