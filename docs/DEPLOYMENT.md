@@ -128,6 +128,7 @@ produces a localhost callback that TikTok refuses.
 | `GEMINI_IMAGE_MODEL` | **Vercel** (optional) | Image model for "Generate image" (D-110). Default `gemini-2.5-flash-image`; change it if Google renames or retires it. |
 | `GEMINI_TIER` | **Vercel** | `free` (default) or `paid`. Changes the warnings on the assistant settings page and the Copilot page (D-109: on the free tier Google may use what is sent — test data only). The tier itself is Google's billing setting — set `paid` only once billing is on. |
 | `GOOGLE_REVIEW_ACCESS_CODE` | **Vercel**, only during Google OAuth verification | Opens `/review/youtube` for Google's reviewers (16+ characters). Unset, the page is a 404. Remove after approval — see docs/GOOGLE-VERIFICATION.md. |
+| `TIKTOK_REVIEW_ACCESS_CODE` | **Vercel**, only during TikTok app review | Opens `/review/tiktok` for TikTok's reviewers (16+ characters). Needs `TIKTOK_CLIENT_KEY`/`SECRET` and the redirect URI `…/review/tiktok/callback` in the TikTok portal. Unset, the page is a 404. See docs/TIKTOK-REVIEW.md. |
 | `AGENT_ENABLED_ORGS` | **Vercel** | Which organizations may use AI agents (`/api/mcp`, OAuth, agent actions): comma-separated slugs or ids, or `*`. Unset = off everywhere, including existing grants. Needs migration `20261030000000_ai_agents`. See D-109. |
 | `META_HUMAN_AGENT_ENABLED` | **Vercel** and **Railway**, identically | `true` only once Meta has approved Human Agent. Extends the reply window from 24 hours to 7 days. |
 

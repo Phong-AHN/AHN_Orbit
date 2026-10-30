@@ -354,6 +354,17 @@ export const serverEnvSchema = z.object({
    */
   AGENT_ENABLED_ORGS: optionalString,
 
+  /**
+   * Opens `/review/tiktok`, the page TikTok's app reviewers use to test Login
+   * Kit and the Content Posting API without a Social Square account. Unset,
+   * the page does not exist. At least 16 characters. Remove after the audit.
+   */
+  TIKTOK_REVIEW_ACCESS_CODE: z
+    .string()
+    .min(16)
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+
   // ── Billing (SRS §38) ─────────────────────────────────────────────────────
   STRIPE_SECRET_KEY: optionalString,
   STRIPE_WEBHOOK_SECRET: optionalString,
