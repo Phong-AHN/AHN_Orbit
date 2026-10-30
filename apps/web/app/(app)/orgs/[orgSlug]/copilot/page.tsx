@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Empty, PageHeader } from '@orbit/ui';
 import { requirePageContext } from '@/server/page-context';
+import { copilotOnFreeTier } from '@/server/ai-provider';
 import { copilotAvailability, getThread, listThreads } from '@/features/copilot/service';
 import { CopilotChat } from '@/features/copilot/ui/copilot-chat';
 
@@ -39,7 +40,7 @@ export default async function CopilotPage({ params, searchParams }: PageProps) {
             description={
               availability.reason === 'NOT_ENABLED'
                 ? 'Ask Social Square to turn them on.'
-                : 'It needs a paid AI plan, so your clients’ data is never used to train a model. Meanwhile you can connect Claude or ChatGPT in Connected AI apps.'
+                : 'No AI model is configured. Meanwhile you can connect Claude or ChatGPT in Connected AI apps.'
             }
           />
         </div>
@@ -57,6 +58,15 @@ export default async function CopilotPage({ params, searchParams }: PageProps) {
         title="Copilot"
         description="Plan, write, schedule and reply by chatting. It can only do what your role allows, and anything that goes out waits for your confirmation."
       />
+      {copilotOnFreeTier() ? (
+        <p
+          role="note"
+          className="mt-4 max-w-6xl rounded-md border border-line bg-warning-soft px-4 py-3 text-sm text-ink"
+        >
+          Test mode: the Copilot runs on Gemini’s free tier, where Google may use what is sent to
+          improve its products. Use test data only — not real clients’ content.
+        </p>
+      ) : null}
       <div className="mt-6 grid max-w-6xl gap-6 lg:grid-cols-[14rem_1fr]">
         <nav aria-label="Conversations" className="space-y-1 text-sm">
           <Link

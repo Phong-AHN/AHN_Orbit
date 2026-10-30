@@ -54,17 +54,24 @@ let copilotOverride: AgentModel | null | undefined;
 /**
  * The tool-calling model behind the in-app Copilot (D-109 phase 5), or `null`.
  *
- * Only on Gemini's **paid** tier. On the free tier Google may use what is sent
- * to improve its products, and a Copilot sends a client's posts, analytics and
- * messages — so with `GEMINI_TIER=free` the Copilot is simply unavailable
- * rather than quietly sharing that. The MCP server is unaffected: there the
+ * Available whenever a Gemini key is set, **including the free tier** — the
+ * owner's decision for the development and test phase (2026-10-30). On the
+ * free tier Google may use what is sent to improve its products, and a
+ * Copilot sends clients' posts, analytics and messages, so the Copilot page
+ * says so while `GEMINI_TIER=free`. Switch to the paid tier before real
+ * clients use it (docs/OWNER-TODO.md). The MCP server is unaffected: there the
  * model is the person's own AI app.
  */
 export function copilotModel(): AgentModel | null {
   if (copilotOverride !== undefined) return copilotOverride;
   const env = serverEnv();
-  if (!env.GEMINI_API_KEY || env.GEMINI_TIER !== 'paid') return null;
+  if (!env.GEMINI_API_KEY) return null;
   return new GeminiAgentModel({ apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL });
+}
+
+/** Whether the Copilot's model is on Gemini's free tier, for the warning on its page. */
+export function copilotOnFreeTier(): boolean {
+  return serverEnv().GEMINI_TIER === 'free';
 }
 
 /** Test seam: a scripted model, or `null` for "unavailable". */

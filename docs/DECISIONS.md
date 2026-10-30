@@ -4380,10 +4380,12 @@ this everywhere" produces at most a card the person rejects.
 
 `/orgs/{org}/copilot` runs the same registry in process with a `COPILOT`
 delegation (all four scopes, still under the person's role). The model is
-ours, so it is metered — one AI credit per message — and it runs **only on
-Gemini's paid tier** (`GEMINI_TIER=paid`): on the free tier Google may use
-what is sent, and a Copilot sends clients' data. Without it the page says so
-and points to Connected AI apps. Prepared actions appear as cards under the
+ours, so it is metered — one AI credit per message. It was built to run only
+on Gemini's paid tier, because on the free tier Google may use what is sent
+and a Copilot sends clients' data. **The owner relaxed that on 2026-10-30 for
+the development and test phase**: the Copilot runs on any Gemini key, and
+while `GEMINI_TIER=free` its page warns to use test data only. Switching to
+the paid tier is a launch condition (docs/OWNER-TODO.md). Prepared actions appear as cards under the
 reply, confirmed through the same routes as the actions page. Threads are
 private to their person — an Owner cannot read them — and, with decided
 actions, kept 90 days (worker retention sweep).

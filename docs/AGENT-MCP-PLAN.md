@@ -2,7 +2,8 @@
 
 > Trạng thái: **đã chốt (D-109)** — chủ dự án chấp nhận toàn bộ đề xuất ở §15 ngày 2026-10-30.
 > Phase 1–5 đã code: tool layer, MCP server + OAuth, xác nhận hành động, công cụ AI mới,
-> Copilot trong app (chỉ bật khi `GEMINI_TIER=paid`). Chưa làm: adapter Claude, streaming, đính
+> Copilot trong app (đang cho chạy cả tier Free trong giai đoạn dev/test — trước khi cho khách
+> thật dùng phải chuyển `GEMINI_TIER=paid`). Chưa làm: adapter Claude, streaming, đính
 > file trong Copilot. Migration `20261030000000_ai_agents` và `20261030010000_copilot_threads`
 > **chưa chạy production**. Cập nhật: 2026-10-30.
 >

@@ -28,7 +28,7 @@ import { runTool, toolsFor } from '@/features/agent/registry';
  * Copilot delegation, so the Copilot can do exactly what that person could —
  * and outward actions come back as cards they confirm. What differs from MCP is
  * only who supplies the model: here it is ours, metered as one AI credit per
- * message, and only on Gemini's paid tier (`copilotModel`).
+ * message (`copilotModel`, which during testing also allows the free tier).
  *
  * Threads belong to one person. Nobody else — an Owner included — can list or
  * read them, because they are a record of that person's work and of whatever
@@ -78,7 +78,7 @@ function personOf(ctx: TenantContext) {
 export function copilotAvailability(organization: { id: string; slug: string }) {
   if (!agentEnabledFor(organization))
     return { available: false as const, reason: 'NOT_ENABLED' as const };
-  if (!copilotModel()) return { available: false as const, reason: 'NO_PAID_MODEL' as const };
+  if (!copilotModel()) return { available: false as const, reason: 'NO_MODEL' as const };
   return { available: true as const };
 }
 
@@ -169,9 +169,9 @@ export async function sendMessage(
     });
   }
   if (!model) {
-    throw new ConflictError('Copilot needs a paid model', {
+    throw new ConflictError('Copilot has no model configured', {
       userMessage:
-        'The Copilot is not available on this plan yet. You can still connect Claude or ChatGPT in Connected AI apps.',
+        'The Copilot is not set up yet. You can still connect Claude or ChatGPT in Connected AI apps.',
     });
   }
 

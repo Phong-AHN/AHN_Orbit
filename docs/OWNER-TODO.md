@@ -916,7 +916,8 @@ bình thường.
 nó đã được áp dụng.
 
 **Đang chờ: `20261030000000_ai_agents` và `20261030010000_copilot_threads`** (2026-10-30,
-**D-109** — AI agent qua MCP và Copilot). Copilot chỉ bật khi `GEMINI_TIER=paid`. Chạy
+**D-109** — AI agent qua MCP và Copilot). Copilot đang cho chạy cả tier Free để test; **trước khi
+cho khách thật dùng phải bật billing Gemini và đặt `GEMINI_TIER=paid`**. Chạy
 xong mới đặt `AGENT_ENABLED_ORGS` trên Vercel (ví dụ `ahn` để chỉ bật cho AHN trước); thiếu biến
 này agent tắt hoàn toàn, nên deploy code trước migration vẫn an toàn.
 
