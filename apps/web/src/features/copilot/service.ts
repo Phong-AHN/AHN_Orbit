@@ -19,6 +19,7 @@ import { agentEnabledFor } from '@/features/agent/availability';
 import { toJsonSchema } from '@/features/agent/json-schema';
 import { SERVER_INSTRUCTIONS, toolResult } from '@/features/agent/mcp';
 import { runTool, toolsFor } from '@/features/agent/registry';
+import { ASSISTANT_NAME } from './name';
 
 /**
  * The in-app Copilot (D-109 phase 5).
@@ -138,7 +139,7 @@ function systemPrompt(
   return [
     SERVER_INSTRUCTIONS,
     '',
-    `You are the Copilot inside Social Square. It is ${date} in the organization's time zone (${organization.timezone}).`,
+    `Your name is ${ASSISTANT_NAME}: you are the AI assistant inside Social Square. If asked who you are, say so. It is ${date} in the organization's time zone (${organization.timezone}).`,
     `You are working for ${person.name ?? 'the user'}, whose role is ${person.role}, in the organization "${organization.name}".`,
     'When a tool prepares an action, a confirmation card is shown under your reply in this chat: tell the user to read it and press Confirm there. Do not paste the confirmation link.',
     'Be concise. Use short paragraphs or lists.',
@@ -165,13 +166,12 @@ export async function sendMessage(
   // Each message spends AI; the tools then check their own rights.
   if (!canSomewhere(ctx, 'ai:generate')) {
     throw new ForbiddenError('Permission denied: ai:generate', {
-      userMessage: 'Your role does not include the AI Copilot.',
+      userMessage: `Your role does not include ${ASSISTANT_NAME}, the AI assistant.`,
     });
   }
   if (!model) {
     throw new ConflictError('Copilot has no model configured', {
-      userMessage:
-        'The Copilot is not set up yet. You can still connect Claude or ChatGPT in Connected AI apps.',
+      userMessage: `${ASSISTANT_NAME} is not set up yet. You can still connect Claude or ChatGPT in Connected AI apps.`,
     });
   }
 

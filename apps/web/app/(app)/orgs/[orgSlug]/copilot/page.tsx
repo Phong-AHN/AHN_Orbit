@@ -5,10 +5,11 @@ import { requirePageContext } from '@/server/page-context';
 import { copilotOnFreeTier } from '@/server/ai-provider';
 import { copilotAvailability, getThread, listThreads } from '@/features/copilot/service';
 import { CopilotChat } from '@/features/copilot/ui/copilot-chat';
+import { ASSISTANT_NAME } from '@/features/copilot/name';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Copilot' };
+export const metadata: Metadata = { title: ASSISTANT_NAME };
 
 interface PageProps {
   params: Promise<{ orgSlug: string }>;
@@ -29,13 +30,13 @@ export default async function CopilotPage({ params, searchParams }: PageProps) {
   if (!availability.available) {
     return (
       <main id="main" className="px-4 py-10 sm:px-6">
-        <PageHeader eyebrow={organization.name} title="Copilot" />
+        <PageHeader eyebrow={organization.name} title={ASSISTANT_NAME} />
         <div className="mt-6 max-w-2xl">
           <Empty
             title={
               availability.reason === 'NOT_ENABLED'
                 ? 'AI agents are not enabled for this organization'
-                : 'The Copilot is not available yet'
+                : `${ASSISTANT_NAME} is not available yet`
             }
             description={
               availability.reason === 'NOT_ENABLED'
@@ -55,7 +56,7 @@ export default async function CopilotPage({ params, searchParams }: PageProps) {
     <main id="main" className="px-4 py-10 sm:px-6">
       <PageHeader
         eyebrow={organization.name}
-        title="Copilot"
+        title={ASSISTANT_NAME}
         description="Plan, write, schedule and reply by chatting. It can only do what your role allows, and anything that goes out waits for your confirmation."
       />
       {copilotOnFreeTier() ? (
@@ -63,8 +64,8 @@ export default async function CopilotPage({ params, searchParams }: PageProps) {
           role="note"
           className="mt-4 max-w-6xl rounded-md border border-line bg-warning-soft px-4 py-3 text-sm text-ink"
         >
-          Test mode: the Copilot runs on Gemini’s free tier, where Google may use what is sent to
-          improve its products. Use test data only — not real clients’ content.
+          Test mode: {ASSISTANT_NAME} runs on Gemini’s free tier, where Google may use what is sent
+          to improve its products. Use test data only — not real clients’ content.
         </p>
       ) : null}
       <div className="mt-6 grid max-w-6xl gap-6 lg:grid-cols-[14rem_1fr]">

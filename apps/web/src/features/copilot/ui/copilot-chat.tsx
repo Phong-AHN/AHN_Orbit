@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Badge, Button, Card, CardBody, Textarea } from '@orbit/ui';
 import { ApiError, apiRequest } from '@/features/posts/ui/api';
 import type { CopilotActionView, CopilotMessage } from '../service';
+import { ASSISTANT_NAME } from '../name';
 
 /**
  * The Copilot conversation (D-109 phase 5).
@@ -69,7 +70,9 @@ export function CopilotChat({
         }
       }
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'The Copilot could not answer. Try again.');
+      setError(
+        e instanceof ApiError ? e.message : `${ASSISTANT_NAME} could not answer. Try again.`,
+      );
       setMessages((current) => current.slice(0, -1));
       setDraft(text);
     } finally {
@@ -143,7 +146,7 @@ export function CopilotChat({
           value={draft}
           maxLength={4_000}
           disabled={busy}
-          placeholder="Ask the Copilot…"
+          placeholder={`Ask ${ASSISTANT_NAME}…`}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {

@@ -6,10 +6,11 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@orbit/ui';
 import { ApiError, apiRequest } from '@/features/posts/ui/api';
 import type { CopilotMessage } from '../service';
+import { ASSISTANT_NAME } from '../name';
 import { CopilotChat } from './copilot-chat';
 
 /**
- * The Copilot as a chat bubble in the bottom-left corner of every page (D-109).
+ * The Copilot as a chat bubble in the bottom-right corner of every page (D-109).
  *
  * The same conversation as the full Copilot page — same threads, same server
  * loop, same confirmation cards — in a panel that stays put while the person
@@ -72,7 +73,7 @@ export function CopilotBubble({ orgSlug }: { orgSlug: string }) {
       .catch((e: unknown) => {
         // Gone or not theirs: start a new conversation rather than show an error.
         if (e instanceof ApiError && e.status === 404) startFresh();
-        else setError('The Copilot could not load your conversation.');
+        else setError(`${ASSISTANT_NAME} could not load your conversation.`);
       })
       .finally(() => setLoading(false));
   }, [open, loaded, loading, orgSlug, startFresh]);
@@ -106,16 +107,15 @@ export function CopilotBubble({ orgSlug }: { orgSlug: string }) {
         <section
           id={panelId}
           role="dialog"
-          aria-label="Copilot"
+          aria-label={ASSISTANT_NAME}
           className={cn(
-            'fixed bottom-20 left-4 z-40 flex flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-xl',
+            'fixed bottom-20 right-4 z-40 flex flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-xl',
             'w-[min(26rem,calc(100vw-2rem))] h-[min(38rem,calc(100dvh-7rem))]',
-            'lg:left-[16rem]',
           )}
         >
           <header className="flex items-center gap-2 border-b border-line px-4 py-2.5">
             <span aria-hidden className="h-2 w-2 rounded-full bg-success" />
-            <h2 className="flex-1 text-sm font-semibold text-ink">Copilot</h2>
+            <h2 className="flex-1 text-sm font-semibold text-ink">{ASSISTANT_NAME}</h2>
             <button
               type="button"
               onClick={startFresh}
@@ -132,7 +132,7 @@ export function CopilotBubble({ orgSlug }: { orgSlug: string }) {
             </Link>
             <button
               type="button"
-              aria-label="Close Copilot"
+              aria-label={`Close ${ASSISTANT_NAME}`}
               onClick={() => {
                 setOpen(false);
                 button.current?.focus();
@@ -168,17 +168,16 @@ export function CopilotBubble({ orgSlug }: { orgSlug: string }) {
         type="button"
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
-        aria-label={open ? 'Close Copilot' : 'Open Copilot'}
+        aria-label={open ? `Close ${ASSISTANT_NAME}` : `Open ${ASSISTANT_NAME}`}
         onClick={() => setOpen((current) => !current)}
         className={cn(
-          'fixed bottom-4 left-4 z-40 inline-flex h-12 items-center gap-2 rounded-full px-4 shadow-lg',
+          'fixed bottom-4 right-4 z-40 inline-flex h-12 items-center gap-2 rounded-full px-4 shadow-lg',
           'bg-accent text-sm font-medium text-accent-ink hover:opacity-90',
           'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
-          'lg:left-[16rem]',
         )}
       >
         <ChatIcon />
-        <span className="hidden sm:inline">{open ? 'Close' : 'Copilot'}</span>
+        <span className="hidden sm:inline">{open ? 'Close' : ASSISTANT_NAME}</span>
       </button>
     </>
   );

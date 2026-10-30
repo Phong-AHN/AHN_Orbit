@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge, Button, Card, CardBody, type BadgeTone } from '@orbit/ui';
 import { ApiError, apiRequest } from '@/features/posts/ui/api';
+import { ASSISTANT_NAME } from '@/features/copilot/name';
 
 /**
  * What an AI agent prepared, for the person to confirm or reject (D-109 §5).
@@ -80,7 +81,9 @@ export function ActionList({
                 <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
                   <Badge tone={status.tone}>{status.label}</Badge>
                   <span>
-                    {action.channel === 'MCP' ? 'From a connected AI app' : 'From the Copilot'}
+                    {action.channel === 'MCP'
+                      ? 'From a connected AI app'
+                      : `From ${ASSISTANT_NAME}`}
                   </span>
                   <span>· {new Date(action.createdAt).toLocaleString()}</span>
                 </div>
