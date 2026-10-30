@@ -22,6 +22,10 @@ import { CredentialCipher } from '@orbit/providers';
 export const TIKTOK_REVIEW_PATH = '/review/tiktok';
 export const TIKTOK_REVIEW_SESSION_COOKIE = '__orbit_tiktok_review';
 export const TIKTOK_REVIEW_STATE_COOKIE = '__orbit_tiktok_review_state';
+/** Set once the reviewer entered the access code on the homepage. */
+export const TIKTOK_REVIEW_UNLOCK_COOKIE = '__orbit_tiktok_review_unlock';
+/** Where the reviewer enters the code: a section of the public homepage. */
+export const TIKTOK_REVIEW_ENTRY = '/#tiktok-review';
 export const TIKTOK_REVIEW_SESSION_TTL_MS = 30 * 60 * 1000;
 const STATE_TTL_MS = 10 * 60 * 1000;
 
@@ -49,10 +53,41 @@ export function tiktokReviewRedirectUri(): string {
 
 // ── State, through TikTok and back ──────────────────────────────────────────
 
-function sign(payload: string): string {
+function sign(payload: string, purpose = 'tiktok-review'): string {
   return createHmac('sha256', Buffer.from(serverEnv().STATE_SIGNING_SECRET, 'base64'))
-    .update(`tiktok-review:${payload}`)
+    .update(`${purpose}:${payload}`)
     .digest('base64url');
+}
+
+// ── Unlock, after the code was entered ──────────────────────────────────────
+
+/**
+ * Proof that this browser entered the right code, for the next thirty
+ * minutes: an expiry, signed for this purpose only. Without it the test page
+ * sends the visitor back to the homepage, where the code is asked for.
+ */
+export function issueTikTokUnlock(now = Date.now()): string {
+  const payload = Buffer.from(JSON.stringify({ exp: now + TIKTOK_REVIEW_SESSION_TTL_MS })).toString(
+    'base64url',
+  );
+  return `${payload}.${sign(payload, 'tiktok-review-unlock')}`;
+}
+
+export function tiktokUnlockIsValid(value: string | undefined): boolean {
+  if (!value) return false;
+  const [payload, signature] = value.split('.');
+  if (!payload || !signature) return false;
+  const expected = Buffer.from(sign(payload, 'tiktok-review-unlock'));
+  const given = Buffer.from(signature);
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return false;
+  try {
+    const { exp } = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
+      exp?: number;
+    };
+    return typeof exp === 'number' && exp > Date.now();
+  } catch {
+    return false;
+  }
 }
 
 export function issueTikTokState(): { state: string; nonce: string } {

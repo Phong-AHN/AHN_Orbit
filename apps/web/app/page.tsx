@@ -2,6 +2,11 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { clock } from '@orbit/core';
 import { cn } from '@orbit/ui';
+import { tiktokReviewEnabled } from '@/features/tiktok-review/session';
+import { TikTokReviewEntry } from '@/features/tiktok-review/ui/review-entry';
+
+// The TikTok review section depends on the environment and the query string.
+export const dynamic = 'force-dynamic';
 
 /**
  * The public homepage.
@@ -73,7 +78,15 @@ const STEPS: Array<{ title: string; body: string }> = [
   },
 ];
 
-export default function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const query = await searchParams;
+  const showTikTokReview = tiktokReviewEnabled();
+  const reviewError = typeof query.tiktok_review === 'string' ? query.tiktok_review : null;
+
   return (
     <div className="min-h-dvh bg-canvas text-ink">
       <header className="border-b border-line">
@@ -105,6 +118,11 @@ export default function HomePage() {
             <a href="#contact" className="hover:text-ink">
               Contact
             </a>
+            {showTikTokReview ? (
+              <a href="#tiktok-review" className="font-medium text-accent hover:underline">
+                TikTok review
+              </a>
+            ) : null}
           </nav>
           <Link
             href="/sign-in"
@@ -148,6 +166,8 @@ export default function HomePage() {
             </a>
           </div>
         </section>
+
+        {showTikTokReview ? <TikTokReviewEntry error={reviewError} /> : null}
 
         <section id="features" className="border-t border-line bg-surface">
           <div className="mx-auto max-w-6xl px-6 py-16">

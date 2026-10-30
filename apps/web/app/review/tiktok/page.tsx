@@ -1,12 +1,15 @@
 import type { Metadata } from 'next';
 import { cookies } from 'next/headers';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { TIKTOK_ANALYTICS_SCOPES, TIKTOK_PUBLISH_SCOPES } from '@orbit/providers/tiktok';
 import {
   TIKTOK_REVIEW_MAX_UPLOAD_BYTES,
   TIKTOK_REVIEW_SESSION_COOKIE,
+  TIKTOK_REVIEW_ENTRY,
+  TIKTOK_REVIEW_UNLOCK_COOKIE,
   openTikTokSession,
   tiktokReviewEnabled,
+  tiktokUnlockIsValid,
 } from '@/features/tiktok-review/session';
 import {
   getCreatorInfo,
@@ -32,7 +35,6 @@ interface PageProps {
 }
 
 const ERRORS: Record<string, string> = {
-  code: 'That access code is not correct. It is in our review notes.',
   consent: 'TikTok did not grant access. Start again and choose Authorize.',
   state: 'The sign-in link expired or was used twice. Start again.',
   token: 'TikTok did not return a token. Start again.',
@@ -61,7 +63,8 @@ const SCOPE_USE: Record<string, string> = {
  * The page TikTok's app reviewers use to test Social Square's TikTok
  * integration without a Social Square account. See
  * `features/tiktok-review/session.ts` for what it stores (nothing) and how it
- * is gated (an access code).
+ * is gated (the access code, entered in the homepage's "TikTok app review"
+ * section; without it this page sends the visitor there).
  */
 export default async function TikTokReviewPage({ searchParams }: PageProps) {
   if (!tiktokReviewEnabled()) notFound();
@@ -71,7 +74,12 @@ export default async function TikTokReviewPage({ searchParams }: PageProps) {
   const error = one('error');
   const published = one('published');
 
-  const session = openTikTokSession((await cookies()).get(TIKTOK_REVIEW_SESSION_COOKIE)?.value);
+  const jar = await cookies();
+  const session = openTikTokSession(jar.get(TIKTOK_REVIEW_SESSION_COOKIE)?.value);
+  // Only after the access code was entered on the homepage (or while connected).
+  if (!session && !tiktokUnlockIsValid(jar.get(TIKTOK_REVIEW_UNLOCK_COOKIE)?.value)) {
+    redirect(TIKTOK_REVIEW_ENTRY);
+  }
 
   let user: TikTokUser | null = null;
   let creator: CreatorInfo | null = null;
@@ -165,23 +173,11 @@ export default async function TikTokReviewPage({ searchParams }: PageProps) {
         {!session ? (
           <Section title="Step 1 — Connect a TikTok account">
             <P>
-              Enter the access code from our review notes. You will be taken to TikTok’s
-              authorization screen, which lists the scopes above. Choose Authorize to come back
-              here.
+              Your access code was accepted. Click below to go to TikTok’s authorization screen,
+              which lists the scopes above, sign in with any TikTok account and choose Authorize to
+              come back here.
             </P>
-            <form method="post" action="/review/tiktok/start" className="flex flex-wrap gap-3">
-              <label className="sr-only" htmlFor="tiktok-review-code">
-                Access code
-              </label>
-              <input
-                id="tiktok-review-code"
-                name="code"
-                type="password"
-                required
-                autoComplete="off"
-                placeholder="Access code"
-                className="w-64 rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink"
-              />
+            <form method="post" action="/review/tiktok/start">
               <button
                 type="submit"
                 className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-ink"

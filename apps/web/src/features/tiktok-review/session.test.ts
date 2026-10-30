@@ -53,3 +53,21 @@ describe('tiktok review session', () => {
     expect(openTikTokSession(sealTikTokSession({ ...live, expiresAt: Date.now() - 1 }))).toBeNull();
   });
 });
+
+describe('tiktok review unlock', () => {
+  it('is valid only as issued, and only until it expires', async () => {
+    const { issueTikTokUnlock, tiktokUnlockIsValid } = await import('./session');
+    const unlock = issueTikTokUnlock();
+    expect(tiktokUnlockIsValid(unlock)).toBe(true);
+    expect(tiktokUnlockIsValid(undefined)).toBe(false);
+    expect(tiktokUnlockIsValid(issueTikTokUnlock(Date.now() - 31 * 60 * 1000))).toBe(false);
+
+    const [, signature] = unlock.split('.');
+    const forever = Buffer.from(JSON.stringify({ exp: Date.now() + 1e12 })).toString('base64url');
+    expect(tiktokUnlockIsValid(`${forever}.${signature}`)).toBe(false);
+
+    // A state is not an unlock, though both are signed with the same secret.
+    const { state } = issueTikTokState();
+    expect(tiktokUnlockIsValid(state)).toBe(false);
+  });
+});
