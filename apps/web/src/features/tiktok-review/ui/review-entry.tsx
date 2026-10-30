@@ -28,7 +28,8 @@ export function TikTokReviewEntry({ error }: { error: string | null }) {
             Post) — without creating a Social Square account. It requests the same scopes as the
             product: <code className="font-mono">user.info.basic</code>,{' '}
             <code className="font-mono">user.info.profile</code>,{' '}
-            <code className="font-mono">video.publish</code> and{' '}
+            <code className="font-mono">video.publish</code>,{' '}
+            <code className="font-mono">video.upload</code> and{' '}
             <code className="font-mono">video.list</code>.
           </p>
 
@@ -51,8 +52,8 @@ export function TikTokReviewEntry({ error }: { error: string | null }) {
               <span className="font-mono text-xs text-accent">Step 3</span>
               <p className="mt-1 text-ink">
                 Follow the page: see the connected account, post a short video (MP4 under 4 MB —
-                choose <strong>Only me</strong> while the app is unaudited), see recent videos, then{' '}
-                <strong>Disconnect</strong>.
+                choose <strong>Only me</strong> while the app is unaudited), send one to your TikTok
+                inbox, see recent videos, then <strong>Disconnect</strong>.
               </p>
             </li>
           </ol>

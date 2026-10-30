@@ -205,3 +205,43 @@ export async function revokeTikTokToken(token: string): Promise<void> {
     signal: AbortSignal.timeout(15_000),
   }).catch(() => undefined);
 }
+
+/**
+ * `video.upload`: send a video to the creator's TikTok inbox, where they
+ * finish and post it themselves in TikTok's editor. No caption or privacy is
+ * sent — the creator chooses those in TikTok.
+ */
+export async function uploadToInbox(token: string, file: Blob): Promise<string> {
+  const size = file.size;
+  const init = await call<{ publish_id?: string; upload_url?: string }>(
+    '/v2/post/publish/inbox/video/init/',
+    token,
+    {
+      method: 'POST',
+      json: {
+        source_info: {
+          source: 'FILE_UPLOAD',
+          video_size: size,
+          chunk_size: size,
+          total_chunk_count: 1,
+        },
+      },
+    },
+  );
+  if (!init.publish_id || !init.upload_url) throw new Error('TikTok did not return an upload URL');
+
+  const upload = await fetch(init.upload_url, {
+    method: 'PUT',
+    headers: {
+      'content-type': file.type || 'video/mp4',
+      'content-length': String(size),
+      'content-range': `bytes 0-${size - 1}/${size}`,
+    },
+    body: new Uint8Array(await file.arrayBuffer()),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (![200, 201, 206].includes(upload.status)) {
+    throw new Error(`The video upload was refused (HTTP ${upload.status})`);
+  }
+  return init.publish_id;
+}

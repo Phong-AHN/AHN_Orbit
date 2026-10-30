@@ -231,7 +231,15 @@ export class TikTokProvider implements SocialProvider {
    * Business Login, and mixing them up produces an unhelpful "invalid scope".
    */
   getAuthorizationUrl(input: AuthorizationUrlInput): { url: string; scopes: readonly string[] } {
-    const base = input.accountType === 'UPLOAD_ONLY' ? TIKTOK_UPLOAD_SCOPES : TIKTOK_PUBLISH_SCOPES;
+    // A normal connection asks for both posting scopes, because the composer
+    // offers both modes on every TikTok account: "Post it" (Direct Post,
+    // video.publish) and "Send to TikTok for them to finish" (inbox upload,
+    // video.upload). Asking only for video.publish made the second mode fail
+    // with scope_not_authorized on every account (found 2026-10-30).
+    const base =
+      input.accountType === 'UPLOAD_ONLY'
+        ? TIKTOK_UPLOAD_SCOPES
+        : [...TIKTOK_PUBLISH_SCOPES, 'video.upload'];
     const scopes = [
       ...new Set([...base, ...TIKTOK_ANALYTICS_SCOPES, ...(input.extraScopes ?? [])]),
     ];
@@ -582,6 +590,18 @@ export class TikTokProvider implements SocialProvider {
     }
 
     const settings = readSettings(ctx.draft);
+
+    // An account connected before video.upload was requested cannot use the
+    // inbox mode. Said plainly, rather than left to TikTok's scope error.
+    if (settings.postMode === 'MEDIA_UPLOAD' && !ctx.credential.scopes.includes('video.upload')) {
+      throw toAppError('TIKTOK', {
+        kind: 'PERMISSION',
+        message: 'MEDIA_UPLOAD needs video.upload, which this connection did not grant',
+        userMessage:
+          'Sending to TikTok for the creator to finish needs a permission this account has not granted yet. Reconnect the TikTok account, or choose "Post it".',
+      });
+    }
+
     const videos = ctx.media.filter((item) => item.kind === 'VIDEO');
     const images = ctx.media.filter((item) => item.kind === 'IMAGE');
 

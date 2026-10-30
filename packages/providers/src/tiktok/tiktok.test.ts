@@ -225,6 +225,8 @@ describe('authorization', () => {
     });
 
     expect(scopes).toContain('video.publish');
+    // The composer's "Send to TikTok" mode needs the inbox scope too.
+    expect(scopes).toContain('video.upload');
     // Comma here. Instagram's Business Login uses spaces, and swapping them
     // produces an unhelpful "invalid scope".
     expect(new URL(url).searchParams.get('scope')).toBe(scopes.join(','));
@@ -790,6 +792,7 @@ describe('upload mode', () => {
 
   const uploadContext = () =>
     publishContext({
+      credential: { ...credential, scopes: [...credential.scopes, 'video.upload'] },
       draft: {
         body: 'For review',
         hashtags: [],
@@ -798,6 +801,14 @@ describe('upload mode', () => {
         providerOptions: { postMode: 'MEDIA_UPLOAD' },
       },
     });
+
+  it('asks for a reconnect when the account never granted video.upload', async () => {
+    const local = inboxApi();
+    await expect(provider(local).publish({ ...uploadContext(), credential })).rejects.toMatchObject(
+      { userMessage: expect.stringContaining('Reconnect the TikTok account') },
+    );
+    expect(local.called(/inbox\/video\/init/)).toBe(0);
+  });
 
   it('never asks for creator info, because nothing is being posted', async () => {
     const local = inboxApi().ok(/status\/fetch/, { status: 'SEND_TO_USER_INBOX' });

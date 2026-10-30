@@ -11,8 +11,13 @@ Social Square.
   `/review/tiktok` khi chưa nhập mã sẽ bị đưa về mục đó. Sai mã quá 10 lần / 10 phút
   mỗi IP bị chặn tạm.
 - Không lưu gì: token nằm trong cookie mã hoá 30 phút, scope `/review/tiktok`.
-- Xin **đúng scope của sản phẩm** (lấy từ adapter TikTok): `user.info.basic`,
-  `user.info.profile`, `video.publish`, `video.list`.
+- Xin **đúng scope của sản phẩm** (đọc trực tiếp từ adapter TikTok): `user.info.basic`,
+  `user.info.profile`, `video.publish`, `video.upload`, `video.list`.
+- `video.upload` là cho chế độ **"Send to TikTok for them to finish"** của composer
+  (video vào hộp thư TikTok, creator tự hoàn tất). Từ 2026-10-30 sản phẩm xin cả
+  `video.publish` và `video.upload` khi kết nối; trước đó chỉ xin `video.publish` nên chế
+  độ này bị TikTok từ chối. **Tài khoản TikTok đã kết nối trước đó phải Reconnect** mới
+  dùng được chế độ inbox. Trong TikTok Portal phải bật cả `video.upload`.
 - Form đăng làm đúng **Content Posting UX guidelines** của TikTok: hiện nickname,
   quyền riêng tư không có giá trị mặc định, Comment/Duet/Stitch mặc định tắt (và
   khoá nếu creator đã tắt trong TikTok), commercial content disclosure, dòng đồng ý
@@ -42,7 +47,9 @@ Code: `apps/web/app/review/tiktok/`, `apps/web/src/features/tiktok-review/`.
    không có mặc định) → Comment/Duet/Stitch → bật *Disclose video content* để thấy
    hai lựa chọn rồi tắt lại → tick đồng ý → **Post to TikTok** → thông báo publish ID.
 5. Mở app TikTok trên điện thoại / tiktok.com: video đã lên (Only me).
-6. Step 4: danh sách video và lượt xem (video.list) → Step 5: **Disconnect**.
+6. Step 4: chọn video → **Send to my TikTok inbox** → mở app TikTok thấy thông báo
+   (video.upload).
+7. Step 5: danh sách video và lượt xem (video.list) → Step 6: **Disconnect**.
 
 ## Review notes (tiếng Anh — điền mã)
 
@@ -55,8 +62,9 @@ Code: `apps/web/app/review/tiktok/`, `apps/web/src/features/tiktok-review/`.
 > 3. Step 3: choose a short MP4 under 4 MB, pick who can view (no default), set
 >    interaction and disclosure options, agree to the Music Usage Confirmation and
 >    click "Post to TikTok" (video.publish, Direct Post). Use "Only me" while unaudited.
-> 4. Step 4 lists recent videos with view counts (video.list).
-> 5. "Disconnect and revoke access" revokes the token. Nothing is stored.
+> 4. Step 4 sends a video to your TikTok inbox to finish in the TikTok app (video.upload).
+> 5. Step 5 lists recent videos with view counts (video.list).
+> 6. "Disconnect and revoke access" revokes the token. Nothing is stored.
 
 ## Còn thiếu trong sản phẩm (không phải trang test)
 

@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import { cookies } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
-import { TIKTOK_ANALYTICS_SCOPES, TIKTOK_PUBLISH_SCOPES } from '@orbit/providers/tiktok';
+import { getProvider } from '@orbit/providers';
+import { ensureProvidersRegistered } from '@/server/providers';
 import {
   TIKTOK_REVIEW_MAX_UPLOAD_BYTES,
   TIKTOK_REVIEW_SESSION_COOKIE,
@@ -9,6 +10,7 @@ import {
   TIKTOK_REVIEW_UNLOCK_COOKIE,
   openTikTokSession,
   tiktokReviewEnabled,
+  tiktokReviewRedirectUri,
   tiktokUnlockIsValid,
 } from '@/features/tiktok-review/session';
 import {
@@ -47,6 +49,8 @@ const ERRORS: Record<string, string> = {
   disclosure: 'With disclosure on, choose “Your brand”, “Branded content”, or both.',
   branded_private: 'Branded content cannot be posted as “Only me”. Choose another audience.',
   post: 'TikTok did not accept the post.',
+  upload_scope:
+    'This connection did not grant video.upload. Disconnect, connect again and approve all permissions.',
 };
 
 const SCOPE_USE: Record<string, string> = {
@@ -55,6 +59,8 @@ const SCOPE_USE: Record<string, string> = {
   'user.info.profile': 'Show the account’s @username next to its name.',
   'video.publish':
     'Publish a video the agency created and the client approved, directly to the account, with the privacy and interaction settings the user chooses.',
+  'video.upload':
+    'Send a video to the account’s TikTok inbox instead, so the creator finishes the caption and settings and posts it themselves in TikTok (the product’s “Send to TikTok for them to finish” option).',
   'video.list':
     'List the account’s recent videos and their view and like counts, for the client’s performance report.',
 };
@@ -73,6 +79,7 @@ export default async function TikTokReviewPage({ searchParams }: PageProps) {
   const one = (key: string) => (typeof params[key] === 'string' ? (params[key] as string) : null);
   const error = one('error');
   const published = one('published');
+  const inbox = one('inbox');
 
   const jar = await cookies();
   const session = openTikTokSession(jar.get(TIKTOK_REVIEW_SESSION_COOKIE)?.value);
@@ -100,7 +107,12 @@ export default async function TikTokReviewPage({ searchParams }: PageProps) {
     }
   }
 
-  const scopes = [...new Set([...TIKTOK_PUBLISH_SCOPES, ...TIKTOK_ANALYTICS_SCOPES])];
+  // Exactly what the product's TikTok adapter asks for, read from it.
+  ensureProvidersRegistered();
+  const { scopes } = getProvider('TIKTOK').getAuthorizationUrl({
+    redirectUri: tiktokReviewRedirectUri(),
+    state: 'scope-list',
+  });
 
   return (
     <main id="main" className="mx-auto max-w-3xl px-6 py-16">
@@ -143,6 +155,16 @@ export default async function TikTokReviewPage({ searchParams }: PageProps) {
             </>
           ) : null}
           . TikTok can take a few minutes to process the video; reload to see the latest status.
+        </p>
+      ) : null}
+      {inbox ? (
+        <p
+          role="status"
+          className="mb-6 rounded-md border border-line bg-success-soft px-4 py-3 text-sm text-ink"
+        >
+          Sent to your TikTok inbox (publish ID <code className="font-mono">{inbox}</code>). Open
+          the TikTok app and tap the notification to edit and post it — nothing is public until you
+          do.
         </p>
       ) : null}
       {one('disconnected') ? (
@@ -231,7 +253,42 @@ export default async function TikTokReviewPage({ searchParams }: PageProps) {
               />
             </Section>
 
-            <Section title="Step 4 — Recent videos (video.list)">
+            <Section title="Step 4 — Send to TikTok to finish there (video.upload)">
+              <P>
+                The other way Social Square can hand a video to TikTok: it lands in the account’s
+                TikTok inbox, and the creator writes the caption, chooses the settings and posts it
+                in TikTok’s own editor. No caption or privacy is sent from here.
+              </P>
+              <form
+                method="post"
+                action="/review/tiktok/upload"
+                encType="multipart/form-data"
+                className="space-y-3 rounded-md border border-line bg-surface p-4 text-sm"
+              >
+                <label className="block">
+                  <span className="font-medium text-ink">Video</span>
+                  <input
+                    name="video"
+                    type="file"
+                    accept="video/mp4,video/quicktime,video/webm"
+                    required
+                    className="mt-1 block text-sm"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="rounded-md border border-line px-4 py-2 font-medium text-ink"
+                >
+                  Send to my TikTok inbox
+                </button>
+                <p className="text-xs text-ink-muted">
+                  TikTok then shows a notification in the app. Under{' '}
+                  {TIKTOK_REVIEW_MAX_UPLOAD_BYTES / 1024 / 1024} MB.
+                </p>
+              </form>
+            </Section>
+
+            <Section title="Step 5 — Recent videos (video.list)">
               {videos.length === 0 ? (
                 <P>No videos yet, or TikTok has not finished processing the new one.</P>
               ) : (
@@ -257,7 +314,7 @@ export default async function TikTokReviewPage({ searchParams }: PageProps) {
               )}
             </Section>
 
-            <Section title="Step 5 — Disconnect">
+            <Section title="Step 6 — Disconnect">
               <P>Revokes Social Square’s access with TikTok, as Disconnect does in the product.</P>
               <Disconnect />
             </Section>
