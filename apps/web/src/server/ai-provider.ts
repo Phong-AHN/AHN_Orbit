@@ -1,6 +1,12 @@
 import { serverEnv } from '@orbit/config';
 import { logger } from '@orbit/observability';
-import { MockAIProvider, createAIProvider, type AIProvider } from '@orbit/ai';
+import {
+  GeminiAgentModel,
+  MockAIProvider,
+  createAIProvider,
+  type AIProvider,
+  type AgentModel,
+} from '@orbit/ai';
 
 /**
  * Which AI provider this process talks to (T4.2).
@@ -40,4 +46,28 @@ export function aiProvider(): AIProvider {
 /** Test seam, mirroring `resetRegistry` in the provider package. */
 export function resetAIProvider(): void {
   cached = undefined;
+  copilotOverride = undefined;
+}
+
+let copilotOverride: AgentModel | null | undefined;
+
+/**
+ * The tool-calling model behind the in-app Copilot (D-109 phase 5), or `null`.
+ *
+ * Only on Gemini's **paid** tier. On the free tier Google may use what is sent
+ * to improve its products, and a Copilot sends a client's posts, analytics and
+ * messages — so with `GEMINI_TIER=free` the Copilot is simply unavailable
+ * rather than quietly sharing that. The MCP server is unaffected: there the
+ * model is the person's own AI app.
+ */
+export function copilotModel(): AgentModel | null {
+  if (copilotOverride !== undefined) return copilotOverride;
+  const env = serverEnv();
+  if (!env.GEMINI_API_KEY || env.GEMINI_TIER !== 'paid') return null;
+  return new GeminiAgentModel({ apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL });
+}
+
+/** Test seam: a scripted model, or `null` for "unavailable". */
+export function setCopilotModel(model: AgentModel | null): void {
+  copilotOverride = model;
 }

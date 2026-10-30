@@ -915,7 +915,8 @@ bình thường.
 (chính mục này) — Vercel build không chạy. File nằm trong repo không có nghĩa là
 nó đã được áp dụng.
 
-**Đang chờ: `20261030000000_ai_agents`** (2026-10-30, **D-109** — AI agent qua MCP). Chạy
+**Đang chờ: `20261030000000_ai_agents` và `20261030010000_copilot_threads`** (2026-10-30,
+**D-109** — AI agent qua MCP và Copilot). Copilot chỉ bật khi `GEMINI_TIER=paid`. Chạy
 xong mới đặt `AGENT_ENABLED_ORGS` trên Vercel (ví dụ `ahn` để chỉ bật cho AHN trước); thiếu biến
 này agent tắt hoàn toàn, nên deploy code trước migration vẫn an toàn.
 

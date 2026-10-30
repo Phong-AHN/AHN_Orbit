@@ -433,6 +433,7 @@ describe('safety', () => {
       conversations: 0,
       decisions: 0,
       storageFailures: 0,
+      agentRows: 0,
     });
   });
 });

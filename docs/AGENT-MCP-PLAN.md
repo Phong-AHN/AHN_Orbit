@@ -1,8 +1,10 @@
 # Social Square Agent — kế hoạch tích hợp MCP và trợ lý chat
 
 > Trạng thái: **đã chốt (D-109)** — chủ dự án chấp nhận toàn bộ đề xuất ở §15 ngày 2026-10-30.
-> Phase 1–3 đã code (tool layer, MCP server + OAuth, xác nhận hành động); phase 4–5 chưa.
-> Migration `20261030000000_ai_agents` **chưa chạy production**. Cập nhật: 2026-10-30.
+> Phase 1–5 đã code: tool layer, MCP server + OAuth, xác nhận hành động, công cụ AI mới,
+> Copilot trong app (chỉ bật khi `GEMINI_TIER=paid`). Chưa làm: adapter Claude, streaming, đính
+> file trong Copilot. Migration `20261030000000_ai_agents` và `20261030010000_copilot_threads`
+> **chưa chạy production**. Cập nhật: 2026-10-30.
 >
 > Khác với bản đề xuất khi code:
 > - Tool **gọi chính route handler REST** trong process (`runAsAgent`), không gọi service trực

@@ -162,8 +162,9 @@ export async function assertAIAllowance(ctx: TenantContext): Promise<void> {
 
 /** Record one model call, spent whether or not it succeeded. */
 export async function recordAIUsage(
-  input: GenerationContext,
-  provider: AIProvider,
+  // A Copilot turn spans brands, so it is metered against none (D-109).
+  input: Omit<GenerationContext, 'brandId'> & { brandId: string | null },
+  provider: Pick<AIProvider, 'model'>,
   usage: { inputTokens: number; outputTokens: number; latencyMs: number; succeeded: boolean },
 ): Promise<void> {
   const { ctx, brandId, operation } = input;

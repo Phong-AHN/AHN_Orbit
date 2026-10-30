@@ -300,6 +300,7 @@ model User {
   agentGrants             AgentGrant[]             @relation("AgentGrantUser")
   revokedAgentGrants      AgentGrant[]             @relation("AgentGrantRevoker")
   agentActions            AgentAction[]
+  agentThreads            AgentThread[]
   uploadedMedia           MediaAsset[]
   connectedAccounts       SocialAccount[]
   notifications           Notification[]
@@ -350,6 +351,7 @@ model Organization {
   agentGrants             AgentGrant[]
   agentTokens             AgentToken[]
   agentActions            AgentAction[]
+  agentThreads            AgentThread[]
   queueSlots              QueueSlot[]
   publishingJobs          PublishingJob[]
   publishingAttempts      PublishingAttempt[]
@@ -1622,6 +1624,28 @@ model AgentAction {
   @@unique([organizationId, id])
   @@index([organizationId, userId, status])
   @@index([expiresAt])
+}
+
+/// One Copilot conversation (D-109 phase 5). Private to the person who had it:
+/// nobody else — not an Owner — reads another person's thread.
+model AgentThread {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId String   @db.Uuid
+  userId         String   @db.Uuid
+  title          String
+  /// What the person sees: their messages, the replies, tool steps, actions.
+  messages       Json     @default("[]")
+  /// The model's own turn history, replayed on the next message.
+  modelHistory   Json     @default("[]")
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, userId, updatedAt])
+  @@index([updatedAt])
 }
 
 model WebhookEvent {

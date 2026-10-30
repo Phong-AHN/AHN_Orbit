@@ -90,6 +90,8 @@ export interface RetentionResult {
   decisions: number;
   /** Objects we could not reach. The rows stay for the next pass. */
   storageFailures: number;
+  /** Copilot threads, agent actions and spent OAuth codes and tokens (D-109). */
+  agentRows: number;
 }
 
 /**
@@ -111,6 +113,33 @@ export function messageCutoff(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - MESSAGE_RETENTION_MONTHS, 1));
 }
 
+/** How long a Copilot thread and a decided agent action are kept (D-109 §15). */
+export const AGENT_RETENTION_DAYS = 90;
+
+const DAY_MS = 24 * 60 * 60_000;
+
+/**
+ * Agent data past its boundary (D-109).
+ *
+ * Copilot threads idle for 90 days and agent actions older than 90 days, plus
+ * authorization codes and tokens a day past their expiry — those can no longer
+ * be used by anyone, and a refresh token's reuse detection ends with its
+ * lifetime anyway. Across all tenants in one statement each: these are
+ * bounded, short-lived rows, and nothing in them is the client's content that
+ * an audit row per organization would need to explain.
+ */
+export async function sweepAgentData(now: Date): Promise<number> {
+  const before = new Date(now.getTime() - AGENT_RETENTION_DAYS * DAY_MS);
+  const spent = new Date(now.getTime() - DAY_MS);
+  const counts = await Promise.all([
+    platformDb.agentThread.deleteMany({ where: { updatedAt: { lt: before } } }),
+    platformDb.agentAction.deleteMany({ where: { createdAt: { lt: before } } }),
+    platformDb.agentAuthorizationCode.deleteMany({ where: { expiresAt: { lt: spent } } }),
+    platformDb.agentToken.deleteMany({ where: { expiresAt: { lt: spent } } }),
+  ]);
+  return counts.reduce((sum, { count }) => sum + count, 0);
+}
+
 export async function sweepRetention(correlationId: string): Promise<RetentionResult> {
   const now = clock.now();
   const cutoff = analyticsCutoff(now);
@@ -125,7 +154,16 @@ export async function sweepRetention(correlationId: string): Promise<RetentionRe
     conversations: 0,
     decisions: 0,
     storageFailures: 0,
+    agentRows: 0,
   };
+
+  try {
+    result.agentRows = await sweepAgentData(now);
+  } catch (error) {
+    logger.error('retention sweep failed for agent data', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   // Ids only, and only for organizations that actually have something to
   // remove — there is no reason to open a tenant context for an agency with
@@ -167,7 +205,8 @@ export async function sweepRetention(correlationId: string): Promise<RetentionRe
     result.reports > 0 ||
     result.messages > 0 ||
     result.conversations > 0 ||
-    result.decisions > 0
+    result.decisions > 0 ||
+    result.agentRows > 0
   ) {
     logger.info('retention sweep complete', { ...result, cutoff: cutoff.toISOString() });
   }

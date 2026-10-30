@@ -58,3 +58,14 @@ export {
   type ResearchResult,
   type ResearchSource,
 } from './planning.js';
+export {
+  GeminiAgentModel,
+  ScriptedAgentModel,
+  toGeminiSchema,
+  type AgentModel,
+  type AgentStep,
+  type AgentToolCall,
+  type AgentToolResult,
+  type AgentToolSpec,
+  type GeminiAgentOptions,
+} from './agent-model.js';

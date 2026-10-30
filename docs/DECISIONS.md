@@ -4363,11 +4363,37 @@ before the model reads them, and the server instructions say so. The defence
 that does not depend on the model is the confirmation: an injected "publish
 this everywhere" produces at most a card the person rejects.
 
+### Phase 4 — planning tools
+
+- `generate_ideas` saves up to 20 ideas as `SUGGESTED`, grounded on the
+  Brand Brain and the brand's best posts of the last 90 days.
+- `research_topic` uses Gemini with Google Search grounding; its sources are
+  the grounding metadata's, and an answer with none is refused. Only the
+  question leaves Social Square.
+- `suggest_posting_times` is computed, not generated: average interactions by
+  weekday and hour, and `NOT_ENOUGH_DATA` under 15 measured posts.
+- `explain_performance` computes the figures; the model only narrates, and a
+  narration containing a number that is not in the figures is dropped.
+- `suggest_comment_reply` runs the D-108 pipeline on a public comment.
+
+### Phase 5 — the Copilot
+
+`/orgs/{org}/copilot` runs the same registry in process with a `COPILOT`
+delegation (all four scopes, still under the person's role). The model is
+ours, so it is metered — one AI credit per message — and it runs **only on
+Gemini's paid tier** (`GEMINI_TIER=paid`): on the free tier Google may use
+what is sent, and a Copilot sends clients' data. Without it the page says so
+and points to Connected AI apps. Prepared actions appear as cards under the
+reply, confirmed through the same routes as the actions page. Threads are
+private to their person — an Owner cannot read them — and, with decided
+actions, kept 90 days (worker retention sweep).
+
 ### Not done yet
 
-Phase 4 (idea generation, research, best posting times, explained analytics)
-and phase 5 (the in-app Copilot) of the plan. The migration
-`20261030000000_ai_agents` is **not applied to production**.
+A Claude adapter for `AgentModel` (the interface allows it), streaming
+replies, and file attachments in the Copilot. Migrations
+`20261030000000_ai_agents` and `20261030010000_copilot_threads` are **not
+applied to production**.
 
 ## Known residual gaps
 
