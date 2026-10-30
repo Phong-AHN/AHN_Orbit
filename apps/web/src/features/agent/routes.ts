@@ -76,6 +76,7 @@ export const ROUTES = {
   calendar: load(() => import('../../../app/api/v1/orgs/[orgSlug]/calendar/route')),
   queueSlots: load(() => import('../../../app/api/v1/orgs/[orgSlug]/queue-slots/route')),
   media: load(() => import('../../../app/api/v1/orgs/[orgSlug]/media/route')),
+  mediaGenerate: load(() => import('../../../app/api/v1/orgs/[orgSlug]/media/generate/route')),
   conversations: load(() => import('../../../app/api/v1/orgs/[orgSlug]/messages/route')),
   conversation: load(
     () => import('../../../app/api/v1/orgs/[orgSlug]/messages/[conversationId]/route'),

@@ -30,6 +30,7 @@ import {
   hashtagRequestSchema,
   rewriteRequestSchema,
 } from '@/features/ai/contracts';
+import { generateImageSchema } from '@/features/media/generate';
 import type { RouteCall } from './dispatch';
 import type { AgentTool, PreparedAction } from './types';
 
@@ -306,6 +307,17 @@ const content = [
       q: z.string().max(200).optional(),
     }),
     run: (query, call) => call.get('media', {}, query),
+  }),
+  tool({
+    name: 'generate_image',
+    title: 'Generate an image',
+    description:
+      'Creates an image with AI for a brand and saves it to the media library (tagged ai-generated). Describe the subject, setting, mood and style in prompt; choose aspectRatio for the platform (1:1 or 4:5 for Instagram feed, 9:16 for Stories/Reels/TikTok, 16:9 for YouTube/LinkedIn). It never shows real people or other brands’ logos, and contains no text unless textInImage is given. Returns asset.id: attach it with update_post changes.media = [{ mediaAssetId }]. Spends one AI credit. Show the user the image before publishing.',
+    tier: 'AI',
+    scope: 'content',
+    permission: 'media:upload',
+    input: generateImageSchema,
+    run: (body, call) => call.send('mediaGenerate', 'POST', {}, { body }),
   }),
   tool({
     name: 'add_internal_comment',

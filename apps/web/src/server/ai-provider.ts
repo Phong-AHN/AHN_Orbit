@@ -32,6 +32,7 @@ export function aiProvider(): AIProvider {
   cached = createAIProvider({
     apiKey: env.GEMINI_API_KEY,
     model: env.GEMINI_MODEL,
+    imageModel: env.GEMINI_IMAGE_MODEL,
     production: env.APP_ENV === 'production',
   });
 

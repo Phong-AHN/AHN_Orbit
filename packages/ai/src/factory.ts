@@ -18,9 +18,16 @@ import type { AIProvider, BrandContext } from './types.js';
 export function createAIProvider(config: {
   apiKey: string | undefined;
   model: string;
+  imageModel?: string | undefined;
   production: boolean;
 }): AIProvider {
-  if (config.apiKey) return new GeminiProvider({ apiKey: config.apiKey, model: config.model });
+  if (config.apiKey) {
+    return new GeminiProvider({
+      apiKey: config.apiKey,
+      model: config.model,
+      ...(config.imageModel ? { imageModel: config.imageModel } : {}),
+    });
+  }
 
   if (config.production) {
     throw new InternalError('GEMINI_API_KEY is not set', {

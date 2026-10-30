@@ -6,6 +6,7 @@ import { ApiError } from '@/features/posts/ui/api';
 import { completeUpload, presignUpload, putToStorage, viewUrl } from './api';
 import { describeFacts, formatType, type MediaFacts } from './facts';
 import { LibraryPicker } from './library-picker';
+import { GenerateImage } from './generate-image';
 import {
   SLIDE_DRAG_TYPE,
   attachmentLimits,
@@ -458,6 +459,15 @@ export function MediaPanel({
                     .map(itemFromAsset),
                 ])
               }
+            />
+
+            {/* An AI image lands in the library like an upload, and is attached here (D-110). */}
+            <GenerateImage
+              orgSlug={orgSlug}
+              target={{ workspaceId, brandId }}
+              disabled={locked}
+              confirmLabel="Attach to post"
+              onGenerated={(asset) => onChange([...items, itemFromAsset(asset)])}
             />
 
             <span className="text-xs text-ink-muted">

@@ -12,6 +12,7 @@ import {
   rewritePrompt,
 } from './prompt.js';
 import { assistantPrompt } from './assistant.js';
+import { imagePrompt, type GeneratedImage, type ImageInput } from './images.js';
 import {
   IDEAS_RESPONSE_SCHEMA,
   MAX_IDEAS,
@@ -52,6 +53,8 @@ import type {
 export interface GeminiOptions {
   apiKey: string;
   model: string;
+  /** The image model (D-110). Separate: text and image models are different products. */
+  imageModel?: string;
   /** Injectable for tests, so nothing here ever needs a network or a key. */
   fetchImpl?: typeof fetch;
   baseUrl?: string;
@@ -249,6 +252,88 @@ export class GeminiProvider implements AIProvider {
   async explainPerformance(input: ExplainInput): Promise<AIResult<string>> {
     const result = await this.generate(explainPrompt(input), input.signal, { temperature: 0.2 });
     return this.finish(clean(result.text), result, input.brand?.bannedTerms ?? []);
+  }
+
+  /**
+   * An image, from Gemini's image model (D-110).
+   *
+   * Every image Google generates carries its SynthID watermark. A refusal —
+   * the safety filter, or a reply with text and no image — is a normal outcome
+   * and comes back as a validation error the person can act on.
+   */
+  async generateImage(input: ImageInput): Promise<AIResult<GeneratedImage>> {
+    const model = this.options.imageModel ?? 'gemini-2.5-flash-image';
+    const started = Date.now();
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () => controller.abort(),
+      Math.max(this.options.timeoutMs ?? 0, 60_000),
+    );
+    const onAbort = () => controller.abort();
+    input.signal?.addEventListener('abort', onAbort, { once: true });
+
+    let response: Response;
+    try {
+      response = await this.fetchImpl(
+        // Built here and never stored: the key is in it.
+        `${this.baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(this.options.apiKey)}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: imagePrompt(input) }] }],
+            generationConfig: {
+              responseModalities: ['IMAGE'],
+              imageConfig: { aspectRatio: input.aspectRatio },
+              candidateCount: 1,
+            },
+          }),
+          signal: controller.signal,
+        },
+      );
+    } catch (error) {
+      throw new ProviderUnavailableError('Could not reach the image model', {
+        cause: error instanceof Error ? error : undefined,
+        userMessage: 'The image generator is not responding. Try again in a moment.',
+      });
+    } finally {
+      clearTimeout(timer);
+      input.signal?.removeEventListener('abort', onAbort);
+    }
+
+    const body = (await response.json().catch(() => ({}))) as {
+      candidates?: Array<{
+        content?: { parts?: Array<{ inlineData?: { mimeType?: string; data?: string } }> };
+        finishReason?: string;
+      }>;
+      promptFeedback?: { blockReason?: string };
+      usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+    };
+    if (!response.ok) throw this.toError(response.status, body as GeminiResponse);
+
+    const candidate = body.candidates?.[0];
+    const image = candidate?.content?.parts?.find((part) => part.inlineData?.data)?.inlineData;
+    if (!image?.data) {
+      const blocked = body.promptFeedback?.blockReason ?? candidate?.finishReason;
+      throw new ProviderValidationError(`No image returned (${blocked ?? 'unknown'})`, {
+        userMessage:
+          blocked && blocked !== 'STOP'
+            ? 'The image generator declined that description. Try describing it differently.'
+            : 'No image came back. Try again, or describe it differently.',
+      });
+    }
+
+    return {
+      value: {
+        mimeType: image.mimeType ?? 'image/png',
+        bytes: new Uint8Array(Buffer.from(image.data, 'base64')),
+      },
+      model,
+      inputTokens: body.usageMetadata?.promptTokenCount ?? 0,
+      outputTokens: body.usageMetadata?.candidatesTokenCount ?? 0,
+      latencyMs: Date.now() - started,
+      bannedTermHits: [],
+    };
   }
 
   async generateHashtags(input: HashtagInput): Promise<AIResult<string[]>> {

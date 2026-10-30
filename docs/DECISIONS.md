@@ -4396,6 +4396,34 @@ A Claude adapter for `AgentModel` (the interface allows it), streaming
 replies, and file attachments in the Copilot. Migrations
 `20261030000000_ai_agents` and `20261030010000_copilot_threads` are applied to production on 2026-10-30.
 
+## D-110 — Generating images for posts
+
+The owner asked to be able to create images with AI and use them in posts.
+
+- **Gemini's image model** (`GEMINI_IMAGE_MODEL`, default
+  `gemini-2.5-flash-image`), on the same key as the rest of the AI. One AI
+  credit per image, through `runGeneration`, grounded on the Brand Brain.
+- **The prompt is ours around the person's words**: no real, identifiable
+  people, no other companies' logos or trademarks, nothing sexual or violent,
+  and no text in the image unless the person asks for exact text — image
+  models misspell, and a misspelt word on a client's post is worse than none.
+- **Stored through the upload pipeline, as JPEG.** The server converts the
+  image to JPEG (Instagram publishes JPEG only; SynthID survives because it is
+  in the pixels), then `presignMediaUpload` reserves the row and checks the
+  plan's storage, the server writes the object, and `completeMediaUpload`
+  sniffs and measures it and audits it. A generated image is held to exactly
+  the rules of an upload.
+- **Tagged `ai-generated`**, with a `media.ai_generated` audit row carrying
+  the prompt, because Meta and TikTok ask that realistic AI images be
+  labelled when published.
+- From the composer ("Generate image", attached to the post), the media
+  library, and the `generate_image` agent tool (`content` scope:
+  `media:upload` and `ai:generate`, as for an upload plus a generation).
+  Nothing here publishes.
+
+Not verified against the live model yet: Google's image models and their
+free-tier limits change, so the model id is configuration.
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

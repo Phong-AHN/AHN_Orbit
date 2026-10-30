@@ -1,4 +1,5 @@
 import { findBannedTerms } from './prompt.js';
+import type { GeneratedImage, ImageInput } from './images.js';
 import type {
   ExplainInput,
   GeneratedIdea,
@@ -154,6 +155,22 @@ export class MockAIProvider implements AIProvider {
       ? `${first.label} was ${first.current} this period.`
       : 'No metrics were reported for this period.';
     return this.result(text, input);
+  }
+
+  /** A real 1×1 PNG, so the media pipeline's verification runs on it as on any image. */
+  async generateImage(input: ImageInput): Promise<AIResult<GeneratedImage>> {
+    return {
+      ...this.result('', { brand: input.brand }),
+      value: {
+        mimeType: 'image/png',
+        bytes: new Uint8Array(
+          Buffer.from(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+            'base64',
+          ),
+        ),
+      },
+    };
   }
 
   private result(

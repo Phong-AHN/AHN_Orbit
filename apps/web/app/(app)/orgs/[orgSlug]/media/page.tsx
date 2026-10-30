@@ -7,6 +7,7 @@ import { folderPath, listFolders } from '@/features/media/folders';
 import { listWorkspacesWithBrands } from '@/features/tenancy/service';
 import { MediaFilters } from '@/features/media/ui/media-filters';
 import { Library } from '@/features/media/ui/library';
+import { LibraryGenerateImage } from '@/features/media/ui/generate-image';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,6 +83,21 @@ export default async function MediaPage({ params, searchParams }: PageProps) {
         title="Media"
         description="Everything uploaded across your clients. Attach from here instead of uploading twice."
       />
+
+      {pageCanSomewhere(ctx, 'media:upload') && pageCanSomewhere(ctx, 'ai:generate') ? (
+        <div className="mt-6 flex justify-end">
+          <LibraryGenerateImage
+            orgSlug={orgSlug}
+            brands={workspaces.flatMap((workspace) =>
+              workspace.brands.map((brand) => ({
+                id: brand.id,
+                workspaceId: workspace.id,
+                label: `${workspace.name} · ${brand.name}`,
+              })),
+            )}
+          />
+        </div>
+      ) : null}
 
       <MediaFilters
         brands={brands}

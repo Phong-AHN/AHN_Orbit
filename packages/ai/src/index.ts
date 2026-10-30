@@ -46,6 +46,13 @@ export {
 } from './assistant.js';
 export { createAIProvider, toBrandContext } from './factory.js';
 export {
+  IMAGE_ASPECT_RATIOS,
+  imagePrompt,
+  type GeneratedImage,
+  type ImageAspectRatio,
+  type ImageInput,
+} from './images.js';
+export {
   MAX_IDEAS,
   explanationIsGrounded,
   numbersIn,

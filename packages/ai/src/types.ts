@@ -1,3 +1,4 @@
+import type { GeneratedImage, ImageInput } from './images.js';
 import type {
   ExplainInput,
   GeneratedIdea,
@@ -161,4 +162,10 @@ export interface AIProvider {
    * check it with `explanationIsGrounded` before showing it.
    */
   explainPerformance(input: ExplainInput): Promise<AIResult<string>>;
+
+  /**
+   * An image for a post (D-110). Bytes only: the caller stores them through
+   * the media pipeline, which verifies them like any upload.
+   */
+  generateImage(input: ImageInput): Promise<AIResult<GeneratedImage>>;
 }

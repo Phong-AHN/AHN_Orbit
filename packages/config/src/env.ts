@@ -315,6 +315,12 @@ export const serverEnvSchema = z.object({
    */
   GEMINI_MODEL: z.string().default('gemini-3.6-flash'),
   /**
+   * The image model behind "Generate image" (D-110). Separate from the text
+   * model because they are different products with different prices and
+   * limits; check Google's current model list before changing it.
+   */
+  GEMINI_IMAGE_MODEL: z.string().default('gemini-2.5-flash-image'),
+  /**
    * Which Gemini terms the key is under (D-108). `free` until somebody says
    * otherwise, because that is the cautious reading.
    *
