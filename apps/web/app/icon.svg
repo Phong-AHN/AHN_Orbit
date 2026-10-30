@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>Social Square</title>
+  <rect width="512" height="512" rx="112" fill="#2B5535"/>
+  <rect x="112" y="112" width="128" height="128" rx="30" fill="#F7F8EF"/>
+  <rect x="272" y="112" width="128" height="128" rx="30" fill="#F7F8EF" fill-opacity="0.55"/>
+  <rect x="112" y="272" width="128" height="128" rx="30" fill="#F7F8EF" fill-opacity="0.55"/>
+  <path d="M302 272h68a30 30 0 0 1 30 30v68a30 30 0 0 1-30 30h-60l-38 34v-34a30 30 0 0 1 0 0V302a30 30 0 0 1 30-30z" fill="#C9E27A"/>
+</svg>
