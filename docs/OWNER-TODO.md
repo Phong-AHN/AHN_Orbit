@@ -915,17 +915,16 @@ bình thường.
 (chính mục này) — Vercel build không chạy. File nằm trong repo không có nghĩa là
 nó đã được áp dụng.
 
-**Đang chờ: `20261030000000_ai_agents` và `20261030010000_copilot_threads`** (2026-10-30,
-**D-109** — AI agent qua MCP và Copilot). Copilot đang cho chạy cả tier Free để test; **trước khi
-cho khách thật dùng phải bật billing Gemini và đặt `GEMINI_TIER=paid`**. Chạy
-xong mới đặt `AGENT_ENABLED_ORGS` trên Vercel (ví dụ `ahn` để chỉ bật cho AHN trước); thiếu biến
-này agent tắt hoàn toàn, nên deploy code trước migration vẫn an toàn.
+**Hiện không còn migration nào chờ** (kiểm tra 2026-10-30 bằng `prisma migrate status`).
+Copilot đang cho chạy cả tier Free để test; **trước khi cho khách thật dùng phải bật billing
+Gemini và đặt `GEMINI_TIER=paid`**. AI agent chỉ bật cho org có trong `AGENT_ENABLED_ORGS`.
 
 Đã chạy (ghi lại để khỏi chạy lại): `20260814000000_variant_provider_ref`,
 `20260814010000_report`, `20261013000000_social_comments` (2026-10-20),
 `20261020000000_workspace_client_approval` (2026-10-20, **D-106**),
 `20261023000000_social_messages` (2026-10-23, **D-107**),
-`20261026000000_ai_assistant` (2026-10-27, **D-108**).
+`20261026000000_ai_assistant` (2026-10-27, **D-108**),
+`20261030000000_ai_agents` và `20261030010000_copilot_threads` (2026-10-30, **D-109**).
 
 Khi có migration mới:
 

@@ -4394,8 +4394,7 @@ actions, kept 90 days (worker retention sweep).
 
 A Claude adapter for `AgentModel` (the interface allows it), streaming
 replies, and file attachments in the Copilot. Migrations
-`20261030000000_ai_agents` and `20261030010000_copilot_threads` are **not
-applied to production**.
+`20261030000000_ai_agents` and `20261030010000_copilot_threads` are applied to production on 2026-10-30.
 
 ## Known residual gaps
 

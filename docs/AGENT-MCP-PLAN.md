@@ -5,7 +5,7 @@
 > Copilot trong app (đang cho chạy cả tier Free trong giai đoạn dev/test — trước khi cho khách
 > thật dùng phải chuyển `GEMINI_TIER=paid`). Chưa làm: adapter Claude, streaming, đính
 > file trong Copilot. Migration `20261030000000_ai_agents` và `20261030010000_copilot_threads`
-> **chưa chạy production**. Cập nhật: 2026-10-30.
+> đã chạy production 2026-10-30. Cập nhật: 2026-10-30.
 >
 > Khác với bản đề xuất khi code:
 > - Tool **gọi chính route handler REST** trong process (`runAsAgent`), không gọi service trực
