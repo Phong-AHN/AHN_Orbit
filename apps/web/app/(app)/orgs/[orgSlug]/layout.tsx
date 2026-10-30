@@ -5,6 +5,8 @@ import { AppShell } from '@/features/navigation/ui/app-shell';
 import { unhandledCount } from '@/features/community/service';
 import { messagingAvailable, waitingConversationCount } from '@/features/messaging/service';
 import { ensureProvidersRegistered } from '@/server/providers';
+import { copilotAvailability } from '@/features/copilot/service';
+import { CopilotBubble } from '@/features/copilot/ui/copilot-bubble';
 
 /**
  * The organization shell.
@@ -43,6 +45,11 @@ export default async function OrgLayout({
 
   const primary = PRIMARY_ACTIONS.find((action) => pageCanSomewhere(ctx, action.permission));
 
+  // The Copilot bubble, on every page, for whoever may use it (D-109). The
+  // routes behind it check again; this only decides whether to offer it.
+  const showCopilot =
+    pageCanSomewhere(ctx, 'ai:generate') && copilotAvailability(organization).available;
+
   return (
     <AppShell
       tone="agency"
@@ -59,6 +66,7 @@ export default async function OrgLayout({
       }
     >
       {children}
+      {showCopilot ? <CopilotBubble orgSlug={orgSlug} /> : null}
     </AppShell>
   );
 }

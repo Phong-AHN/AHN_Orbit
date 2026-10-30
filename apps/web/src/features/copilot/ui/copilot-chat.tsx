@@ -22,10 +22,16 @@ export function CopilotChat({
   orgSlug,
   threadId: initialThreadId,
   initialMessages,
+  compact = false,
+  onThreadCreated,
 }: {
   orgSlug: string;
   threadId: string | null;
   initialMessages: CopilotMessage[];
+  /** Inside the chat bubble: fills its panel and scrolls on its own. */
+  compact?: boolean;
+  /** Called with a new thread's id instead of navigating to it. */
+  onThreadCreated?: (threadId: string) => void;
 }) {
   const router = useRouter();
   const [threadId, setThreadId] = React.useState(initialThreadId);
@@ -55,8 +61,12 @@ export function CopilotChat({
       setMessages((current) => [...current.slice(0, -1), ...result.messages]);
       if (!threadId) {
         setThreadId(result.thread.id);
-        router.replace(`/orgs/${orgSlug}/copilot?thread=${result.thread.id}`);
-        router.refresh();
+        if (onThreadCreated) {
+          onThreadCreated(result.thread.id);
+        } else {
+          router.replace(`/orgs/${orgSlug}/copilot?thread=${result.thread.id}`);
+          router.refresh();
+        }
       }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'The Copilot could not answer. Try again.');
@@ -68,8 +78,14 @@ export function CopilotChat({
   }
 
   return (
-    <div className="flex min-h-[60vh] flex-col gap-4">
-      <div className="flex-1 space-y-4">
+    <div
+      className={
+        compact ? 'flex h-full min-h-0 flex-col gap-3' : 'flex min-h-[60vh] flex-col gap-4'
+      }
+    >
+      <div
+        className={compact ? 'min-h-0 flex-1 space-y-3 overflow-y-auto pr-1' : 'flex-1 space-y-4'}
+      >
         {messages.length === 0 ? (
           <p className="text-sm text-ink-secondary">
             Ask for anything you would do in Social Square: “Plan next week for AHN on Facebook and
@@ -118,12 +134,12 @@ export function CopilotChat({
       ) : null}
 
       <form onSubmit={(e) => void send(e)} className="flex items-end gap-2">
-        <label className="sr-only" htmlFor="copilot-input">
+        <label className="sr-only" htmlFor={compact ? 'copilot-bubble-input' : 'copilot-input'}>
           Message
         </label>
         <Textarea
-          id="copilot-input"
-          rows={2}
+          id={compact ? 'copilot-bubble-input' : 'copilot-input'}
+          rows={compact ? 1 : 2}
           value={draft}
           maxLength={4_000}
           disabled={busy}

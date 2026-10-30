@@ -61,7 +61,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     // it for at least one brand.
     label: 'AI',
     items: [
-      { label: 'Copilot', path: '/copilot', permission: 'ai:generate' },
       { label: 'AI Assistant', path: '/assistant', permission: 'ai_assistant:manage' },
       // What a connected AI agent prepared, waiting for confirmation (D-109).
       { label: 'AI agent actions', path: '/agent-actions', permission: 'ai:generate' },
