@@ -45,3 +45,16 @@ export {
   type KnowledgeEntry,
 } from './assistant.js';
 export { createAIProvider, toBrandContext } from './factory.js';
+export {
+  MAX_IDEAS,
+  explanationIsGrounded,
+  numbersIn,
+  parseIdeas,
+  type ExplainInput,
+  type GeneratedIdea,
+  type IdeasInput,
+  type PerformanceFact,
+  type ResearchInput,
+  type ResearchResult,
+  type ResearchSource,
+} from './planning.js';

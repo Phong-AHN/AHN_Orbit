@@ -63,3 +63,16 @@ export type AdaptRequest = z.infer<typeof adaptRequestSchema>;
 export type CaptionRequest = z.infer<typeof captionRequestSchema>;
 export type RewriteRequest = z.infer<typeof rewriteRequestSchema>;
 export type HashtagRequest = z.infer<typeof hashtagRequestSchema>;
+
+/** Web research with sources (D-109 §8.2). */
+export const researchRequestSchema = z.object({
+  brandId: z.string().uuid(),
+  question: z.string().trim().min(5).max(500),
+});
+
+/** Explaining a period's performance (D-109 §8.4). */
+export const explainRequestSchema = z.object({
+  brandId: z.string().uuid(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});

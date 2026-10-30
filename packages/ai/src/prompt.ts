@@ -38,8 +38,8 @@ import type {
  * The fence. Unusual enough not to occur by accident, and removed from content
  * so it cannot occur on purpose.
  */
-const FENCE = '<<<ORBIT';
-const FENCE_END = 'ORBIT>>>';
+export const FENCE = '<<<ORBIT';
+export const FENCE_END = 'ORBIT>>>';
 
 /** Caps on what any single block may contribute, so a prompt cannot run away. */
 const MAX_BLOCK_CHARS = 4_000;
@@ -69,7 +69,7 @@ const PREAMBLE = [
  * The delimiter is stripped from the value first: that is what makes the fence
  * a boundary rather than a suggestion.
  */
-function block(label: string, value: string): string {
+export function block(label: string, value: string): string {
   const safe = value
     .replaceAll(FENCE, '')
     .replaceAll(FENCE_END, '')
@@ -82,7 +82,7 @@ function block(label: string, value: string): string {
 }
 
 /** The brand's material, as fenced blocks. Empty when there is no Brand Brain. */
-function brandBlocks(brand: BrandContext | null): string {
+export function brandBlocks(brand: BrandContext | null): string {
   if (!brand) return '';
 
   const parts = [

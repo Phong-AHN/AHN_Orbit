@@ -28,6 +28,7 @@ import { audit, type AuditInput } from '@/server/audit';
 import { aiProvider } from '@/server/ai-provider';
 import { ensureProvidersRegistered } from '@/server/providers';
 import { assertAIAllowance, recordAIUsage } from '@/features/ai/service';
+import { getThread } from '@/features/community/service';
 import {
   MAX_ENTRIES_PER_BRAND,
   type AssistantSettingsInput,
@@ -573,6 +574,43 @@ export async function suggestReply(ctx: TenantContext, conversationId: string) {
   );
 
   return { decisionId: recorded.id, ...present(decision, entries, { disclose: false }) };
+}
+
+/**
+ * Draft a public reply to an audience comment from the brand's documents
+ * (D-109 §8.5). The same pipeline as a private message — deterministic
+ * escalation first, then the documents, then the grounding check — and
+ * nothing is sent: the draft goes back to whoever asked, to be read and sent
+ * as themselves. A complaint or anything the documents do not cover comes
+ * back as "a person should answer this".
+ */
+export async function suggestCommentReply(ctx: TenantContext, commentId: string) {
+  const { root, replies } = await getThread(ctx, commentId);
+  // A suggestion is for someone who could send it.
+  assertCan(ctx, 'comment:reply', { workspaceId: root.workspaceId, brandId: root.brandId });
+
+  const brand = await withTenant(ctx, (db) =>
+    db.brand.findFirst({ where: { id: root.brandId }, select: { name: true } }),
+  );
+  if (!brand) throw new NotFoundError('Brand');
+
+  const turns: AssistantTurn[] = [root, ...replies]
+    .filter((comment) => comment.message?.trim())
+    .slice(-10)
+    .map((comment) => ({
+      from: comment.origin === 'ORBIT' ? ('BRAND' as const) : ('CUSTOMER' as const),
+      text: comment.message ?? '',
+    }));
+
+  const { decision, entries } = await decide(ctx, {
+    brandId: root.brandId,
+    brandName: brand.name,
+    turns,
+    maxLength: 1_000,
+    operation: 'comment.suggest',
+  });
+
+  return present(decision, entries, { disclose: false });
 }
 
 /** What the assistant has done in one conversation, newest first. */

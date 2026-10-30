@@ -54,3 +54,29 @@ export const updateIdeaSchema = z.object({
 
 export type CreateIdeaInput = z.infer<typeof createIdeaSchema>;
 export type UpdateIdeaInput = z.infer<typeof updateIdeaSchema>;
+
+/** Asking the model for ideas (D-109 §8.1). The ideas it returns are saved as SUGGESTED. */
+export const generateIdeasSchema = z
+  .object({
+    workspaceId: z.string().uuid(),
+    brandId: z.string().uuid(),
+    count: z.number().int().min(1).max(20).default(5),
+    theme: z.string().trim().max(500).optional(),
+    platforms: z.array(z.enum(PLATFORMS)).max(6).default([]),
+    from: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional(),
+    to: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional(),
+    /** Research the person chose to build on. Fenced as untrusted in the prompt. */
+    researchNotes: z.string().trim().max(4_000).optional(),
+  })
+  .refine((v) => !v.from || !v.to || v.from <= v.to, {
+    message: 'The period starts after it ends',
+    path: ['from'],
+  });
+
+export type GenerateIdeasInput = z.infer<typeof generateIdeasSchema>;

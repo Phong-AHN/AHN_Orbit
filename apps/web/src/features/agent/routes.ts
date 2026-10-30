@@ -36,6 +36,9 @@ export const ROUTES = {
   socialAccounts: load(() => import('../../../app/api/v1/orgs/[orgSlug]/social-accounts/route')),
   ideas: load(() => import('../../../app/api/v1/orgs/[orgSlug]/content-ideas/route')),
   idea: load(() => import('../../../app/api/v1/orgs/[orgSlug]/content-ideas/[ideaId]/route')),
+  ideasGenerate: load(
+    () => import('../../../app/api/v1/orgs/[orgSlug]/content-ideas/generate/route'),
+  ),
   ideaConvert: load(
     () => import('../../../app/api/v1/orgs/[orgSlug]/content-ideas/[ideaId]/convert/route'),
   ),
@@ -87,6 +90,9 @@ export const ROUTES = {
     () => import('../../../app/api/v1/orgs/[orgSlug]/messages/[conversationId]/handled/route'),
   ),
   comments: load(() => import('../../../app/api/v1/orgs/[orgSlug]/community/route')),
+  commentSuggest: load(
+    () => import('../../../app/api/v1/orgs/[orgSlug]/community/[commentId]/suggest/route'),
+  ),
   commentReply: load(
     () => import('../../../app/api/v1/orgs/[orgSlug]/community/[commentId]/reply/route'),
   ),
@@ -95,6 +101,12 @@ export const ROUTES = {
   ),
   analyticsOverview: load(
     () => import('../../../app/api/v1/orgs/[orgSlug]/analytics/overview/route'),
+  ),
+  analyticsBestTimes: load(
+    () => import('../../../app/api/v1/orgs/[orgSlug]/analytics/best-times/route'),
+  ),
+  analyticsExplain: load(
+    () => import('../../../app/api/v1/orgs/[orgSlug]/analytics/explain/route'),
   ),
   analyticsPosts: load(() => import('../../../app/api/v1/orgs/[orgSlug]/analytics/posts/route')),
   analyticsAccount: load(
@@ -111,6 +123,7 @@ export const ROUTES = {
   aiRewrite: load(() => import('../../../app/api/v1/orgs/[orgSlug]/ai/rewrite/route')),
   aiHashtags: load(() => import('../../../app/api/v1/orgs/[orgSlug]/ai/hashtags/route')),
   aiRepurpose: load(() => import('../../../app/api/v1/orgs/[orgSlug]/ai/repurpose/route')),
+  aiResearch: load(() => import('../../../app/api/v1/orgs/[orgSlug]/ai/research/route')),
   aiUsage: load(() => import('../../../app/api/v1/orgs/[orgSlug]/ai/usage/route')),
   // Reading an action's state only. Confirming and rejecting are deliberately
   // absent: they are a person's act, never an agent's.

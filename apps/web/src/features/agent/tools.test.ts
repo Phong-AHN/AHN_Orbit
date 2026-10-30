@@ -63,6 +63,8 @@ describe('agent tool catalogue', () => {
       'list_conversations',
       'get_conversation',
       'suggest_message_reply',
+      'suggest_comment_reply',
+      'research_topic',
       'list_comments',
     ];
     for (const name of external) {

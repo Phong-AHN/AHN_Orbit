@@ -174,12 +174,9 @@ export interface AnalyticsOverview {
 export async function getAnalyticsOverview(
   ctx: TenantContext,
   range: AnalyticsRange,
-  filter: { workspaceId?: string } = {},
+  filter: Omit<PostAnalyticsFilter, 'limit'> = {},
 ): Promise<AnalyticsOverview> {
-  const readings = await listPostAnalytics(ctx, range, {
-    ...(filter.workspaceId ? { workspaceId: filter.workspaceId } : {}),
-    limit: 200,
-  });
+  const readings = await listPostAnalytics(ctx, range, { ...filter, limit: 200 });
 
   const totals: Record<string, number> = {};
   const unavailable: Record<string, MetricAvailability> = {};

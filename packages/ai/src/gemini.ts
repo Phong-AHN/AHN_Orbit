@@ -12,6 +12,19 @@ import {
   rewritePrompt,
 } from './prompt.js';
 import { assistantPrompt } from './assistant.js';
+import {
+  IDEAS_RESPONSE_SCHEMA,
+  MAX_IDEAS,
+  explainPrompt,
+  ideasPrompt,
+  parseIdeas,
+  researchPrompt,
+  type ExplainInput,
+  type GeneratedIdea,
+  type IdeasInput,
+  type ResearchInput,
+  type ResearchResult,
+} from './planning.js';
 import type {
   AdaptInput,
   AnswerMessageInput,
@@ -86,6 +99,11 @@ interface GeminiResponse {
       }>;
     };
     finishReason?: string;
+    /** Present when Google Search grounding was used (D-109 research). */
+    groundingMetadata?: {
+      webSearchQueries?: string[];
+      groundingChunks?: Array<{ web?: { uri?: string; title?: string } }>;
+    };
   }>;
   usageMetadata?: {
     promptTokenCount?: number;
@@ -159,6 +177,80 @@ export class GeminiProvider implements AIProvider {
     return this.finish(result.text, result, input.brand?.bannedTerms ?? []);
   }
 
+  async generateIdeas(input: IdeasInput): Promise<AIResult<GeneratedIdea[]>> {
+    const result = await this.generate(ideasPrompt(input), input.signal, {
+      responseMimeType: 'application/json',
+      responseSchema: IDEAS_RESPONSE_SCHEMA as unknown as Record<string, unknown>,
+    });
+    const ideas = parseIdeas(result.text, {
+      max: Math.min(input.count, MAX_IDEAS),
+      platforms: input.platforms,
+    });
+    if (ideas.length === 0) {
+      throw new ProviderValidationError('The model returned no usable ideas', {
+        userMessage: 'No usable ideas came back. Try again, or give a clearer theme.',
+      });
+    }
+    return {
+      value: ideas,
+      model: this.model,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      latencyMs: result.latencyMs,
+      bannedTermHits: findBannedTerms(
+        ideas.map((i) => [i.topic, i.hook, i.caption, i.cta].filter(Boolean).join(' ')).join(' '),
+        input.brand?.bannedTerms ?? [],
+      ),
+    };
+  }
+
+  /**
+   * Research with Google Search grounding.
+   *
+   * The sources are what Google returned, not what the model claims to have
+   * read, so they are taken from the grounding metadata rather than the text.
+   * A summary with no source at all is refused: the point of the tool is that
+   * every claim can be checked.
+   */
+  async researchTopic(input: ResearchInput): Promise<AIResult<ResearchResult>> {
+    const result = await this.generate(researchPrompt(input), input.signal, {
+      temperature: 0.3,
+      tools: [{ google_search: {} }],
+    });
+    const seen = new Set<string>();
+    const sources: Array<{ title: string; url: string }> = [];
+    for (const chunk of result.grounding?.groundingChunks ?? []) {
+      const url = chunk.web?.uri ?? '';
+      if (!url.startsWith('https://') || seen.has(url)) continue;
+      seen.add(url);
+      sources.push({ title: chunk.web?.title?.trim() || new URL(url).host, url });
+      if (sources.length >= 10) break;
+    }
+
+    if (sources.length === 0) {
+      throw new ProviderValidationError('Research returned no sources', {
+        userMessage: 'No sources were found for that. Try a more specific question.',
+      });
+    }
+    return {
+      value: {
+        summary: clean(result.text),
+        sources,
+        searchQueries: (result.grounding?.webSearchQueries ?? []).slice(0, 10),
+      },
+      model: this.model,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      latencyMs: result.latencyMs,
+      bannedTermHits: [],
+    };
+  }
+
+  async explainPerformance(input: ExplainInput): Promise<AIResult<string>> {
+    const result = await this.generate(explainPrompt(input), input.signal, { temperature: 0.2 });
+    return this.finish(clean(result.text), result, input.brand?.bannedTerms ?? []);
+  }
+
   async generateHashtags(input: HashtagInput): Promise<AIResult<string[]>> {
     const result = await this.generate(hashtagPrompt(input), input.signal);
     const tags = parseHashtags(result.text, input.count);
@@ -202,6 +294,7 @@ export class GeminiProvider implements AIProvider {
       temperature?: number;
       responseMimeType?: string;
       responseSchema?: Record<string, unknown>;
+      tools?: Array<Record<string, unknown>>;
     } = {},
   ): Promise<RawGeneration> {
     const started = Date.now();
@@ -225,6 +318,7 @@ export class GeminiProvider implements AIProvider {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            ...(config.tools ? { tools: config.tools } : {}),
             generationConfig: {
               temperature: config.temperature ?? TEMPERATURE,
               maxOutputTokens: MAX_OUTPUT_TOKENS,
@@ -318,6 +412,7 @@ export class GeminiProvider implements AIProvider {
       inputTokens: body.usageMetadata?.promptTokenCount ?? 0,
       outputTokens,
       latencyMs: Date.now() - started,
+      ...(candidate?.groundingMetadata ? { grounding: candidate.groundingMetadata } : {}),
     };
   }
 
@@ -371,11 +466,16 @@ export class GeminiProvider implements AIProvider {
   }
 }
 
+type GroundingMetadata = NonNullable<
+  NonNullable<GeminiResponse['candidates']>[number]['groundingMetadata']
+>;
+
 interface RawGeneration {
   text: string;
   inputTokens: number;
   outputTokens: number;
   latencyMs: number;
+  grounding?: GroundingMetadata;
 }
 
 /**

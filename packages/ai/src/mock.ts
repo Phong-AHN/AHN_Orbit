@@ -1,5 +1,12 @@
 import { findBannedTerms } from './prompt.js';
 import type {
+  ExplainInput,
+  GeneratedIdea,
+  IdeasInput,
+  ResearchInput,
+  ResearchResult,
+} from './planning.js';
+import type {
   AdaptInput,
   AnswerMessageInput,
   AIProvider,
@@ -114,6 +121,39 @@ export class MockAIProvider implements AIProvider {
       latencyMs: 0,
       bannedTermHits: findBannedTerms(tags.join(' '), input.brand?.bannedTerms ?? []),
     };
+  }
+
+  async generateIdeas(input: IdeasInput): Promise<AIResult<GeneratedIdea[]>> {
+    const theme = input.theme ?? input.brand?.brandName ?? 'the brand';
+    const ideas = Array.from({ length: Math.min(input.count, 20) }, (_, i) => ({
+      topic: `${theme} — idea ${i + 1}`,
+      hook: null,
+      platform: input.platforms[i % Math.max(input.platforms.length, 1)] ?? null,
+      format: null,
+      caption: null,
+      cta: null,
+      reason: 'Mock idea.',
+    }));
+    return { ...this.result('', input), value: ideas };
+  }
+
+  async researchTopic(input: ResearchInput): Promise<AIResult<ResearchResult>> {
+    return {
+      ...this.result('', input),
+      value: {
+        summary: `Mock research on: ${input.question}`,
+        sources: [{ title: 'Example source', url: 'https://example.com/' }],
+        searchQueries: [input.question],
+      },
+    };
+  }
+
+  async explainPerformance(input: ExplainInput): Promise<AIResult<string>> {
+    const first = input.facts.find((f) => f.current !== null);
+    const text = first
+      ? `${first.label} was ${first.current} this period.`
+      : 'No metrics were reported for this period.';
+    return this.result(text, input);
   }
 
   private result(

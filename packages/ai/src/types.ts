@@ -1,3 +1,11 @@
+import type {
+  ExplainInput,
+  GeneratedIdea,
+  IdeasInput,
+  ResearchInput,
+  ResearchResult,
+} from './planning.js';
+
 /**
  * The AI provider contract (SRS §23, docs/ARCHITECTURE.md §7).
  *
@@ -141,4 +149,16 @@ export interface AIProvider {
 
   /** The model's JSON verdict on a private message, unparsed (D-108). */
   answerMessage(input: AnswerMessageInput): Promise<AIResult<string>>;
+
+  /** Content ideas, parsed and checked against the idea contract (D-109). */
+  generateIdeas(input: IdeasInput): Promise<AIResult<GeneratedIdea[]>>;
+
+  /** A web-grounded answer with its sources (D-109). Sources are untrusted. */
+  researchTopic(input: ResearchInput): Promise<AIResult<ResearchResult>>;
+
+  /**
+   * A plain-language reading of performance figures (D-109). The caller must
+   * check it with `explanationIsGrounded` before showing it.
+   */
+  explainPerformance(input: ExplainInput): Promise<AIResult<string>>;
 }

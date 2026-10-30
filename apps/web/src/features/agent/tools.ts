@@ -12,7 +12,11 @@ import {
   updatePostSchema,
   updateVariantSchema,
 } from '@/features/posts/contracts';
-import { createIdeaSchema, updateIdeaSchema } from '@/features/ideas/contracts';
+import {
+  createIdeaSchema,
+  generateIdeasSchema,
+  updateIdeaSchema,
+} from '@/features/ideas/contracts';
 import { createCommentSchema } from '@/features/approvals/contracts';
 import { scheduleSchema } from '@/features/scheduling/contracts';
 import { messageReplySchema } from '@/features/messaging/contracts';
@@ -21,6 +25,8 @@ import { createReportSchema } from '@/features/reports/contracts';
 import {
   adaptRequestSchema,
   captionRequestSchema,
+  explainRequestSchema,
+  researchRequestSchema,
   hashtagRequestSchema,
   rewriteRequestSchema,
 } from '@/features/ai/contracts';
@@ -167,6 +173,29 @@ const ideas = [
     permission: 'post:update',
     input: z.object({ ideaId: id, changes: updateIdeaSchema }),
     run: ({ ideaId, changes }, call) => call.send('idea', 'PATCH', { ideaId }, { body: changes }),
+  }),
+  tool({
+    name: 'generate_ideas',
+    title: 'Generate content ideas',
+    description:
+      'Asks the AI for up to 20 post ideas for a brand, grounded on its Brand Brain and its best-performing posts of the last 90 days, and saves them as SUGGESTED ideas with a reason each. Optionally pass researchNotes from research_topic. Spends one AI credit. Nothing is published.',
+    tier: 'AI',
+    scope: 'content',
+    permission: 'post:create',
+    input: generateIdeasSchema,
+    run: (body, call) => call.send('ideasGenerate', 'POST', {}, { body }),
+  }),
+  tool({
+    name: 'research_topic',
+    title: 'Research a topic on the web',
+    description:
+      'Searches the web (Google Search) and returns a short summary with its sources. Use it for trends, events, competitors or facts to build content on. Only the question is sent. Spends one AI credit. Cite the sources to the user; never present a claim without one.',
+    tier: 'AI',
+    scope: 'content',
+    permission: 'ai:generate',
+    untrustedOutput: true,
+    input: researchRequestSchema,
+    run: (body, call) => call.send('aiResearch', 'POST', {}, { body }),
   }),
   tool({
     name: 'convert_idea_to_post',
@@ -403,6 +432,22 @@ const workflow = [
     permission: 'post:read',
     input: z.object({ workspaceId: id }),
     run: (query, call) => call.get('queueSlots', {}, query),
+  }),
+  tool({
+    name: 'suggest_posting_times',
+    title: 'Best times to post',
+    description:
+      'The weekday-and-hour slots where each account’s posts got the most interactions over the last 90 days, computed from real analytics (no AI). Accounts with too few measured posts return NOT_ENOUGH_DATA — then use list_queue_slots instead and say so.',
+    tier: 'R',
+    scope: 'read',
+    permission: 'analytics:read',
+    input: z.object({
+      workspaceId: id.optional(),
+      brandId: id.optional(),
+      socialAccountId: id.optional(),
+      timeZone: z.string().max(64).optional(),
+    }),
+    run: (query, call) => call.get('analyticsBestTimes', {}, query),
   }),
   tool({
     name: 'get_publishing_status',
@@ -671,6 +716,18 @@ const engagement = [
     run: (query, call) => call.get('comments', {}, query),
   }),
   tool({
+    name: 'suggest_comment_reply',
+    title: 'Draft a reply to a comment',
+    description:
+      'Drafts a public reply to an audience comment from the brand’s assistant documents. Nothing is sent. Spends one AI credit when the model is asked. May answer that a person should handle it (complaints, anything the documents do not cover).',
+    tier: 'AI',
+    scope: 'engagement',
+    permission: 'comment:reply',
+    untrustedOutput: true,
+    input: z.object({ commentId: id }),
+    run: ({ commentId }, call) => call.send('commentSuggest', 'POST', { commentId }),
+  }),
+  tool({
     name: 'reply_to_comment',
     title: 'Reply to a comment in public',
     description:
@@ -746,6 +803,16 @@ const analytics = [
       to: isoDay.optional(),
     }),
     run: ({ accountId, ...query }, call) => call.get('analyticsAccount', { accountId }, query),
+  }),
+  tool({
+    name: 'explain_performance',
+    title: 'Explain a period’s performance',
+    description: `Figures for a brand over a period (from/to as YYYY-MM-DD) against the period before, plus a short plain-language reading. The reading is dropped (explanation: null, explanationRefused: true) if it contained any number not in the figures — then summarise the figures yourself without computing new numbers. Spends one AI credit. ${'A null figure means not reported, never zero.'}`,
+    tier: 'AI',
+    scope: 'content',
+    permission: 'ai:generate',
+    input: explainRequestSchema,
+    run: (body, call) => call.send('analyticsExplain', 'POST', {}, { body }),
   }),
   tool({
     name: 'get_dashboard_summary',
