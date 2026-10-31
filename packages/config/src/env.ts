@@ -53,11 +53,19 @@ const optionalString = z
  *
  * Not `z.coerce.boolean()`: that is `Boolean(value)`, under which the string
  * `"false"` is true — so a flag somebody switched off would stay on.
+ *
+ * Case and surrounding whitespace are ignored. Every process validates its
+ * environment at boot, so `True` typed into a dashboard used to stop the
+ * worker from starting at all — every queued post waiting on a capital letter.
+ * Anything that is not a recognisable on/off value is still refused.
  */
-const flag = z
-  .enum(['true', 'false', '1', '0', ''])
-  .optional()
-  .transform((value) => value === 'true' || value === '1');
+const flag = z.preprocess(
+  (value) => (typeof value === 'string' ? value.trim().toLowerCase() : value),
+  z
+    .enum(['true', 'false', '1', '0', ''])
+    .optional()
+    .transform((value) => value === 'true' || value === '1'),
+);
 
 export const serverEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),

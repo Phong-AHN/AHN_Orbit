@@ -38,6 +38,20 @@ describe('parseServerEnv', () => {
     expect(err!.issues.some((i) => i.startsWith('REDIS_URL'))).toBe(true);
   });
 
+  /** A dashboard value with a capital letter must not stop a process booting. */
+  it('reads an on/off flag regardless of case and surrounding spaces', () => {
+    expect(parseServerEnv({ ...valid, PINTEREST_SANDBOX: 'True' }).PINTEREST_SANDBOX).toBe(true);
+    expect(parseServerEnv({ ...valid, PINTEREST_SANDBOX: ' TRUE ' }).PINTEREST_SANDBOX).toBe(true);
+    expect(parseServerEnv({ ...valid, PINTEREST_SANDBOX: 'False' }).PINTEREST_SANDBOX).toBe(false);
+    expect(parseServerEnv(valid).PINTEREST_SANDBOX).toBe(false);
+  });
+
+  it('still refuses a flag value that is not on or off', () => {
+    expect(() => parseServerEnv({ ...valid, PINTEREST_SANDBOX: 'yes please' })).toThrow(
+      /PINTEREST_SANDBOX/,
+    );
+  });
+
   it('rejects an encryption key that is not exactly 32 bytes', () => {
     expect(() =>
       parseServerEnv({ ...valid, CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(16).toString('base64') }),
