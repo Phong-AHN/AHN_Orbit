@@ -3,6 +3,7 @@ import { withTenant } from '@orbit/db';
 import type { ResourceScope } from '@orbit/rbac';
 import { tryGetProvider } from '@orbit/providers';
 import { TikTokProvider } from '@orbit/providers/tiktok';
+import { ensureProvidersRegistered } from '@/server/providers';
 import { loadCredential } from './service';
 
 /**
@@ -89,6 +90,9 @@ export async function fetchTikTokCreatorOptions(
     });
   }
 
+  // The registry is per process: a cold instance has nothing in it until
+  // somebody fills it, and without this the platform reads as unconfigured.
+  ensureProvidersRegistered();
   const provider = tryGetProvider('TIKTOK');
   if (!(provider instanceof TikTokProvider)) {
     throw new ValidationError('TikTok is not configured', {

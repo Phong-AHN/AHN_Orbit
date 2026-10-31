@@ -1,6 +1,7 @@
 import {
   NotFoundError,
   accountStatusForErrorCode,
+  isClientStandingFailure,
   clock,
   isAppError,
   isProbeDue,
@@ -108,9 +109,11 @@ export async function probeAccount(input: ProbeInput): Promise<ProbeResult> {
     // longer good is a verdict; anything else — a timeout, a 500, a network
     // blip — says nothing about the account and must not demote it. Marking
     // every account NEEDS_RECONNECT during a five-minute Meta outage would send
-    // a reconnect prompt to every client for no reason.
+    // a reconnect prompt to every client for no reason. Nor does a refusal of
+    // our app as a whole: reconnecting cannot fix the developer portal.
     const code = isAppError(error) ? error.code : null;
-    const demotedTo = code ? accountStatusForErrorCode(code) : null;
+    const demotedTo =
+      code && !isClientStandingFailure(error) ? accountStatusForErrorCode(code) : null;
 
     if (!demotedTo) {
       logError('health probe failed transiently; leaving the account as it is', error, {

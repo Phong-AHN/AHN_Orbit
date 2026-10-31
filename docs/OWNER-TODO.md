@@ -1512,6 +1512,12 @@ chọn giùm.
 
 ### 🟡 Cần biết
 
+- **Lỗi "Pinterest has not activated API access for Social Square yet"** = Pinterest
+  trả 401 code 3 "consumer type is not supported" cho mọi request: access tier
+  của app chưa được kích hoạt (Trial pending / bị từ chối). Kết nối lại **không**
+  giúp được; tài khoản được giữ ACTIVE. Cách xử lý: xem Access level trong
+  developers.pinterest.com → My apps, và mở ticket với Pinterest nếu kẹt ở
+  "Trial access pending". Pin tạo bằng Trial access chỉ tồn tại trong Sandbox.
 - **Mỗi pin phải nằm trên một board, và Orbit không tự chọn.** Composer đọc danh
   sách board thật từ tài khoản; chưa chọn thì bài không đăng.
 - **Pin video bắt buộc có ảnh bìa.** Pinterest hiển thị ảnh tĩnh ở mọi chỗ video

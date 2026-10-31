@@ -3,6 +3,7 @@ import { withTenant } from '@orbit/db';
 import type { ResourceScope } from '@orbit/rbac';
 import { tryGetProvider } from '@orbit/providers';
 import { PinterestProvider } from '@orbit/providers/pinterest';
+import { ensureProvidersRegistered } from '@/server/providers';
 import { loadCredential } from './service';
 
 /**
@@ -85,6 +86,9 @@ export async function fetchPinterestBoards(
     });
   }
 
+  // The registry is per process: a cold instance has nothing in it until
+  // somebody fills it, and without this the platform reads as unconfigured.
+  ensureProvidersRegistered();
   const provider = tryGetProvider('PINTEREST');
   if (!(provider instanceof PinterestProvider)) {
     throw new ValidationError('Pinterest is not configured', {

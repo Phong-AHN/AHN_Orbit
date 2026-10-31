@@ -61,6 +61,26 @@ function kindForStatus(status: number): ProviderErrorKind {
   return 'UNAVAILABLE';
 }
 
+/**
+ * Pinterest refusing **our app**, not this connection.
+ *
+ * An app whose access tier Pinterest has not activated — Trial pending, or
+ * denied — gets a 401 with code 3, "Your application consumer type is not
+ * supported", from every v5 endpoint, on a token minted seconds earlier. Read
+ * as AUTHENTICATION it demoted the account, the person reconnected, the next
+ * publish failed the same way, and round it went. The remedy is in the
+ * Pinterest developer portal, so it is reported as client standing.
+ *
+ * Both the code and the wording are required: code 3 alone is too broad to
+ * take an account's demotion away from.
+ */
+function isAppAccessRefusal(status: number, body: PinterestErrorBody): boolean {
+  return status === 401 && body.code === 3 && /consumer type/i.test(body.message ?? '');
+}
+
+const APP_ACCESS_MESSAGE =
+  'Pinterest has not activated API access for Social Square yet, so it refuses every request. Reconnecting will not help; an administrator needs to resolve the app’s access level with Pinterest.';
+
 export class PinterestClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: FetchLike;
@@ -194,10 +214,12 @@ export class PinterestClient {
 
   private toError(body: PinterestErrorBody, response: Response) {
     const retryAfter = Number(response.headers.get('retry-after'));
+    const appRefused = isAppAccessRefusal(response.status, body);
 
     return toAppError('PINTEREST', {
-      kind: kindForStatus(response.status),
+      kind: appRefused ? 'PERMISSION' : kindForStatus(response.status),
       message: body.message ?? `Pinterest returned HTTP ${response.status}`,
+      ...(appRefused ? { userMessage: APP_ACCESS_MESSAGE } : {}),
       ...(body.code !== undefined ? { providerCode: body.code } : {}),
       httpStatus: response.status,
       ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfterSeconds: retryAfter } : {}),
@@ -209,7 +231,7 @@ export class PinterestClient {
          * ACTIVE — demoting it would send somebody to reconnect an account
          * that is working (D-085).
          */
-        ...(response.status === 429 ? { clientStanding: true } : {}),
+        ...(response.status === 429 || appRefused ? { clientStanding: true } : {}),
       },
     });
   }

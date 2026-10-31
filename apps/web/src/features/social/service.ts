@@ -5,6 +5,7 @@ import {
   accountStatusForErrorCode,
   clock,
   isAppError,
+  isClientStandingFailure,
   isProbeDue,
   type Platform,
   type TenantContext,
@@ -22,6 +23,7 @@ import {
   type IssuedCredential,
 } from '@orbit/providers';
 import { audit, type AuditInput } from '@/server/audit';
+import { ensureProvidersRegistered } from '@/server/providers';
 import { applyHealthVerdict } from './health';
 import { issueOAuthState } from './oauth-state';
 
@@ -370,6 +372,7 @@ export async function connectAccounts(
 ) {
   // Resolving the provider here means an unregistered platform fails before we
   // touch the database, with the registry's "not available yet" message.
+  ensureProvidersRegistered();
   getProvider(input.platform);
 
   const results = await withTenant(ctx, async (db) => {
@@ -472,6 +475,7 @@ async function queueFirstSync(
   platform: Platform,
   connected: ReadonlyArray<{ id: string }>,
 ): Promise<void> {
+  ensureProvidersRegistered();
   const provider = getProvider(platform);
   const relevant =
     Boolean(provider.subscribeWebhooks) || capabilitiesFor(platform).messaging.supported;
@@ -538,6 +542,7 @@ export async function checkAccountHealth(
   }
 
   const credential = await loadCredential(ctx, socialAccountId);
+  ensureProvidersRegistered();
   const provider = getProvider(account.platform);
 
   let health: AccountHealth;
@@ -546,10 +551,12 @@ export async function checkAccountHealth(
     health = await provider.probeHealth(credential, { externalId: account.externalId });
   } catch (error) {
     const code = isAppError(error) ? error.code : null;
-    const demotedTo = code ? accountStatusForErrorCode(code) : null;
+    const demotedTo =
+      code && !isClientStandingFailure(error) ? accountStatusForErrorCode(code) : null;
 
-    // Says nothing about the account — a timeout, a 500, a network blip. Let it
-    // surface as the error it is rather than blaming the connection.
+    // Says nothing about the account — a timeout, a 500, a network blip, or a
+    // platform refusing our app as a whole. Let it surface as the error it is
+    // rather than blaming the connection.
     if (!demotedTo) throw error;
 
     health = {
@@ -623,6 +630,7 @@ export async function startReconnect(
     });
   }
 
+  ensureProvidersRegistered();
   const provider = getProvider(account.platform);
 
   /**
@@ -677,6 +685,7 @@ export async function disconnectAccount(
   // or a revoked account could never be cleaned up.
   try {
     const credential = await loadCredential(ctx, socialAccountId);
+    ensureProvidersRegistered();
     await getProvider(account.platform).revoke(credential, {
       externalId: account.externalId,
     });

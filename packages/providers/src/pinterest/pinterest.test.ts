@@ -534,6 +534,58 @@ describe('failures', () => {
     expect(error.context?.['clientStanding']).toBe(true);
   });
 
+  /**
+   * An app whose access tier Pinterest has not activated is refused everywhere,
+   * on a token minted seconds earlier. Read as a bad credential, it sent people
+   * round a reconnect loop that could never end.
+   */
+  const appRefusal = {
+    status: 401,
+    body: { code: 3, message: 'Your application consumer type is not supported, please contact support.' },
+  };
+
+  it('reports Pinterest refusing the app as client standing, not a dead connection', async () => {
+    api.on(/\/v5\/pins$/, appRefusal);
+
+    const error = await provider(api)
+      .publish(publishContext())
+      .catch(
+        (caught: { code?: string; userMessage?: string; context?: Record<string, unknown> }) =>
+          caught,
+      );
+
+    expect(error.code).toBe('PROVIDER_PERMISSION_ERROR');
+    expect(error.context?.['clientStanding']).toBe(true);
+    expect(error.userMessage).toMatch(/Reconnecting will not help/);
+  });
+
+  it('does not call a connection dead in a health probe when the app is refused', async () => {
+    api.on(/\/v5\/user_account/, appRefusal);
+
+    const error = await provider(api)
+      .probeHealth(
+        {
+          accessToken: 'pina_access',
+          scopes: ['user_accounts:read', 'boards:read', 'pins:read', 'pins:write'],
+        } as never,
+        { externalId: 'acct-1' },
+      )
+      .catch((caught: { context?: Record<string, unknown> }) => caught);
+
+    expect(error.context?.['clientStanding']).toBe(true);
+  });
+
+  it('still treats an ordinary 401 as a connection that needs reconnecting', async () => {
+    api.on(/\/v5\/pins$/, { status: 401, body: { code: 2, message: 'Authentication failed.' } });
+
+    const error = await provider(api)
+      .publish(publishContext())
+      .catch((caught: { code?: string; context?: Record<string, unknown> }) => caught);
+
+    expect(error.code).toBe('PROVIDER_AUTHENTICATION_ERROR');
+    expect(error.context?.['clientStanding']).toBeUndefined();
+  });
+
   /** Nothing was sent, so "the platform rejected this" would be a plain untruth. */
   it('says it never called Pinterest when it refuses a draft itself', async () => {
     const ctx = publishContext({
