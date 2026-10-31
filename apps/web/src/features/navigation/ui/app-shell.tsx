@@ -153,6 +153,7 @@ export function AppShell({
           the rail off-screen. */}
 
       <aside
+        data-tour="rail"
         className={cn(
           'hidden border-r lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col',
           skin.rail,
@@ -181,6 +182,7 @@ export function AppShell({
         >
           <button
             type="button"
+            data-tour="menu"
             aria-expanded={open}
             aria-controls="app-shell-drawer"
             onClick={() => setOpen(true)}
@@ -252,6 +254,7 @@ function RailContent({
         <div className="px-3 pt-3">
           <Link
             href={action.href}
+            data-tour="primary-action"
             className={buttonClassName({ size: 'sm', className: 'w-full justify-center' })}
           >
             {action.label}

@@ -7,6 +7,7 @@ import { messagingAvailable, waitingConversationCount } from '@/features/messagi
 import { ensureProvidersRegistered } from '@/server/providers';
 import { copilotAvailability } from '@/features/copilot/service';
 import { CopilotBubble } from '@/features/copilot/ui/copilot-bubble';
+import { ProductTour } from '@/features/onboarding/ui/product-tour';
 
 /**
  * The organization shell.
@@ -57,12 +58,18 @@ export default async function OrgLayout({
       groups={groups}
       {...(primary ? { action: { label: primary.label, href: `${base}${primary.path}` } } : {})}
       utilities={
-        <NotificationBell
-          endpoint={`/api/v1/orgs/${encodeURIComponent(orgSlug)}/notifications`}
-          postHrefBase={`${base}/posts`}
-          conversationHrefBase={`${base}/community/messages`}
-          accountHref={`${base}/settings/accounts`}
-        />
+        <>
+          {/* The onboarding tour, and its "?" to take it again. */}
+          <ProductTour orgSlug={orgSlug} />
+          <span data-tour="notifications" className="inline-flex">
+            <NotificationBell
+              endpoint={`/api/v1/orgs/${encodeURIComponent(orgSlug)}/notifications`}
+              postHrefBase={`${base}/posts`}
+              conversationHrefBase={`${base}/community/messages`}
+              accountHref={`${base}/settings/accounts`}
+            />
+          </span>
+        </>
       }
     >
       {children}

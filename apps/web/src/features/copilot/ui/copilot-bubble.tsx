@@ -166,6 +166,7 @@ export function CopilotBubble({ orgSlug }: { orgSlug: string }) {
       <button
         ref={button}
         type="button"
+        data-tour="squire"
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
         aria-label={open ? `Close ${ASSISTANT_NAME}` : `Open ${ASSISTANT_NAME}`}
