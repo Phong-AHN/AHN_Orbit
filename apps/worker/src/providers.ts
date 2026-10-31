@@ -198,6 +198,9 @@ export function ensureProvidersRegistered(): void {
       }),
     );
     registeredAny = true;
+    // Said at boot because a mismatch with the web app is silent otherwise: a
+    // sandbox token sent to production reads as a dead connection.
+    logger.info('registered Pinterest provider', { sandbox: env.PINTEREST_SANDBOX });
   }
 
   if (env.FACEBOOK_APP_ID && env.FACEBOOK_APP_SECRET) {
