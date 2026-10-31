@@ -541,7 +541,10 @@ describe('failures', () => {
    */
   const appRefusal = {
     status: 401,
-    body: { code: 3, message: 'Your application consumer type is not supported, please contact support.' },
+    body: {
+      code: 3,
+      message: 'Your application consumer type is not supported, please contact support.',
+    },
   };
 
   it('reports Pinterest refusing the app as client standing, not a dead connection', async () => {
@@ -693,6 +696,91 @@ describe('boards', () => {
     const boards = await provider(api).listBoards(credential as never);
 
     expect(boards).toEqual([{ id: 'board-1', name: 'Recipes', privacy: 'PUBLIC' }]);
+  });
+
+  it('refuses to create a board outside sandbox mode, without calling Pinterest', async () => {
+    const error = await provider(api)
+      .createSandboxBoard(credential as never, 'Test')
+      .catch((caught: { context?: Record<string, unknown> }) => caught);
+
+    expect(error.context?.['calledPlatform']).toBe(false);
+    expect(api.calls).toHaveLength(0);
+  });
+});
+
+describe('sandbox mode', () => {
+  /** No `baseUrl` override, so the host is the one sandbox mode chooses. */
+  const sandboxProvider = () => provider(api, { sandbox: true, baseUrl: undefined });
+
+  /** Tokens do not cross between the two, so the exchange has to move too. */
+  it('sends the token exchange and every API call to the sandbox host', async () => {
+    const pinterest = sandboxProvider();
+    await pinterest.exchangeCode({ code: 'code', redirectUri: 'https://app.test/cb' });
+    await pinterest.listBoards(credential as never);
+
+    expect(api.calls.length).toBeGreaterThan(0);
+    for (const call of api.calls) {
+      expect(call.url.startsWith('https://api-sandbox.pinterest.com/v5/')).toBe(true);
+    }
+  });
+
+  it('asks for the board scopes a private test board needs, only in sandbox', () => {
+    const { scopes } = sandboxProvider().getAuthorizationUrl({
+      redirectUri: 'https://app.test/cb',
+      state: 's',
+    });
+
+    expect(scopes).toEqual(
+      expect.arrayContaining(['pins:write', 'boards:write', 'boards:write_secret']),
+    );
+  });
+
+  it('creates a secret board', async () => {
+    api.on(/\/v5\/boards/, {
+      status: 201,
+      body: { id: 'board-9', name: 'Test', privacy: 'SECRET' },
+    });
+
+    const board = await sandboxProvider().createSandboxBoard(credential as never, 'Test');
+
+    expect(board).toEqual({ id: 'board-9', name: 'Test', privacy: 'SECRET' });
+    const call = api.callTo(/\/v5\/boards/);
+    expect(call?.method).toBe('POST');
+    expect(api.bodyTo(/\/v5\/boards/)).toEqual({ name: 'Test', privacy: 'SECRET' });
+  });
+
+  /** The sandbox filters production boards out after paging, so a page can be empty. */
+  it('follows the bookmark past an empty page', async () => {
+    let page = 0;
+    api.on(/\/v5\/boards/, () => {
+      page += 1;
+      return page === 1
+        ? { body: { items: [], bookmark: 'next' } }
+        : { body: { items: [{ id: 'board-9', name: 'Test', privacy: 'SECRET' }], bookmark: null } };
+    });
+
+    const boards = await sandboxProvider().listBoards(credential as never);
+
+    expect(boards).toEqual([{ id: 'board-9', name: 'Test', privacy: 'SECRET' }]);
+    expect(api.callsTo(/\/v5\/boards/)[1]?.url).toContain('bookmark=next');
+    expect(api.callTo(/\/v5\/boards/)?.url).toContain('privacy=ALL');
+  });
+
+  it('refuses a video pin before calling Pinterest — the sandbox cannot make one', async () => {
+    const error = await sandboxProvider()
+      .publish(publishContext())
+      .catch((caught: { userMessage?: string; context?: Record<string, unknown> }) => caught);
+
+    expect(error.context?.['calledPlatform']).toBe(false);
+    expect(error.userMessage).toMatch(/sandbox/);
+    expect(api.calls).toHaveLength(0);
+  });
+
+  it('publishes an image pin to the sandbox', async () => {
+    const result = await sandboxProvider().publish(publishContext({ media: [cover()] }));
+
+    expect(result).toMatchObject({ externalPostId: 'pin-555' });
+    expect(api.callTo(/\/v5\/pins$/)?.url).toBe('https://api-sandbox.pinterest.com/v5/pins');
   });
 });
 

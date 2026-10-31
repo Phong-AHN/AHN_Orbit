@@ -28,6 +28,8 @@ import {
   PINTEREST_AUTHORIZE_URL,
   PINTEREST_PIN_METRICS,
   PINTEREST_PUBLISH_SCOPES,
+  PINTEREST_SANDBOX_HOST,
+  PINTEREST_SANDBOX_SCOPES,
   pinterestCapabilities,
 } from './capabilities.js';
 
@@ -77,7 +79,16 @@ export interface PinterestProviderOptions extends PinterestClientOptions {
   readMedia?: ((media: PublishMedia) => Promise<Uint8Array>) | undefined;
   pollBudgetMs?: number | undefined;
   pollIntervalMs?: number | undefined;
+  /**
+   * Talk to Pinterest's sandbox instead of production — every call, the token
+   * exchange and refresh included. For an app still on Trial access, which
+   * cannot create pins in production at all.
+   */
+  sandbox?: boolean | undefined;
 }
+
+/** How many pages of boards to read. The sandbox can return empty pages. */
+const BOARD_PAGE_LIMIT = 5;
 
 /** Per-post settings that exist only here. */
 export interface PinterestSettings {
@@ -139,7 +150,11 @@ export class PinterestProvider implements SocialProvider {
   private readonly capabilityCache: PlatformCapabilities;
 
   constructor(private readonly options: PinterestProviderOptions) {
-    this.client = new PinterestClient(options);
+    this.client = new PinterestClient(
+      options.sandbox && !options.baseUrl
+        ? { ...options, baseUrl: PINTEREST_SANDBOX_HOST }
+        : options,
+    );
     this.capabilityCache = pinterestCapabilities(options.apiVersion);
   }
 
@@ -153,8 +168,19 @@ export class PinterestProvider implements SocialProvider {
 
   // ── OAuth ─────────────────────────────────────────────────────────────────
 
+  /** True when every call goes to Pinterest's sandbox. */
+  get sandbox(): boolean {
+    return this.options.sandbox === true;
+  }
+
   getAuthorizationUrl(input: AuthorizationUrlInput): { url: string; scopes: readonly string[] } {
-    const scopes = [...new Set([...PINTEREST_PUBLISH_SCOPES, ...(input.extraScopes ?? [])])];
+    const scopes = [
+      ...new Set([
+        ...PINTEREST_PUBLISH_SCOPES,
+        ...(this.sandbox ? PINTEREST_SANDBOX_SCOPES : []),
+        ...(input.extraScopes ?? []),
+      ]),
+    ];
 
     const url = new URL(PINTEREST_AUTHORIZE_URL);
     url.searchParams.set('client_id', this.client.clientId);
@@ -365,15 +391,34 @@ export class PinterestProvider implements SocialProvider {
   async listBoards(
     credential: DecryptedCredential,
   ): Promise<Array<{ id: string; name: string; privacy: string }>> {
-    const response = await this.client.request<{
-      items?: Array<{ id?: string; name?: string; privacy?: string }>;
-    }>({
-      path: '/boards',
-      accessToken: credential.accessToken,
-      params: { page_size: 100 },
-    });
+    const items: Array<{ id?: string; name?: string; privacy?: string }> = [];
+    let bookmark: string | undefined;
 
-    return (response.body.items ?? [])
+    // Followed, not just the first page: the sandbox filters production boards
+    // out of each page *after* fetching it, so a page can come back empty with
+    // a bookmark while the board just created sits on the next one.
+    for (let page = 0; page < BOARD_PAGE_LIMIT; page += 1) {
+      const response = await this.client.request<{
+        items?: Array<{ id?: string; name?: string; privacy?: string }>;
+        bookmark?: string | null;
+      }>({
+        path: '/boards',
+        accessToken: credential.accessToken,
+        params: {
+          page_size: 100,
+          // Only the sandbox holds the secret-board scope; it is where the
+          // test boards Orbit creates live.
+          ...(this.sandbox ? { privacy: 'ALL' } : {}),
+          ...(bookmark ? { bookmark } : {}),
+        },
+      });
+
+      items.push(...(response.body.items ?? []));
+      bookmark = response.body.bookmark ?? undefined;
+      if (!bookmark) break;
+    }
+
+    return items
       .filter((board): board is { id: string; name?: string; privacy?: string } =>
         Boolean(board.id),
       )
@@ -382,6 +427,45 @@ export class PinterestProvider implements SocialProvider {
         name: board.name ?? board.id,
         privacy: board.privacy ?? 'PUBLIC',
       }));
+  }
+
+  /**
+   * A secret board in the sandbox, so a freshly connected test account has
+   * somewhere to pin. Refused in production: Orbit never creates boards on a
+   * client's real account, and does not hold the scope to.
+   */
+  async createSandboxBoard(
+    credential: DecryptedCredential,
+    name: string,
+  ): Promise<{ id: string; name: string; privacy: string }> {
+    if (!this.sandbox) {
+      throw toAppError('PINTEREST', {
+        kind: 'VALIDATION',
+        message: 'Boards are created only in sandbox mode',
+        userMessage: 'Create the board in Pinterest, then reopen this post.',
+        meta: { calledPlatform: false },
+      });
+    }
+
+    const response = await this.client.request<{ id?: string; name?: string; privacy?: string }>({
+      path: '/boards',
+      method: 'POST',
+      accessToken: credential.accessToken,
+      json: { name, privacy: 'SECRET' },
+    });
+
+    if (!response.body.id) {
+      throw toAppError('PINTEREST', {
+        kind: 'UNAVAILABLE',
+        message: 'Pinterest created a board but returned no id',
+      });
+    }
+
+    return {
+      id: response.body.id,
+      name: response.body.name ?? name,
+      privacy: response.body.privacy ?? 'SECRET',
+    };
   }
 
   // ── Publishing ────────────────────────────────────────────────────────────
@@ -425,6 +509,16 @@ export class PinterestProvider implements SocialProvider {
         kind: 'MEDIA',
         message: 'Pinterest has no text-only pin',
         userMessage: 'A Pinterest pin needs an image or a video.',
+      });
+    }
+
+    if (video && this.sandbox) {
+      throw toAppError('PINTEREST', {
+        kind: 'VALIDATION',
+        message: 'Pinterest sandbox cannot create video pins',
+        userMessage:
+          'Pinterest’s sandbox does not accept video pins. Use an image while Social Square is in Pinterest sandbox mode.',
+        meta: { calledPlatform: false },
       });
     }
 

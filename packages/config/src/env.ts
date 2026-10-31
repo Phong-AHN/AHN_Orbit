@@ -301,6 +301,16 @@ export const serverEnvSchema = z.object({
    */
   PINTEREST_CLIENT_ID: optionalString,
   PINTEREST_CLIENT_SECRET: optionalString,
+  /**
+   * Send every Pinterest call to `api-sandbox.pinterest.com`.
+   *
+   * For an app on Trial access, which Pinterest will not let create pins in
+   * production. Sandbox pins are visible only to the account that made them,
+   * and video pins are not supported there. Set it on **both** Vercel and
+   * Railway — the web app connects, the worker publishes — and reconnect every
+   * Pinterest account after flipping it: tokens do not cross between the two.
+   */
+  PINTEREST_SANDBOX: flag,
 
   // ── AI (SRS §51) ──────────────────────────────────────────────────────────
   GEMINI_API_KEY: optionalString,

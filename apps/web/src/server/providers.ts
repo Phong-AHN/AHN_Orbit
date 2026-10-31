@@ -127,10 +127,14 @@ export function ensureProvidersRegistered(): void {
         clientId: env.PINTEREST_CLIENT_ID,
         clientSecret: env.PINTEREST_CLIENT_SECRET,
         apiVersion: 'v5',
+        sandbox: env.PINTEREST_SANDBOX,
       }),
     );
     registeredAny = true;
-    logger.info('registered Pinterest provider', { platforms: ['PINTEREST'] });
+    logger.info('registered Pinterest provider', {
+      platforms: ['PINTEREST'],
+      sandbox: env.PINTEREST_SANDBOX,
+    });
   }
 
   if (allowed && env.FACEBOOK_APP_ID && env.FACEBOOK_APP_SECRET) {

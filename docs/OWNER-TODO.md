@@ -1518,6 +1518,17 @@ chọn giùm.
   giúp được; tài khoản được giữ ACTIVE. Cách xử lý: xem Access level trong
   developers.pinterest.com → My apps, và mở ticket với Pinterest nếu kẹt ở
   "Trial access pending". Pin tạo bằng Trial access chỉ tồn tại trong Sandbox.
+- **Chế độ Sandbox (`PINTEREST_SANDBOX=true`)** — dùng khi app còn Trial access:
+  1. Đặt `PINTEREST_SANDBOX=true` trên **cả** Vercel và Railway, rồi redeploy cả hai.
+  2. **Kết nối lại** mọi tài khoản Pinterest: token production và token Sandbox
+     không dùng lẫn được. Màn hình đồng ý sẽ xin thêm `boards:write`,
+     `boards:write_secret`, `boards:read_secret`.
+  3. Trong composer, phần Pinterest settings có nhãn **Sandbox** và ô **Create
+     board**. Board tạo ra là board bí mật trong Sandbox (board production không
+     hiện ở Sandbox). Chọn board → Save → publish.
+  4. Pin chỉ chủ tài khoản thấy, trong Sandbox. **Không đăng được video** —
+     dùng ảnh.
+  Khi có Standard access: xoá biến (hoặc `false`), redeploy, kết nối lại.
 - **Mỗi pin phải nằm trên một board, và Orbit không tự chọn.** Composer đọc danh
   sách board thật từ tài khoản; chưa chọn thì bài không đăng.
 - **Pin video bắt buộc có ảnh bìa.** Pinterest hiển thị ảnh tĩnh ở mọi chỗ video

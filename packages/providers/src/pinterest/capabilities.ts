@@ -23,6 +23,13 @@ import { defineCapabilities, type PlatformCapabilities } from '../capabilities.j
  */
 
 export const PINTEREST_API_HOST = 'https://api.pinterest.com';
+/**
+ * Pinterest's sandbox: same paths, separate data. An app on Trial access can
+ * create pins only here, and they are visible to nobody but the account that
+ * made them. Tokens do not cross over — a production token is refused here and
+ * a sandbox one in production — so switching means reconnecting.
+ */
+export const PINTEREST_SANDBOX_HOST = 'https://api-sandbox.pinterest.com';
 export const PINTEREST_AUTHORIZE_URL = 'https://www.pinterest.com/oauth/';
 
 /**
@@ -39,6 +46,21 @@ export const PINTEREST_PUBLISH_SCOPES = [
   'boards:read',
   'pins:read',
   'pins:write',
+] as const;
+
+/**
+ * Asked for in sandbox mode only.
+ *
+ * Production boards are filtered out of the sandbox, so a freshly connected
+ * account there has nowhere to pin until a board is created — and the board
+ * Orbit creates is **secret**, so a test pin is private on both counts. That
+ * needs writing boards and reading secret ones, which the production note above
+ * deliberately declines.
+ */
+export const PINTEREST_SANDBOX_SCOPES = [
+  'boards:read_secret',
+  'boards:write',
+  'boards:write_secret',
 ] as const;
 
 /**

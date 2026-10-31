@@ -191,6 +191,7 @@ export function ensureProvidersRegistered(): void {
         clientId: env.PINTEREST_CLIENT_ID,
         clientSecret: env.PINTEREST_CLIENT_SECRET,
         apiVersion: 'v5',
+        sandbox: env.PINTEREST_SANDBOX,
         // A video pin is uploaded to a storage bucket Pinterest nominates; an
         // image pin is fetched from its URL and needs none of this.
         readMedia: wholeMediaReader('PINTEREST'),

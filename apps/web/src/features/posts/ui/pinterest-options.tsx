@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Alert, Badge, Button, Field, Select, Spinner } from '@orbit/ui';
+import { Alert, Badge, Button, Field, Input, Select, Spinner } from '@orbit/ui';
 import { ApiError, apiRequest } from './api';
 
 /**
@@ -20,6 +20,10 @@ import { ApiError, apiRequest } from './api';
  *
  * Secret boards never appear. Orbit does not ask for the scope that would
  * return them.
+ *
+ * **Sandbox mode** is the exception. Production boards are not visible in
+ * Pinterest's sandbox, so the panel offers to create a secret test board —
+ * the only place Social Square ever creates one.
  */
 
 export interface PinterestOptions {
@@ -52,7 +56,12 @@ export function PinterestOptionsPanel({
   onSave,
 }: PinterestOptionsProps) {
   const [boards, setBoards] = React.useState<Board[] | null>(null);
+  const [sandbox, setSandbox] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
+
+  const [boardName, setBoardName] = React.useState('');
+  const [creating, setCreating] = React.useState(false);
+  const [createError, setCreateError] = React.useState<string | null>(null);
 
   /**
    * Two failures, two states, on purpose: failing to *read* the boards means no
@@ -81,11 +90,11 @@ export function PinterestOptionsPanel({
     setLoading(true);
     setLoadError(null);
 
-    apiRequest<{ boards: Board[] }>(
-      `/api/v1/orgs/${encodeURIComponent(orgSlug)}/social-accounts/${encodeURIComponent(socialAccountId)}/pinterest-boards`,
-    )
+    apiRequest<{ boards: Board[]; sandbox: boolean }>(boardsUrl(orgSlug, socialAccountId))
       .then((result) => {
-        if (!cancelled) setBoards(result.boards);
+        if (cancelled) return;
+        setBoards(result.boards);
+        setSandbox(result.sandbox === true);
       })
       .catch((failure: unknown) => {
         if (cancelled) return;
@@ -105,6 +114,66 @@ export function PinterestOptionsPanel({
   }, [orgSlug, socialAccountId]);
 
   const dirty = (value.boardId ?? '') !== (saved.boardId ?? '');
+
+  async function createBoard() {
+    const name = boardName.trim();
+    if (!name) return;
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const { board } = await apiRequest<{ board: Board }>(boardsUrl(orgSlug, socialAccountId), {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      setBoards((current) => [...(current ?? []), board]);
+      // Chosen, not saved: the person just named this board, and saving stays
+      // the same explicit step it is for any other board.
+      setValue((current) => ({ ...current, boardId: board.id }));
+      setBoardName('');
+      setSavedAt(null);
+    } catch (failure) {
+      setCreateError(
+        failure instanceof ApiError ? failure.message : 'The board could not be created.',
+      );
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  const createForm = sandbox ? (
+    <div className="space-y-2">
+      <Field
+        label="New private test board"
+        htmlFor={`pinterest-new-board-${socialAccountId}`}
+        hint="Created as a secret board in Pinterest’s sandbox."
+      >
+        <div className="flex gap-2">
+          <Input
+            id={`pinterest-new-board-${socialAccountId}`}
+            value={boardName}
+            maxLength={50}
+            placeholder="Social Square test"
+            disabled={disabled || creating}
+            onChange={(event) => setBoardName(event.target.value)}
+          />
+          <Button
+            size="sm"
+            variant="secondary"
+            loading={creating}
+            disabled={disabled || creating || !boardName.trim()}
+            onClick={() => void createBoard()}
+          >
+            Create board
+          </Button>
+        </div>
+      </Field>
+      {createError ? (
+        <p role="alert" className="text-sm font-medium text-danger">
+          {createError}
+        </p>
+      ) : null}
+    </div>
+  ) : null;
 
   async function save() {
     setSaving(true);
@@ -133,7 +202,15 @@ export function PinterestOptionsPanel({
       <p className="flex items-center gap-2 text-sm font-medium text-ink">
         Pinterest settings
         <Badge tone="neutral">{accountName}</Badge>
+        {sandbox ? <Badge tone="warning">Sandbox</Badge> : null}
       </p>
+
+      {sandbox ? (
+        <p className="text-xs text-ink-muted">
+          Pinterest sandbox mode: pins go to Pinterest&rsquo;s sandbox and are visible only to this
+          account. Video pins are not supported there.
+        </p>
+      ) : null}
 
       {loading ? (
         <p className="flex items-center gap-2 text-sm text-ink-muted">
@@ -144,16 +221,22 @@ export function PinterestOptionsPanel({
           {loadError} A pin has to go on a board, so this post cannot be published until they can be
           read.
         </Alert>
-      ) : boards && boards.length === 0 ? (
+      ) : boards && boards.length === 0 && !sandbox ? (
         <Alert tone="warning" title="This account has no boards">
           A pin has to be filed on a board. Create one in Pinterest, then reopen this post.
         </Alert>
+      ) : boards && boards.length === 0 ? (
+        createForm
       ) : boards ? (
         <>
           <Field
             label="Board"
             htmlFor={`pinterest-board-${socialAccountId}`}
-            hint="Secret boards are not listed — Social Square does not have access to them."
+            hint={
+              sandbox
+                ? 'Sandbox boards only — production boards are not visible here.'
+                : 'Secret boards are not listed — Social Square does not have access to them.'
+            }
           >
             <Select
               id={`pinterest-board-${socialAccountId}`}
@@ -177,6 +260,8 @@ export function PinterestOptionsPanel({
               ))}
             </Select>
           </Field>
+
+          {createForm}
 
           {missingBoard ? (
             <Alert tone="warning" title="That board is no longer there">
@@ -226,4 +311,8 @@ export function PinterestOptionsPanel({
       ) : null}
     </div>
   );
+}
+
+function boardsUrl(orgSlug: string, socialAccountId: string): string {
+  return `/api/v1/orgs/${encodeURIComponent(orgSlug)}/social-accounts/${encodeURIComponent(socialAccountId)}/pinterest-boards`;
 }

@@ -5,6 +5,8 @@ export {
   PINTEREST_AUTHORIZE_URL,
   PINTEREST_PIN_METRICS,
   PINTEREST_PUBLISH_SCOPES,
+  PINTEREST_SANDBOX_HOST,
+  PINTEREST_SANDBOX_SCOPES,
   pinterestCapabilities,
 } from './capabilities.js';
 export { PinterestClient } from './client.js';
