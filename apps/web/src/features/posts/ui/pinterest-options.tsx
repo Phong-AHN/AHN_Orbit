@@ -126,11 +126,23 @@ export function PinterestOptionsPanel({
         body: JSON.stringify({ name }),
       });
       setBoards((current) => [...(current ?? []), board]);
-      // Chosen, not saved: the person just named this board, and saving stays
-      // the same explicit step it is for any other board.
-      setValue((current) => ({ ...current, boardId: board.id }));
       setBoardName('');
+
+      // Chosen *and* saved. Creating a board for this pin is an unambiguous
+      // choice, and leaving a separate Save step after it sent posts out with
+      // the board showing as selected but never stored.
+      const next = { ...value, boardId: board.id };
+      setValue(next);
       setSavedAt(null);
+      setSaveError(null);
+      try {
+        await onSave(next);
+        setSavedAt(Date.now());
+      } catch (failure) {
+        setSaveError(
+          failure instanceof ApiError ? failure.message : 'That board could not be saved.',
+        );
+      }
     } catch (failure) {
       setCreateError(
         failure instanceof ApiError ? failure.message : 'The board could not be created.',
@@ -145,7 +157,7 @@ export function PinterestOptionsPanel({
       <Field
         label="New private test board"
         htmlFor={`pinterest-new-board-${socialAccountId}`}
-        hint="Created as a secret board in Pinterest’s sandbox."
+        hint="Created as a secret board in Pinterest’s sandbox and saved as this pin’s board."
       >
         <div className="flex gap-2">
           <Input

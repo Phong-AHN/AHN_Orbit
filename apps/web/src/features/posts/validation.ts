@@ -186,6 +186,22 @@ export async function validatePost(ctx: TenantContext, postId: string): Promise<
       result.valid = false;
     }
 
+    // The adapter refuses a pin with no board, but only at publish time — long
+    // after the post was approved and scheduled. Refused here, the post cannot
+    // leave DRAFT without one.
+    if (variant.platform === 'PINTEREST') {
+      const options = (variant.platformOptions ?? {}) as Record<string, unknown>;
+      if (typeof options['boardId'] !== 'string' || options['boardId'].trim().length === 0) {
+        result.issues.push({
+          severity: 'ERROR',
+          code: 'PINTEREST_BOARD_REQUIRED',
+          field: 'platformOptions.boardId',
+          message: `Choose which Pinterest board ${variant.socialAccount.displayName}'s pin belongs on, and save the Pinterest settings.`,
+        });
+        result.valid = false;
+      }
+    }
+
     return {
       variantId: variant.id,
       socialAccountId: variant.socialAccountId,
