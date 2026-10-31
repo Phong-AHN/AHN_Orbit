@@ -16,66 +16,96 @@ export interface TourStep {
   targets?: readonly string[];
 }
 
-export const TOUR_VERSION = 1;
+/** Raised when the steps change in a way everybody should see again. */
+export const TOUR_VERSION = 2;
 
+/**
+ * The steps follow the work in the order a new agency does it — the same
+ * order as the getting-started guide on the Today page: client → brand →
+ * accounts → idea → post → publish → results → comments and messages.
+ */
 export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: 'welcome',
     title: 'Welcome to Social Square',
-    body: 'A one-minute tour of where things are. Use the buttons or the arrow keys, and press Esc to leave at any time.',
+    body: 'This tour follows one piece of content from start to finish: set up a client and brand, connect accounts, plan, post, then read the results and answer your audience. Use the buttons or arrow keys; Esc leaves.',
   },
   {
-    id: 'navigation',
-    title: 'Everything is here',
-    body: 'Your work for every client — posts, ideas, calendar, approvals, inbox and analytics. You see exactly what your role allows.',
-    targets: ['[data-tour="rail"]', '[data-tour="menu"]'],
+    id: 'checklist',
+    title: 'Your checklist',
+    body: 'The Today page keeps these same steps as a checklist and ticks each one off as you do it, so you always know what comes next.',
+    targets: ['[data-tour="setup-guide"]', 'nav a[href$="/dashboard"]'],
+  },
+  {
+    id: 'client',
+    title: '1 · Add a client',
+    body: 'Clients is where each client gets its own workspace. Nothing is shared between clients. Start by adding one.',
+    targets: ['nav a[href$="/settings/workspaces"]'],
+  },
+  {
+    id: 'brand',
+    title: '2 · Add a brand',
+    body: 'Open the client and add a brand: its voice, audience and the documents Squire answers from. Accounts and posts belong to a brand.',
+    targets: ['nav a[href$="/settings/workspaces"]'],
+  },
+  {
+    id: 'accounts',
+    title: '3 · Connect social accounts',
+    body: 'Connect the brand’s Facebook, Instagram, TikTok, YouTube, LinkedIn, Pinterest or Threads with each platform’s own login.',
+    targets: ['nav a[href$="/settings/accounts"]'],
+  },
+  {
+    id: 'ideas',
+    title: '4 · Capture ideas',
+    body: 'Write ideas down as they come, or ask Squire for ideas based on the brand and what performed well. Turn any idea into a draft.',
+    targets: ['nav a[href$="/ideas"]'],
   },
   {
     id: 'create',
-    title: 'Start here',
-    body: 'Create a post for any brand: write it once, tailor it for each platform, and send it for approval.',
-    targets: ['[data-tour="primary-action"]'],
-  },
-  {
-    id: 'calendar',
-    title: 'See the plan',
-    body: 'The calendar shows what is scheduled and what has gone out, for each client and account.',
-    targets: ['nav a[href$="/calendar"]'],
+    title: '5 · Create a post',
+    body: 'Write it once, tailor it for each platform, attach images or video — or generate one with AI — and send it for approval.',
+    targets: ['[data-tour="primary-action"]', 'nav a[href$="/posts"]'],
   },
   {
     id: 'approvals',
-    title: 'Approvals',
-    body: 'Posts waiting for a decision from your team or your client.',
+    title: '6 · Get it approved',
+    body: 'Posts wait here for your team and then your client. Every comment and decision is kept.',
     targets: ['nav a[href$="/approvals"]'],
   },
   {
-    id: 'community',
-    title: 'Comments and messages',
-    body: 'Answer your audience’s comments and private messages from one inbox.',
-    targets: ['nav a[href$="/community"]'],
+    id: 'calendar',
+    title: '7 · Schedule and publish',
+    body: 'Pick a time on the calendar or publish now. Each account shows whether its post went out.',
+    targets: ['nav a[href$="/calendar"]'],
   },
   {
     id: 'analytics',
-    title: 'Results',
-    body: 'Performance for every post and account, compared over time, with client-ready reports.',
+    title: '8 · See how it performed',
+    body: 'Reactions, comments, shares and views arrive within a few hours of publishing, per post and per account, with client-ready reports.',
     targets: ['nav a[href$="/analytics"]'],
+  },
+  {
+    id: 'community',
+    title: '9 · Answer comments and messages',
+    body: 'Comments on your posts and private messages arrive in one inbox. Squire can draft the replies; you send them.',
+    targets: ['nav a[href$="/community"]'],
   },
   {
     id: 'notifications',
     title: 'Stay in the loop',
-    body: 'Approvals, failed posts and new messages arrive here.',
+    body: 'Approvals waiting, failed posts and new messages arrive here.',
     targets: ['[data-tour="notifications"]'],
   },
   {
     id: 'squire',
-    title: 'Meet Squire',
-    body: 'Ask in plain language to plan, write, create images or check results. Anything that goes out waits for your confirmation.',
+    title: 'Or just ask Squire',
+    body: 'Every step above can be done by asking Squire in plain language — plan a week, write a post, create an image, check results. Anything that goes out waits for your confirmation.',
     targets: ['[data-tour="squire"]'],
   },
   {
     id: 'done',
-    title: 'You’re all set',
-    body: 'Take this tour again any time with the ? button at the top of the page.',
+    title: 'You’re ready to start',
+    body: 'Begin with step 1 on the Today page’s checklist. Take this tour again any time with the ? button at the top.',
   },
 ];
 

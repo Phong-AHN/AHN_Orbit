@@ -562,8 +562,13 @@ describe('setup progress', () => {
 
     const summary = await dashboardSummary(ownerCtx);
 
-    expect(summary.setup.finished).toBe(true);
-    expect(summary.setup.completed).toBe(4);
+    // Setup is done; the first run (publish, results, replies) is still ahead.
+    expect(summary.setup.ready).toBe(true);
+    expect(summary.setup.finished).toBe(false);
+    for (const id of ['workspace', 'brand', 'account', 'idea', 'post'] as const) {
+      expect(summary.setup.steps.find((step) => step.id === id)?.done, id).toBe(true);
+    }
+    expect(summary.setup.steps.find((step) => step.current)?.id).toBe('publish');
   });
 
   /**

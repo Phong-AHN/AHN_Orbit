@@ -247,7 +247,7 @@ export function ProductTour({ orgSlug }: { orgSlug: string }) {
             }
           >
             <p className="font-mono text-xs text-accent" aria-live="polite">
-              Step {index + 1} of {steps.length}
+              {index + 1} / {steps.length}
             </p>
             <h2 id={titleId} className="mt-1 text-base font-semibold text-ink">
               {step.title}

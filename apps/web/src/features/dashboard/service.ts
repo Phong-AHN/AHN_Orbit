@@ -225,6 +225,39 @@ export async function dashboardSummary(ctx: TenantContext): Promise<DashboardSum
           },
         }),
         db.post.count({ where: postScope }),
+        // The first run (idea → post → published → measured → answered).
+        // Existence is all the guide needs, so `findFirst` rather than a count
+        // over every analytics row or message the agency ever had.
+        db.contentIdea.count({
+          where: workspaces === 'ALL' ? {} : { workspaceId: { in: [...workspaces] } },
+        }),
+        db.post.count({
+          where: { ...postScope, status: { in: ['PUBLISHED', 'PARTIALLY_PUBLISHED'] } },
+        }),
+        db.postAnalytics
+          .findFirst({
+            where: { postVariant: { post: postScope } },
+            select: { id: true },
+          })
+          .then((row) => (row ? 1 : 0)),
+        Promise.all([
+          db.socialComment.findFirst({
+            where: {
+              origin: 'ORBIT',
+              ...(workspaces === 'ALL' ? {} : { workspaceId: { in: [...workspaces] } }),
+            },
+            select: { id: true },
+          }),
+          db.socialMessage.findFirst({
+            where: {
+              direction: 'OUTBOUND',
+              ...(workspaces === 'ALL'
+                ? {}
+                : { conversation: { workspaceId: { in: [...workspaces] } } }),
+            },
+            select: { id: true },
+          }),
+        ]).then(([comment, message]) => (comment || message ? 1 : 0)),
       ]),
     ]);
 
@@ -290,7 +323,16 @@ export async function dashboardSummary(ctx: TenantContext): Promise<DashboardSum
       now,
     );
 
-    const [workspaceCount, brandCount, accountCount, postCount] = setupCounts;
+    const [
+      workspaceCount,
+      brandCount,
+      accountCount,
+      postCount,
+      ideaCount,
+      publishedCount,
+      measuredCount,
+      replyCount,
+    ] = setupCounts;
 
     return {
       workspaces: summaries,
@@ -299,7 +341,11 @@ export async function dashboardSummary(ctx: TenantContext): Promise<DashboardSum
           workspaces: workspaceCount,
           brands: brandCount,
           accounts: accountCount,
+          ideas: ideaCount,
           posts: postCount,
+          published: publishedCount,
+          measured: measuredCount,
+          replies: replyCount,
         },
         /**
          * `canSomewhere`, not `can(…, {})`.
@@ -319,6 +365,8 @@ export async function dashboardSummary(ctx: TenantContext): Promise<DashboardSum
           createBrand: canSomewhere(ctx, 'brand:create'),
           connectAccount: canSomewhere(ctx, 'social_account:connect'),
           createPost: canSomewhere(ctx, 'post:create'),
+          readAnalytics: canSomewhere(ctx, 'analytics:read'),
+          reply: canSomewhere(ctx, 'comment:reply') || canSomewhere(ctx, 'message:reply'),
         },
       }),
       alerts,

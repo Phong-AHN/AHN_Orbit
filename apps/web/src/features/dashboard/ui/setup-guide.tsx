@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Alert, Card, CardBody, CardHeader, CardTitle, buttonClassName, cn } from '@orbit/ui';
 import type { SetupProgress } from '../setup-progress';
+import { HideWhenDismissed } from './hide-when-dismissed';
 
 /**
  * The first thing a new agency sees, and the only thing until setup is done.
@@ -21,21 +22,31 @@ import type { SetupProgress } from '../setup-progress';
  *
  * ## It leaves on its own
  *
- * No dismiss control and no stored flag. The guide is a view of the data, so it
- * disappears when the last step is done and returns if somebody deletes the
- * only client — which is the honest behaviour, because at that moment the
- * product genuinely cannot publish again.
+ * The guide is a view of the data, so it disappears when the last step is
+ * done and returns if somebody deletes the only client — which is the honest
+ * behaviour, because at that moment the product genuinely cannot publish
+ * again. While setup is unfinished there is no way to hide it; once the agency
+ * can publish, the first-run steps may be hidden in this browser, because
+ * they are a walkthrough rather than a requirement.
  */
-export function SetupGuide({ progress, base }: { progress: SetupProgress; base: string }) {
+export function SetupGuide({
+  progress,
+  base,
+  orgSlug,
+}: {
+  progress: SetupProgress;
+  base: string;
+  orgSlug: string;
+}) {
   if (progress.finished) return null;
 
   const current = progress.steps.find((step) => step.current);
 
-  return (
-    <Card>
+  const card = (
+    <Card data-tour="setup-guide">
       <CardHeader>
         <CardTitle>
-          Set up your agency{' '}
+          {progress.ready ? 'Getting started' : 'Set up your agency'}{' '}
           <span className="text-sm font-normal text-ink-muted">
             — {progress.completed} of {progress.steps.length} done
           </span>
@@ -103,5 +114,13 @@ export function SetupGuide({ progress, base }: { progress: SetupProgress; base: 
         </ol>
       </CardBody>
     </Card>
+  );
+
+  return progress.ready ? (
+    <HideWhenDismissed storageKey={`social-square:getting-started:${orgSlug}`}>
+      {card}
+    </HideWhenDismissed>
+  ) : (
+    card
   );
 }

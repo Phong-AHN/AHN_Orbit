@@ -323,18 +323,27 @@ export default async function DashboardPage({ params }: PageProps) {
             Every section below is accurate and empty in that state, and a
             screen of empty sections is exactly what this replaces — showing
             both would put the next thing to do underneath four reasons there
-            is nothing to see. */}
-        {!summary.setup.finished ? (
-          <SetupGuide progress={summary.setup} base={base} />
-        ) : ownWorkFirst ? (
-          <>
-            {ownWork}
-            {orgPicture}
-          </>
+            is nothing to see. Once the agency can publish, the rest of the
+            first run (idea → post → results → replies) sits above the
+            dashboard instead, and can be hidden. */}
+        {!summary.setup.ready ? (
+          <SetupGuide progress={summary.setup} base={base} orgSlug={orgSlug} />
         ) : (
           <>
-            {orgPicture}
-            {ownWork}
+            {!summary.setup.finished ? (
+              <SetupGuide progress={summary.setup} base={base} orgSlug={orgSlug} />
+            ) : null}
+            {ownWorkFirst ? (
+              <>
+                {ownWork}
+                {orgPicture}
+              </>
+            ) : (
+              <>
+                {orgPicture}
+                {ownWork}
+              </>
+            )}
           </>
         )}
       </div>
