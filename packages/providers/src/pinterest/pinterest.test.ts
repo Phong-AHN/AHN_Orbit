@@ -735,6 +735,39 @@ describe('sandbox mode', () => {
     );
   });
 
+  /** A pin on a secret board is a secret pin; without this Pinterest answers 403. */
+  it('asks for the secret-pin scope the private board needs', () => {
+    const { scopes } = sandboxProvider().getAuthorizationUrl({
+      redirectUri: 'https://app.test/cb',
+      state: 's',
+    });
+
+    expect(scopes).toContain('pins:write_secret');
+  });
+
+  it('tells a sandbox connection made without the secret-pin scope to reconnect', async () => {
+    const health = await sandboxProvider().probeHealth(
+      {
+        accessToken: 'pina_access',
+        scopes: [
+          'user_accounts:read',
+          'boards:read',
+          'pins:read',
+          'pins:write',
+          'boards:read_secret',
+          'boards:write',
+          'boards:write_secret',
+        ],
+      } as never,
+      { externalId: 'acct-1' },
+    );
+
+    expect(health.status).toBe('NEEDS_RECONNECT');
+    expect(health.missingScopes).toEqual(
+      expect.arrayContaining(['pins:read_secret', 'pins:write_secret']),
+    );
+  });
+
   it('creates a secret board', async () => {
     api.on(/\/v5\/boards/, {
       status: 201,

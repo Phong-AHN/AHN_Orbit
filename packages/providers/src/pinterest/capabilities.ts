@@ -55,12 +55,16 @@ export const PINTEREST_PUBLISH_SCOPES = [
  * account there has nowhere to pin until a board is created — and the board
  * Orbit creates is **secret**, so a test pin is private on both counts. That
  * needs writing boards and reading secret ones, which the production note above
- * deliberately declines.
+ * deliberately declines — and the pin scopes for secret content too: a pin
+ * filed on a secret board is a secret pin, and without `pins:write_secret`
+ * Pinterest answers the publish with a 403.
  */
 export const PINTEREST_SANDBOX_SCOPES = [
   'boards:read_secret',
   'boards:write',
   'boards:write_secret',
+  'pins:read_secret',
+  'pins:write_secret',
 ] as const;
 
 /**

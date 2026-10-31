@@ -337,7 +337,13 @@ export class PinterestProvider implements SocialProvider {
   ): Promise<AccountHealth> {
     const checkedAt = clock.now();
     const granted = credential.scopes;
-    const missing = PINTEREST_PUBLISH_SCOPES.filter((scope) => !granted.includes(scope));
+    // In the sandbox the pin goes on a secret board, so its scopes are needed
+    // to publish at all — a connection made before they were asked for is
+    // told to reconnect here rather than by a 403 at publish time.
+    const required: readonly string[] = this.sandbox
+      ? [...PINTEREST_PUBLISH_SCOPES, ...PINTEREST_SANDBOX_SCOPES]
+      : PINTEREST_PUBLISH_SCOPES;
+    const missing = required.filter((scope) => !granted.includes(scope));
 
     try {
       await this.client.request<UserAccountResponse>({
