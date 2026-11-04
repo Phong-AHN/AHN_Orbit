@@ -1570,7 +1570,13 @@ chọn giùm.
   **30 ngày** sau khi đăng; sau đó hiện "không có", không bao giờ là 0.
 - Lỗi "credit đã hết" hoặc "app chưa được cấp quyền endpoint" **không** hạ
   trạng thái tài khoản — người xử lý là admin trên console X, không phải người
-  kết nối lại.
+  kết nối lại. Gặp lỗi billing thì kiểm tra trên console.x.com:
+  1. **Số dư credit** > 0 (402 `CreditsDepleted` khi bằng 0 hoặc âm).
+  2. **Spending limit** chưa chạm (429 `usage-capped`).
+  3. App nằm trong **gói pay-per-use**, môi trường **Production** — nạp tiền
+     không tự gắn app vào gói.
+  Lỗi billing không tự thử lại; nạp xong thì bấm thử lại bài trên trang
+  publishing.
 
 ### Cố ý không làm
 

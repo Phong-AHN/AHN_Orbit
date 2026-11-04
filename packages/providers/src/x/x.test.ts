@@ -533,6 +533,45 @@ describe('failures', () => {
     expect(error.code).toBe('PROVIDER_RATE_LIMIT');
     expect(error.retryAfterSeconds).toBe(120);
   });
+
+  /**
+   * Billing refusals clear only when somebody tops up, so they are not
+   * retried — and they are the app's standing, so the account stays ACTIVE.
+   */
+  it.each([
+    [
+      '402 CreditsDepleted',
+      402,
+      {
+        title: 'CreditsDepleted',
+        detail: 'Your enrolled account does not have any credits to fulfill this request.',
+        type: 'https://api.twitter.com/2/problems/credits',
+      },
+    ],
+    [
+      '429 usage-capped',
+      429,
+      { title: 'UsageCapExceeded', type: 'https://api.twitter.com/2/problems/usage-capped' },
+    ],
+  ])('treats %s as billing, not retried and not the account', async (_name, status, body) => {
+    api.on(/\/2\/tweets$/, { status, body }, 'POST');
+
+    const error = await provider(api)
+      .publish(publishContext())
+      .catch(
+        (caught: {
+          code?: string;
+          retryable?: boolean;
+          userMessage?: string;
+          context?: Record<string, unknown>;
+        }) => caught,
+      );
+
+    expect(error.code).toBe('PROVIDER_PERMISSION_ERROR');
+    expect(error.retryable).toBe(false);
+    expect(error.context?.['clientStanding']).toBe(true);
+    expect(error.userMessage).toMatch(/console\.x\.com/);
+  });
 });
 
 describe('validation', () => {

@@ -65,19 +65,31 @@ interface XErrorBody extends XProblem {
  * developer console, held by a different person.
  */
 function clientStanding(status: number, body: XErrorBody): string | undefined {
-  const type = body.type ?? '';
-  if (status === 402 || /usage-capped|credits/i.test(type)) {
-    return 'X refused the request because Social Square’s X API credit has run out. An administrator needs to top up the X developer account; reconnecting will not help.';
+  if (isBillingRefusal(status, body)) {
+    return 'X refused the request on billing grounds: the X API credit balance is empty, a spending limit was reached, or the app is not attached to the pay-per-use package. An administrator needs to check Billing in console.x.com; reconnecting will not help.';
   }
-  if (/client-forbidden/i.test(type) || body.reason === 'client-not-enrolled') {
-    return 'X refused Social Square’s app access to this endpoint. An administrator needs to check the app’s project and access level in the X developer console; reconnecting will not help.';
+  if (/client-forbidden/i.test(body.type ?? '') || body.reason === 'client-not-enrolled') {
+    return 'X refused Social Square’s app access to this endpoint. An administrator needs to check that the app is in the Production environment of the pay-per-use package in console.x.com; reconnecting will not help.';
   }
   return undefined;
 }
 
+/**
+ * X's two billing refusals.
+ *
+ * A 402 (`CreditsDepleted`) is an empty or negative balance; a 429 of type
+ * `usage-capped` is a spending limit or usage cap. Neither clears by waiting,
+ * so neither is a rate limit: retrying spends attempts and changes nothing
+ * until somebody tops up, after which a person retries the post.
+ */
+function isBillingRefusal(status: number, body: XErrorBody): boolean {
+  const marker = `${body.type ?? ''} ${body.title ?? ''}`;
+  return status === 402 || /usage-capped|credits/i.test(marker);
+}
+
 function kindForStatus(status: number, body: XErrorBody): ProviderErrorKind {
   if (status === 401) return 'AUTHENTICATION';
-  if (status === 402) return 'PERMISSION';
+  if (isBillingRefusal(status, body)) return 'PERMISSION';
   if (status === 403) {
     const detail = `${body.detail ?? ''} ${body.title ?? ''}`;
     // The post is the problem, not the account.
