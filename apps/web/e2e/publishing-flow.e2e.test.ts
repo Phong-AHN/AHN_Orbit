@@ -214,7 +214,7 @@ describe('§32 · the whole flow', () => {
   it('4 · connects a social account through the OAuth flow', async () => {
     // The CSRF properties first, since they are what make the rest safe: the
     // state is signed, session-bound, single-use and expiring (T1.6).
-    const { state, nonce } = issueOAuthState({
+    const { state, cookie } = issueOAuthState({
       platform: 'FACEBOOK',
       organizationId: flow.organizationId!,
       workspaceId: flow.workspaceId!,
@@ -224,7 +224,7 @@ describe('§32 · the whole flow', () => {
 
     const payload = verifyOAuthState({
       state,
-      cookieNonce: nonce,
+      cookie,
       sessionUserId: flow.agencyUserId!,
       expectedOrganizationId: flow.organizationId!,
     });
@@ -234,7 +234,7 @@ describe('§32 · the whole flow', () => {
     expect(() =>
       verifyOAuthState({
         state,
-        cookieNonce: nonce,
+        cookie,
         sessionUserId: '018f0000-0000-7000-8000-0000000000ff',
       }),
     ).toThrow();

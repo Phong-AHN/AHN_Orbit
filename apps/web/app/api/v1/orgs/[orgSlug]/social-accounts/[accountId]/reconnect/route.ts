@@ -74,7 +74,7 @@ export const POST = withAuth<Params>(
 
     const redirectUri = `${serverEnv().APP_URL}/api/v1/social/oauth/${account.platform.toLowerCase()}/callback`;
 
-    const { authorizationUrl, scopes, nonce } = await startReconnect(ctx, {
+    const { authorizationUrl, scopes, cookie } = await startReconnect(ctx, {
       socialAccountId: params.accountId,
       userId: user.id,
       redirectUri,
@@ -82,7 +82,7 @@ export const POST = withAuth<Params>(
     });
 
     const response = jsonOk({ authorizationUrl, scopes });
-    response.cookies.set(oauthStateCookie(nonce));
+    response.cookies.set(oauthStateCookie(cookie));
     return response;
   },
 );

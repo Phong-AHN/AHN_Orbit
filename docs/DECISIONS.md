@@ -4452,6 +4452,14 @@ the state through the browser; the verifier cannot be computed from it without
 the secret, and the callback derives the same value again. Adapters without
 PKCE ignore it.
 
+**The signed state moved into the cookie.** X caps `state` at 500 characters
+and the signed payload — four UUIDs and a return path — was about 650, so X
+answered every connection with `error=invalid_request`. The HttpOnly cookie now
+holds the signed payload and `state` is the nonce alone; the callback checks
+the signature on the cookie and that `state` equals the payload's nonce. The
+same four properties hold (signed, session-bound, single-use, expiring), and
+organization and workspace ids no longer pass through another company's URLs.
+
 **The X adapter.**
 - OAuth 2.0 with HTTP Basic at the token endpoint; scopes `tweet.read
   tweet.write users.read media.write offline.access`.

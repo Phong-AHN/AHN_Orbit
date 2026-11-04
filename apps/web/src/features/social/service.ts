@@ -692,8 +692,8 @@ export async function checkAccountHealth(
 export interface ReconnectStart {
   authorizationUrl: string;
   scopes: readonly string[];
-  /** Mirrored into the HttpOnly cookie by the route. */
-  nonce: string;
+  /** The signed state payload, set as the HttpOnly cookie by the route. */
+  cookie: string;
 }
 
 /**
@@ -743,7 +743,7 @@ export async function startReconnect(
    */
   const accountType = account.accountType ?? undefined;
 
-  const { state, nonce } = issueOAuthState({
+  const { state, cookie, nonce } = issueOAuthState({
     platform: account.platform,
     organizationId: ctx.organizationId,
     workspaceId: account.workspaceId,
@@ -767,7 +767,7 @@ export async function startReconnect(
     organizationId: ctx.organizationId,
   });
 
-  return { authorizationUrl: url, scopes, nonce };
+  return { authorizationUrl: url, scopes, cookie };
 }
 
 // ── Disconnect ──────────────────────────────────────────────────────────────

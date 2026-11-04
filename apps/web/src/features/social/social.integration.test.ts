@@ -604,13 +604,15 @@ describe('starting a reconnect', () => {
       redirectUri: 'https://app.test/api/v1/social/oauth/facebook/callback',
     });
 
-  it('issues an authorization url and a state nonce', async () => {
+  it('issues an authorization url and a signed state cookie', async () => {
     const id = await connectOne();
 
     const result = await start(ctxA, id, USER_A);
 
     expect(result.authorizationUrl).toContain('state=');
-    expect(result.nonce.length).toBeGreaterThan(0);
+    expect(result.cookie.length).toBeGreaterThan(0);
+    // The signed payload stays in the cookie; the URL carries only the nonce.
+    expect(result.authorizationUrl).not.toContain(encodeURIComponent(result.cookie));
     expect(result.scopes.length).toBeGreaterThan(0);
   });
 

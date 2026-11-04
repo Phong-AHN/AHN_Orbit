@@ -79,7 +79,7 @@ export async function GET(
       // 3. Verify state → this is where the tenant comes from.
       const payload = verifyOAuthState({
         state: url.searchParams.get('state'),
-        cookieNonce: request.cookies.get(OAUTH_STATE_COOKIE)?.value,
+        cookie: request.cookies.get(OAUTH_STATE_COOKIE)?.value,
         sessionUserId: user.id,
       });
 

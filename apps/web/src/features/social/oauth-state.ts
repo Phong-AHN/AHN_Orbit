@@ -10,23 +10,30 @@ import type { Platform } from '@orbit/core';
  * session, so that their account gets connected to your organization. Four
  * things make that fail:
  *
- *  1. **Signed.** HMAC-SHA256 over the payload, so state cannot be forged.
+ *  1. **Signed.** HMAC-SHA256 over the payload, so it cannot be forged.
  *  2. **Session-bound.** The payload names the user who began the flow; the
  *     callback rejects a mismatch against the session.
- *  3. **Single-use.** A nonce is mirrored into an HttpOnly cookie and cleared
- *     on callback, so a captured state cannot be replayed.
+ *  3. **Single-use.** The `state` the platform carries is a nonce that must
+ *     match the one inside the payload, and the cookie holding the payload is
+ *     cleared on callback, so a captured state cannot be replayed.
  *  4. **Time-boxed.** Ten minutes, which is longer than any real consent flow
  *     and shorter than an attacker's convenience.
  *
- * The cookie carries only the nonce; everything else is inside the signed
- * payload, so the two must agree for the callback to proceed.
+ * ## Where each half lives
+ *
+ * The signed payload is in the **HttpOnly cookie**; the `state` handed to the
+ * platform is only the nonce. It used to be the other way round, and X refused
+ * every connection: X caps `state` at 500 characters, and a payload carrying
+ * four UUIDs and a return path is about 650. Keeping the payload in the cookie
+ * also means organization and workspace ids no longer travel through another
+ * company's URLs and logs.
  */
 
 export const OAUTH_STATE_COOKIE = '__orbit_oauth';
 export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 export interface OAuthStatePayload {
-  /** Mirrored into the cookie; makes the state single-use. */
+  /** The `state` the platform carries; must match for the callback to proceed. */
   nonce: string;
   platform: Platform;
   organizationId: string;
@@ -57,9 +64,11 @@ function sign(payload: string): string {
 }
 
 export interface IssuedState {
-  /** Opaque value handed to the provider. */
+  /** Opaque value handed to the provider: the nonce, and nothing else. */
   state: string;
-  /** Value for the HttpOnly cookie. */
+  /** Value for the HttpOnly cookie: the signed payload. */
+  cookie: string;
+  /** The flow's nonce, for deriving the PKCE verifier. Same as `state`. */
   nonce: string;
 }
 
@@ -74,14 +83,14 @@ export function issueOAuthState(
   };
 
   const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
-  return { state: `${encoded}.${sign(encoded)}`, nonce };
+  return { state: nonce, cookie: `${encoded}.${sign(encoded)}`, nonce };
 }
 
 /**
  * The PKCE verifier for a flow (RFC 7636), derived rather than stored.
  *
  * X requires PKCE, and the verifier must not travel through the browser. The
- * nonce does — it is inside the state — so the verifier is an HMAC of it under
+ * nonce does — it is the state — so the verifier is an HMAC of it under
  * the signing secret: the start route and the callback compute the same value,
  * nothing new is persisted, and seeing the URL is not enough to produce it.
  * 32 bytes of base64url is 43 characters, the RFC's minimum.
@@ -91,9 +100,10 @@ export function pkceVerifierFor(nonce: string): string {
 }
 
 export interface VerifyStateInput {
+  /** The `state` the platform sent back. */
   state: string | null | undefined;
-  /** Nonce from the HttpOnly cookie set when the flow began. */
-  cookieNonce: string | null | undefined;
+  /** The signed payload from the HttpOnly cookie set when the flow began. */
+  cookie: string | null | undefined;
   /** The currently authenticated user. */
   sessionUserId: string;
   /** Organization from the URL the callback landed on, if any. */
@@ -116,9 +126,9 @@ export function verifyOAuthState(input: VerifyStateInput): OAuthStatePayload {
   };
 
   if (!input.state) reject('missing state');
-  if (!input.cookieNonce) reject('missing state cookie');
+  if (!input.cookie) reject('missing state cookie');
 
-  const [encoded, signature] = input.state!.split('.');
+  const [encoded, signature] = input.cookie!.split('.');
   if (!encoded || !signature) reject('malformed state');
 
   const expected = sign(encoded!);
@@ -138,9 +148,9 @@ export function verifyOAuthState(input: VerifyStateInput): OAuthStatePayload {
   }
 
   // Single use: the cookie is cleared on callback, so a replayed state has no
-  // matching nonce.
+  // payload left to match.
   const nonceA = Buffer.from(payload.nonce ?? '');
-  const nonceB = Buffer.from(input.cookieNonce!);
+  const nonceB = Buffer.from(input.state!);
   if (nonceA.length !== nonceB.length || !timingSafeEqual(nonceA, nonceB)) {
     reject('nonce mismatch');
   }
@@ -160,10 +170,10 @@ export function verifyOAuthState(input: VerifyStateInput): OAuthStatePayload {
   return payload;
 }
 
-export function oauthStateCookie(nonce: string) {
+export function oauthStateCookie(signedPayload: string) {
   return {
     name: OAUTH_STATE_COOKIE,
-    value: nonce,
+    value: signedPayload,
     httpOnly: true as const,
     secure: !serverEnv().APP_URL.startsWith('http://localhost'),
     // The provider redirects back via a top-level GET, which Lax permits.

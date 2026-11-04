@@ -57,52 +57,68 @@ afterEach(() => {
 
 describe('round trip', () => {
   it('verifies a state it issued', () => {
-    const { state, nonce } = issueOAuthState(seed);
-    const payload = verifyOAuthState({
-      state,
-      cookieNonce: nonce,
-      sessionUserId: seed.userId,
-    });
+    const { state, cookie } = issueOAuthState(seed);
+    const payload = verifyOAuthState({ state, cookie, sessionUserId: seed.userId });
 
     expect(payload.organizationId).toBe(seed.organizationId);
     expect(payload.brandId).toBe(seed.brandId);
   });
 
   it('carries the return path through the flow', () => {
-    const { state, nonce } = issueOAuthState({ ...seed, returnTo: '/acme/settings/accounts' });
-    const payload = verifyOAuthState({ state, cookieNonce: nonce, sessionUserId: seed.userId });
+    const { state, cookie } = issueOAuthState({ ...seed, returnTo: '/acme/settings/accounts' });
+    const payload = verifyOAuthState({ state, cookie, sessionUserId: seed.userId });
     expect(payload.returnTo).toBe('/acme/settings/accounts');
+  });
+});
+
+describe('what the platform carries', () => {
+  /**
+   * X caps `state` at 500 characters and refused every connection while the
+   * signed payload rode in it. The state is the nonce alone now.
+   */
+  it('keeps the state short however long the payload is', () => {
+    const { state } = issueOAuthState({
+      ...seed,
+      returnTo: `/orgs/a-long-agency-name/settings/accounts/connect?workspaceId=${seed.workspaceId}&brandId=${seed.brandId}&platform=X`,
+    });
+    expect(state.length).toBeLessThanOrEqual(64);
+  });
+
+  /** Organization and workspace ids stay out of another company's URLs and logs. */
+  it('puts no internal id in the state', () => {
+    const { state } = issueOAuthState(seed);
+    for (const id of Object.values(seed)) expect(state).not.toContain(id);
   });
 });
 
 describe('forgery', () => {
   it('rejects a tampered payload', () => {
-    const { nonce } = issueOAuthState(seed);
+    const { state } = issueOAuthState(seed);
     const forged = Buffer.from(
-      JSON.stringify({ ...seed, nonce, expiresAt: Date.now() + 60_000 }),
+      JSON.stringify({ ...seed, nonce: state, expiresAt: Date.now() + 60_000 }),
       'utf8',
     ).toString('base64url');
 
     expect(() =>
       verifyOAuthState({
-        state: `${forged}.not-a-real-signature`,
-        cookieNonce: nonce,
+        state,
+        cookie: `${forged}.not-a-real-signature`,
         sessionUserId: seed.userId,
       }),
     ).toThrow(ValidationError);
   });
 
-  it('rejects a state signed with a different secret', () => {
-    const { state, nonce } = issueOAuthState(seed);
+  it('rejects a payload signed with a different secret', () => {
+    const { state, cookie } = issueOAuthState(seed);
     setEnv({ STATE_SIGNING_SECRET: Buffer.alloc(32, 99).toString('base64') });
 
-    expect(() =>
-      verifyOAuthState({ state, cookieNonce: nonce, sessionUserId: seed.userId }),
-    ).toThrow(ValidationError);
+    expect(() => verifyOAuthState({ state, cookie, sessionUserId: seed.userId })).toThrow(
+      ValidationError,
+    );
   });
 
-  it.each(['', 'no-dot', '.sig', 'a.b.c'])('rejects malformed state %j', (state) => {
-    expect(() => verifyOAuthState({ state, cookieNonce: 'n', sessionUserId: seed.userId })).toThrow(
+  it.each(['', 'no-dot', '.sig', 'a.b.c'])('rejects a malformed cookie %j', (cookie) => {
+    expect(() => verifyOAuthState({ state: 'n', cookie, sessionUserId: seed.userId })).toThrow(
       ValidationError,
     );
   });
@@ -112,12 +128,12 @@ describe('session binding', () => {
   it('REJECTS a state issued to a different user', () => {
     // The core CSRF defence: an attacker's state cannot be completed inside
     // someone else's session.
-    const { state, nonce } = issueOAuthState(seed);
+    const { state, cookie } = issueOAuthState(seed);
 
     expect(() =>
       verifyOAuthState({
         state,
-        cookieNonce: nonce,
+        cookie,
         sessionUserId: '018f0000-0000-7000-8000-00000000ffff',
       }),
     ).toThrow(UnauthenticatedError);
@@ -125,19 +141,20 @@ describe('session binding', () => {
 });
 
 describe('single use', () => {
-  it('rejects a state whose nonce does not match the cookie', () => {
-    const { state } = issueOAuthState(seed);
+  it('rejects a state that does not match the payload in the cookie', () => {
+    const { cookie } = issueOAuthState(seed);
 
-    // Replay after the cookie was cleared on first callback.
+    // Somebody else's state, or a replay against a newer flow's cookie.
     expect(() =>
-      verifyOAuthState({ state, cookieNonce: 'a-different-nonce', sessionUserId: seed.userId }),
+      verifyOAuthState({ state: 'a-different-nonce', cookie, sessionUserId: seed.userId }),
     ).toThrow(ValidationError);
   });
 
   it('rejects a state with no cookie at all', () => {
+    // Replay after the cookie was cleared on first callback.
     const { state } = issueOAuthState(seed);
     expect(() =>
-      verifyOAuthState({ state, cookieNonce: undefined, sessionUserId: seed.userId }),
+      verifyOAuthState({ state, cookie: undefined, sessionUserId: seed.userId }),
     ).toThrow(ValidationError);
   });
 
@@ -146,6 +163,7 @@ describe('single use', () => {
     const b = issueOAuthState(seed);
     expect(a.nonce).not.toBe(b.nonce);
     expect(a.state).not.toBe(b.state);
+    expect(a.cookie).not.toBe(b.cookie);
   });
 });
 
@@ -155,12 +173,12 @@ describe('expiry', () => {
     restoreClock?.();
     restoreClock = setClock(clock);
 
-    const { state, nonce } = issueOAuthState(seed);
+    const { state, cookie } = issueOAuthState(seed);
     clock.advance(10 * 60 * 1000 + 1);
 
-    expect(() =>
-      verifyOAuthState({ state, cookieNonce: nonce, sessionUserId: seed.userId }),
-    ).toThrow(ValidationError);
+    expect(() => verifyOAuthState({ state, cookie, sessionUserId: seed.userId })).toThrow(
+      ValidationError,
+    );
   });
 
   it('accepts one just inside the window', () => {
@@ -168,23 +186,21 @@ describe('expiry', () => {
     restoreClock?.();
     restoreClock = setClock(clock);
 
-    const { state, nonce } = issueOAuthState(seed);
+    const { state, cookie } = issueOAuthState(seed);
     clock.advance(9 * 60 * 1000);
 
-    expect(() =>
-      verifyOAuthState({ state, cookieNonce: nonce, sessionUserId: seed.userId }),
-    ).not.toThrow();
+    expect(() => verifyOAuthState({ state, cookie, sessionUserId: seed.userId })).not.toThrow();
   });
 });
 
 describe('organization binding', () => {
   it('rejects a state for a different organization than the callback expects', () => {
-    const { state, nonce } = issueOAuthState(seed);
+    const { state, cookie } = issueOAuthState(seed);
 
     expect(() =>
       verifyOAuthState({
         state,
-        cookieNonce: nonce,
+        cookie,
         sessionUserId: seed.userId,
         expectedOrganizationId: '018f0000-0000-7000-8000-00000000eeee',
       }),
@@ -194,16 +210,12 @@ describe('organization binding', () => {
 
 describe('error messages', () => {
   it('never reveals which check failed', () => {
-    const { state, nonce } = issueOAuthState(seed);
+    const { state, cookie } = issueOAuthState(seed);
 
     const messages = [
-      capture(() =>
-        verifyOAuthState({ state: 'bad.sig', cookieNonce: nonce, sessionUserId: seed.userId }),
-      ),
-      capture(() => verifyOAuthState({ state, cookieNonce: 'wrong', sessionUserId: seed.userId })),
-      capture(() =>
-        verifyOAuthState({ state: undefined, cookieNonce: nonce, sessionUserId: seed.userId }),
-      ),
+      capture(() => verifyOAuthState({ state, cookie: 'bad.sig', sessionUserId: seed.userId })),
+      capture(() => verifyOAuthState({ state: 'wrong', cookie, sessionUserId: seed.userId })),
+      capture(() => verifyOAuthState({ state: undefined, cookie, sessionUserId: seed.userId })),
     ];
 
     // One message for every failure mode: a probe learns nothing.
@@ -213,7 +225,7 @@ describe('error messages', () => {
 
   it('records the specific reason in the log context', () => {
     const error = capture(
-      () => verifyOAuthState({ state: 'bad.sig', cookieNonce: 'n', sessionUserId: seed.userId }),
+      () => verifyOAuthState({ state: 'n', cookie: 'bad.sig', sessionUserId: seed.userId }),
       true,
     ) as unknown as ValidationError;
 

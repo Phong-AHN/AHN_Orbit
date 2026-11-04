@@ -76,7 +76,7 @@ export const POST = withAuth<Params>(
     const provider = getProvider(platform as (typeof PLATFORMS)[number]);
     const redirectUri = `${serverEnv().APP_URL}/api/v1/social/oauth/${platform.toLowerCase()}/callback`;
 
-    const { state, nonce } = issueOAuthState({
+    const { state, cookie, nonce } = issueOAuthState({
       platform: platform as (typeof PLATFORMS)[number],
       ...(input.accountType ? { accountType: input.accountType } : {}),
       organizationId: ctx.organizationId,
@@ -95,7 +95,7 @@ export const POST = withAuth<Params>(
     });
 
     const response = jsonOk({ authorizationUrl: url, scopes });
-    response.cookies.set(oauthStateCookie(nonce));
+    response.cookies.set(oauthStateCookie(cookie));
     return response;
   },
 );
