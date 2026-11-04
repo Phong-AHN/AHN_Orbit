@@ -4,6 +4,8 @@ import * as React from 'react';
 import { Button } from '@orbit/ui';
 import { ApiError } from '@/features/posts/ui/api';
 import { startConnect } from '@/features/tenancy/ui/api';
+import { platformName } from '@/features/publishing/ui/links';
+import { StrandedAuthorization, useAuthorizationHandoff } from './authorization-handoff';
 
 /**
  * Sends the browser to the platform's authorization screen.
@@ -36,6 +38,7 @@ export function ConnectStartButton({
 }: ConnectStartButtonProps) {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const { leave, stranded } = useAuthorizationHandoff(React.useCallback(() => setBusy(false), []));
 
   async function start() {
     setBusy(true);
@@ -51,7 +54,7 @@ export function ConnectStartButton({
 
       // Leaving the app: the busy state stays on so the button does not look
       // ready again while the navigation is still in flight.
-      window.location.assign(authorizationUrl);
+      leave(authorizationUrl);
     } catch (e) {
       setError(
         e instanceof ApiError
@@ -72,6 +75,10 @@ export function ConnectStartButton({
         <p role="alert" className="text-sm font-medium text-danger">
           {error}
         </p>
+      ) : null}
+
+      {stranded ? (
+        <StrandedAuthorization url={stranded} platformName={platformName(platform)} />
       ) : null}
     </div>
   );

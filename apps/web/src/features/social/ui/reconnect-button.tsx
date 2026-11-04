@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { Button } from '@orbit/ui';
 import { ApiError } from '@/features/posts/ui/api';
+import { StrandedAuthorization, useAuthorizationHandoff } from './authorization-handoff';
 
 /**
  * The two-click fix (T1.7).
@@ -29,6 +30,7 @@ export interface ReconnectButtonProps {
 export function ReconnectButton(props: ReconnectButtonProps) {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const { leave, stranded } = useAuthorizationHandoff(React.useCallback(() => setBusy(false), []));
 
   async function start() {
     setBusy(true);
@@ -57,7 +59,7 @@ export function ReconnectButton(props: ReconnectButtonProps) {
 
       // Leaving the app entirely, so the busy state stays on: the button must
       // not look ready again while the navigation is still in flight.
-      window.location.assign(body.authorizationUrl);
+      leave(body.authorizationUrl);
     } catch (e) {
       setError(
         e instanceof ApiError
@@ -85,6 +87,8 @@ export function ReconnectButton(props: ReconnectButtonProps) {
           {error}
         </p>
       ) : null}
+
+      {stranded ? <StrandedAuthorization url={stranded} /> : null}
     </div>
   );
 }
