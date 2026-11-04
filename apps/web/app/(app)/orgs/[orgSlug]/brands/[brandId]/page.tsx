@@ -5,6 +5,7 @@ import { pageCan, requirePageContext } from '@/server/page-context';
 import { getBrand } from '@/features/tenancy/service';
 import { getBrandVoice } from '@/features/brand-voice/service';
 import { BrandVoiceForm } from '@/features/brand-voice/ui/brand-voice-form';
+import { RenameButton } from '@/features/tenancy/ui/rename-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,9 +18,9 @@ interface PageProps {
 /**
  * One brand's settings, which for now is its Brand Brain (SRS §24).
  *
- * Reachable from the client list. The brand's own fields — name, colour, logo —
- * are edited from there already; this is the material that grounds writing,
- * which is a different job and a much longer form.
+ * Reachable from the client list. The brand's name can be changed here and
+ * there; the rest of this page is the material that grounds writing, which is
+ * a different job and a much longer form.
  */
 export default async function BrandPage({ params }: PageProps) {
   const { orgSlug, brandId } = await params;
@@ -43,6 +44,15 @@ export default async function BrandPage({ params }: PageProps) {
         eyebrow={`${organization.name} · ${brand.workspace.name}`}
         title={brand.name}
         description="The context every suggestion for this brand is grounded in."
+        actions={
+          pageCan(ctx, 'brand:update', { workspaceId: brand.workspaceId, brandId }) ? (
+            <RenameButton
+              endpoint={`/api/v1/orgs/${encodeURIComponent(orgSlug)}/brands/${encodeURIComponent(brandId)}`}
+              currentName={brand.name}
+              noun="brand"
+            />
+          ) : null
+        }
       />
 
       <BrandVoiceForm

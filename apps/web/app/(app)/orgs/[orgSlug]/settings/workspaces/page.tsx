@@ -17,6 +17,7 @@ import { getOrganization, listWorkspacesWithBrands } from '@/features/tenancy/se
 import { CreateWorkspaceForm } from '@/features/tenancy/ui/create-workspace-form';
 import { CreateBrandForm } from '@/features/tenancy/ui/create-brand-form';
 import { ClientApprovalToggle } from '@/features/tenancy/ui/client-approval-toggle';
+import { RenameButton } from '@/features/tenancy/ui/rename-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,6 +85,8 @@ export default async function WorkspacesPage({ params, searchParams }: PageProps
   // (D-106). The API enforces the same rule; this only hides a control that
   // would be refused.
   const mayChangeClientGate = pageCan(ctx, 'workspace:update');
+  const mayRenameAgency = pageCan(ctx, 'org:update');
+  const api = `/api/v1/orgs/${encodeURIComponent(orgSlug)}`;
 
   return (
     <main id="main" className="px-4 py-10 sm:px-6">
@@ -97,6 +100,14 @@ export default async function WorkspacesPage({ params, searchParams }: PageProps
           ) : null
         }
       />
+
+      {mayRenameAgency ? (
+        <div className="mb-6 flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-ink-muted">Agency name</span>
+          <span className="font-medium text-ink">{organization.name}</span>
+          <RenameButton endpoint={api} currentName={organization.name} noun="agency" />
+        </div>
+      ) : null}
 
       {created === 'organization' ? (
         <p className="mb-6 rounded border border-accent/30 bg-accent/5 px-3 py-2 text-sm text-ink">
@@ -121,7 +132,16 @@ export default async function WorkspacesPage({ params, searchParams }: PageProps
               <Card>
                 <CardHeader className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <CardTitle>{workspace.name}</CardTitle>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <CardTitle>{workspace.name}</CardTitle>
+                      {pageCan(ctx, 'workspace:update', { workspaceId: workspace.id }) ? (
+                        <RenameButton
+                          endpoint={`${api}/workspaces/${encodeURIComponent(workspace.id)}`}
+                          currentName={workspace.name}
+                          noun="client"
+                        />
+                      ) : null}
+                    </div>
                     <p className="mt-0.5 text-xs text-ink-muted">
                       {workspace.timezone}
                       {workspace.clientCompanyName ? ` · ${workspace.clientCompanyName}` : ''}
@@ -187,6 +207,16 @@ export default async function WorkspacesPage({ params, searchParams }: PageProps
                               >
                                 {brand.name}
                               </Link>
+                              {pageCan(ctx, 'brand:update', {
+                                workspaceId: workspace.id,
+                                brandId: brand.id,
+                              }) ? (
+                                <RenameButton
+                                  endpoint={`${api}/brands/${encodeURIComponent(brand.id)}`}
+                                  currentName={brand.name}
+                                  noun="brand"
+                                />
+                              ) : null}
                               <Badge tone={connected > 0 ? 'success' : 'warning'}>
                                 {connected > 0
                                   ? `${connected} account${connected === 1 ? '' : 's'}`
