@@ -68,6 +68,24 @@ const LABEL: Record<string, string> = {
   VIDEO_MRC_VIEW: 'Video views',
   VIDEO_AVG_WATCH_TIME: 'Average watch time',
   QUARTILE_95_PERCENT_VIEW: 'Watched to 95%',
+
+  // X. Prefixed by the adapter, because X's own names (`like_count`) are
+  // TikTok's too and the overview totals by name. Link clicks, profile clicks
+  // and engagements are owner-only and stop after 30 days.
+  x_impressions: 'Impressions',
+  x_likes: 'Likes',
+  x_replies: 'Replies',
+  x_reposts: 'Reposts',
+  x_quotes: 'Quotes',
+  x_bookmarks: 'Bookmarks',
+  x_link_clicks: 'Link clicks',
+  x_profile_clicks: 'Profile clicks',
+  x_engagements: 'Engagements',
+  x_video_views: 'Video views',
+  x_followers: 'Followers',
+  x_following: 'Following',
+  x_posts: 'Posts',
+  x_listed: 'Listed',
 };
 
 export function metricLabel(name: string): string {

@@ -73,6 +73,15 @@ export interface AuthorizationUrlInput {
    * Providers with a single surface ignore it.
    */
   accountType?: string | undefined;
+  /**
+   * The PKCE verifier for this flow (RFC 7636), for a platform that requires
+   * PKCE. The provider derives the S256 challenge from it; the verifier itself
+   * never goes into the URL.
+   *
+   * Supplied by the caller, who can produce the same value again at the
+   * callback without storing it. Providers that do not use PKCE ignore it.
+   */
+  codeVerifier?: string | undefined;
 }
 
 export interface CallbackInput {
@@ -80,6 +89,8 @@ export interface CallbackInput {
   redirectUri: string;
   /** The surface the authorization was started on. See `AuthorizationUrlInput`. */
   accountType?: string | undefined;
+  /** The same verifier `getAuthorizationUrl` was given. See `AuthorizationUrlInput`. */
+  codeVerifier?: string | undefined;
 }
 
 /**

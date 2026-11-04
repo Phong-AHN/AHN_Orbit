@@ -9,7 +9,7 @@ import {
 import { withTenant } from '@orbit/db';
 import { presignDownload } from '@orbit/storage';
 import type { DecryptedCredential, PublishMedia, VariantDraft } from '@orbit/providers';
-import { openCredential } from '../credentials.js';
+import { freshenCredential, openCredential } from '../credentials.js';
 
 /**
  * Everything a publish needs, resolved at publish time (SRS §13).
@@ -168,10 +168,17 @@ export async function loadPublishSubject(
   // Decrypted here, in memory, and never logged or serialised (SRS §6). The
   // AAD binds the ciphertext to this organization *and* this account, so a
   // credential row moved between tenants fails to open.
-  const credential: DecryptedCredential = openCredential(credentialRow, {
-    organizationId: ctx.organizationId,
-    socialAccountId: variant.socialAccountId,
-  });
+  //
+  // Renewed before use when it is close to expiry (D-111): an X token lasts two
+  // hours, and the post was usually written longer ago than that.
+  const credential: DecryptedCredential = await freshenCredential(
+    ctx,
+    variant.socialAccountId,
+    openCredential(credentialRow, {
+      organizationId: ctx.organizationId,
+      socialAccountId: variant.socialAccountId,
+    }),
+  );
 
   const media: PublishMedia[] = await Promise.all(
     usable.map(async (item) => ({

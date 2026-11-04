@@ -10,7 +10,9 @@ export {
 export {
   validateDraft,
   canEditPublished,
+  composePublishedText,
   countCharacters,
+  weightedLength,
   errorsOnly,
   type DraftMedia,
   type ValidationIssue,
@@ -36,6 +38,14 @@ export {
   type KeyResolver,
   type SealedValue,
 } from './credential-cipher.js';
+
+export {
+  REFRESH_AHEAD_MS,
+  attemptRefresh,
+  mergeRefreshed,
+  refreshIsDue,
+  type RefreshAttempt,
+} from './credential-refresh.js';
 
 export {
   assertCapability,

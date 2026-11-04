@@ -15,6 +15,7 @@ import { ensureProvidersRegistered } from '@/server/providers';
 import {
   OAUTH_STATE_COOKIE,
   clearedOAuthStateCookie,
+  pkceVerifierFor,
   verifyOAuthState,
 } from '@/features/social/oauth-state';
 import { stageDiscoveredAccounts } from '@/features/social/service';
@@ -105,6 +106,7 @@ export async function GET(
         redirectUri,
         // From the signed state, never from the callback URL.
         ...(payload.accountType ? { accountType: payload.accountType } : {}),
+        codeVerifier: pkceVerifierFor(payload.nonce),
       });
 
       logger.info('oauth exchange completed', {

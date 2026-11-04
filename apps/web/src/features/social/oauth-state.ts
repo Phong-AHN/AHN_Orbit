@@ -77,6 +77,19 @@ export function issueOAuthState(
   return { state: `${encoded}.${sign(encoded)}`, nonce };
 }
 
+/**
+ * The PKCE verifier for a flow (RFC 7636), derived rather than stored.
+ *
+ * X requires PKCE, and the verifier must not travel through the browser. The
+ * nonce does — it is inside the state — so the verifier is an HMAC of it under
+ * the signing secret: the start route and the callback compute the same value,
+ * nothing new is persisted, and seeing the URL is not enough to produce it.
+ * 32 bytes of base64url is 43 characters, the RFC's minimum.
+ */
+export function pkceVerifierFor(nonce: string): string {
+  return createHmac('sha256', signingKey()).update(`pkce:${nonce}`).digest('base64url');
+}
+
 export interface VerifyStateInput {
   state: string | null | undefined;
   /** Nonce from the HttpOnly cookie set when the flow began. */

@@ -75,6 +75,21 @@ export const platformCapabilitiesSchema = z.object({
     linkCharacterCost: z.number().int().nonnegative().optional(),
     /** Whether a post may consist of media with no text at all. */
     allowsEmptyWithMedia: z.boolean().default(true),
+    /**
+     * Count the way X does: after NFC normalisation, a character in the Latin,
+     * Greek, Cyrillic and general-punctuation ranges weighs 1 and anything else
+     * (CJK, emoji, and Vietnamese letters from Latin Extended Additional such as
+     * "ệ" or "ạ") weighs 2. Without it, a Vietnamese post the composer called
+     * 250 characters is refused by X as over 280.
+     */
+    weightedCounting: z.boolean().default(false),
+    /**
+     * The limit applies to the text as published — body, then hashtags, then
+     * the destination link — because the platform has no separate field for
+     * either and the adapter writes them into the post. Counted with
+     * `composePublishedText`, the same function the adapter publishes with.
+     */
+    composedText: z.boolean().default(false),
   }),
 
   link: z.object({
@@ -97,6 +112,15 @@ export const platformCapabilitiesSchema = z.object({
     altText: z.boolean().default(false),
     /** Whether media is *required* (Instagram feed posts, for example). */
     required: z.boolean().default(false),
+    /**
+     * Kinds that must be the only attachment on a post. X takes up to four
+     * images, *or* one video, *or* one GIF — a rule `maxAttachments` alone
+     * cannot state.
+     */
+    soloKinds: z
+      .array(z.enum(['IMAGE', 'VIDEO', 'GIF']))
+      .readonly()
+      .default([]),
   }),
 
   hashtags: z.object({

@@ -4424,6 +4424,64 @@ The owner asked to be able to create images with AI and use them in posts.
 Not verified against the live model yet: Google's image models and their
 free-tier limits change, so the model id is configuration.
 
+## D-111 — X, and credentials renewed before use
+
+The owner asked for X with publishing and analytics. Building it exposed that
+**nothing ever called `refreshCredential`**: every adapter implemented it, the
+docs described a refresh sweep, and no code ran one. YouTube tokens died after
+an hour and TikTok's after a day; X's last two hours, so it could not ship
+without this.
+
+**Renewal happens where a credential is opened.** `loadAccountCredential`
+(worker) and `loadCredential` (web) ask `refreshIsDue` — expiry within seven
+days, the longest window any adapter uses — and only then take a row lock
+(`SELECT … FOR UPDATE` on `SocialCredential`), re-read the row, and let the
+adapter decide. The lock is the point: X and TikTok replace the refresh token
+on every use, so a second renewal racing the first would present a spent token
+and end the connection. Under the lock the second finds the first's token and
+the adapter answers `STILL_VALID` without a network call. A failed or refused
+renewal returns the stored credential, and the call that uses it fails through
+the normal path; renewal never stops a publish by itself. Credentials with no
+expiry (Facebook Page tokens) are never offered, which keeps `debug_token` off
+the hot path. A background sweep for idle accounts is still not built.
+
+**PKCE without storing anything.** X requires PKCE of a confidential client.
+`AuthorizationUrlInput` and `CallbackInput` gained `codeVerifier`; the web app
+derives it as `HMAC(STATE_SIGNING_SECRET, "pkce:" + nonce)`. The nonce rides in
+the state through the browser; the verifier cannot be computed from it without
+the secret, and the callback derives the same value again. Adapters without
+PKCE ignore it.
+
+**The X adapter.**
+- OAuth 2.0 with HTTP Basic at the token endpoint; scopes `tweet.read
+  tweet.write users.read media.write offline.access`.
+- Media through the v2 chunked endpoints (initialize, append in 4 MB segments
+  read by range, finalize, status), alt text via `/2/media/metadata`. Media ids
+  are recorded before the post, and a retry within their lifetime reuses them.
+- The exact text sent is recorded before `POST /2/tweets`, and reconciliation
+  matches on it with links stripped: X rewrites every URL to t.co and appends
+  one for media.
+- **403 is read, not trusted.** A duplicate post is VALIDATION, a refused video
+  MEDIA, an unenrolled app or exhausted credit client standing. Only the rest
+  are PERMISSION, so a duplicate tweet cannot demote an account.
+- Analytics: `public_metrics` always, the owner-only metrics only within 30
+  days (asking later is an error), video views from the expanded media.
+  Prefixed `x_` because X's own names are TikTok's and the overview totals by
+  name. Account analytics: followers, following, posts, listed.
+
+**Three capability fields, generic and off by default.**
+`text.weightedCounting` counts as X does (NFC; outside Latin/Greek/Cyrillic and
+three punctuation blocks a character weighs two, which includes Vietnamese
+letters such as "ạ" and "ệ"). `text.composedText` applies the limit to body +
+hashtags + link via `composePublishedText`, the function the adapter publishes
+with. `media.soloKinds` states "four images, or one video, or one GIF".
+
+**Every request is billed.** X is pay-per-usage: $0.015 a post, $0.20 a post
+with a URL, reads per resource. The health probe and the analytics sweep read
+on their existing schedules; nothing reads on page views.
+
+Not verified against the live API: no X app exists for this deployment yet.
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

@@ -40,6 +40,9 @@ export interface ContractFixtures {
   offlineOnly?: boolean;
 }
 
+/** A PKCE verifier of the RFC's minimum length, as the connect flow derives one. */
+const CONTRACT_VERIFIER = 'contract-pkce-verifier-'.padEnd(43, 'v');
+
 export function runProviderContractTests(fixtures: ContractFixtures): void {
   describe(`${fixtures.name} — provider contract`, () => {
     // ── Capabilities ──────────────────────────────────────────────────────
@@ -186,6 +189,8 @@ export function runProviderContractTests(fixtures: ContractFixtures): void {
         const { url, scopes } = provider.getAuthorizationUrl({
           redirectUri: 'https://app.test/callback',
           state: 'signed-state-value',
+          // The connect flow always supplies one; adapters without PKCE ignore it.
+          codeVerifier: CONTRACT_VERIFIER,
         });
 
         expect(url).toMatch(/^https:\/\//);
@@ -198,7 +203,10 @@ export function runProviderContractTests(fixtures: ContractFixtures): void {
         const { url } = provider.getAuthorizationUrl({
           redirectUri: 'https://app.test/callback',
           state: 's',
+          codeVerifier: CONTRACT_VERIFIER,
         });
+
+        expect(url).not.toContain(CONTRACT_VERIFIER);
 
         expect(url.toLowerCase()).not.toContain('client_secret');
         expect(url.toLowerCase()).not.toContain('secret=');

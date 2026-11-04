@@ -1006,18 +1006,10 @@ tới khi có khách hàng thật yêu cầu.
 
 ---
 
-### 6. Nền tảng còn lại — chỉ còn X (Twitter)
+### 6. Nền tảng — đủ cả tám
 
-Sáu nền tảng đã xong: Facebook, Instagram, TikTok, Threads, LinkedIn, YouTube,
-Pinterest.
-
-| Nền tảng | Độ khó | Ghi chú |
-|---|---|---|
-| X (Twitter) | Trung bình | **Chi phí API cao** — bậc trả phí bắt buộc để đăng bài |
-
-**Cần anh quyết:** X là nền tảng duy nhất còn thiếu, và nó là nền tảng duy nhất
-phải **trả tiền hàng tháng** mới đăng được. Anh cho biết có khách nào thực sự
-cần X không trước khi em bỏ 1–1.5 tuần vào nó.
+Facebook, Instagram, TikTok, Threads, LinkedIn, YouTube, Pinterest và **X**
+(2026-11-04, đăng bài + analytics; xem mục "X" bên dưới để cấu hình app).
 
 ---
 
@@ -1338,8 +1330,9 @@ lại và analytics. Không phải blocking cho việc đăng bài.
 ### 🟡 Worth knowing
 
 - A TikTok access token lasts **24 hours** and its refresh token **365 days**.
-  The refresh sweep handles this, but an account left untouched for a year has
-  to be reconnected by hand.
+  The access token is renewed just before each use (**D-111**; there is no
+  background sweep yet), and an account left untouched for a year has to be
+  reconnected by hand.
 - Videos upload from the worker in chunks against a signed URL that lives
   **15 minutes**. A very large video on a slow link will fail loudly rather than
   post a truncated file.
@@ -1546,6 +1539,45 @@ chọn giùm.
   khác hẳn.
 - **Sửa pin sau khi đăng** — Orbit chưa có luồng sửa-sau-khi-đăng ở bất kỳ nền
   tảng nào.
+
+---
+
+## X (added 2026-11-04, **D-111**)
+
+### 🔴 Blocking
+
+- [ ] **Tạo app** tại console.x.com: OAuth 2.0, loại **Web App / Confidential
+      client**, quyền **Read and write** (không chọn Direct Messages).
+- [ ] **Nạp credit** cho tài khoản developer. X API **tính tiền theo từng
+      request**, không có bậc miễn phí cố định: $0.015 một bài, **$0.20 một bài
+      có link**, mỗi lần đọc số liệu cũng tính tiền.
+- [ ] **Callback URI**: `https://www.anhoi.co/api/v1/social/oauth/x/callback`
+      — Website `https://www.anhoi.co`, Terms
+      `https://www.anhoi.co/terms-of-service`, Privacy
+      `https://www.anhoi.co/privacy-policy`.
+- [ ] Đặt `X_CLIENT_ID` / `X_CLIENT_SECRET` trên **cả** Vercel và Railway.
+
+### 🟡 Cần biết
+
+- **Giới hạn 280 ký tự có trọng số**: chữ có dấu như "ạ", "ệ", "ố" tính **2**.
+  Hashtag và link đích được ghi thẳng vào bài nên cũng bị tính. Composer đếm
+  đúng như X đếm.
+- **4 ảnh, hoặc 1 video, hoặc 1 GIF** mỗi bài. Video tối đa 20 phút.
+- **Token sống 2 giờ** và được làm mới tự động ngay trước khi dùng (D-111). Tài
+  khoản không đăng gì và không có ai mở trong thời gian dài vẫn có thể phải kết
+  nối lại, vì chưa có sweep chạy nền.
+- **Số liệu riêng tư** (click link, click hồ sơ, engagements) X chỉ trả trong
+  **30 ngày** sau khi đăng; sau đó hiện "không có", không bao giờ là 0.
+- Lỗi "credit đã hết" hoặc "app chưa được cấp quyền endpoint" **không** hạ
+  trạng thái tài khoản — người xử lý là admin trên console X, không phải người
+  kết nối lại.
+
+### Cố ý không làm
+
+- **Đọc và trả lời reply, tin nhắn** — tốn thêm phí đọc và chưa có yêu cầu.
+- **Thread** (bài trả lời chính mình) và **sửa bài sau khi đăng**.
+- **Bài dài cho tài khoản Premium** — không biết tài khoản nào là Premium, nên
+  giới hạn 280 áp cho mọi tài khoản.
 
 ---
 

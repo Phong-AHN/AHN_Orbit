@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { defineCapabilities, type PlatformCapabilities } from './capabilities.js';
-import { canEditPublished, countCharacters, errorsOnly, validateDraft } from './validation.js';
+import {
+  canEditPublished,
+  composePublishedText,
+  countCharacters,
+  errorsOnly,
+  validateDraft,
+  weightedLength,
+} from './validation.js';
 import type { DraftMedia } from './validation.js';
 
 /**
@@ -327,5 +334,39 @@ describe('descriptor integrity', () => {
         lifecycle: { edit: false, editOwnPostsOnly: true, delete: true, readStatus: true },
       }),
     ).toThrow(/editOwnPostsOnly/);
+  });
+});
+
+describe('weighted counting and composed text', () => {
+  /**
+   * X's counting, from twitter-text v3. Vietnamese straddles the line: "á"
+   * and "ư" are light, "ạ" and "ệ" (Latin Extended Additional) weigh two.
+   */
+  it('weighs characters the way X does', () => {
+    expect(weightedLength('abc')).toBe(3);
+    expect(weightedLength('áư')).toBe(2);
+    expect(weightedLength('ạệ')).toBe(4);
+    expect(weightedLength('日本')).toBe(4);
+    // One emoji, however many code points it is built from.
+    expect(weightedLength('👍🏽')).toBe(2);
+    expect(weightedLength('❤️')).toBe(2);
+  });
+
+  /** A letter typed as base + combining mark counts as its precomposed form. */
+  it('normalises before counting', () => {
+    expect(weightedLength('ệ')).toBe(weightedLength('ệ'));
+  });
+
+  it('writes hashtags and the link after the body, without repeating either', () => {
+    expect(
+      composePublishedText({
+        body: 'Hello #launch',
+        hashtags: ['launch', 'news'],
+        linkUrl: 'https://a.test',
+      }),
+    ).toBe('Hello #launch\n\n#news\n\nhttps://a.test');
+    expect(composePublishedText({ body: 'See https://a.test', linkUrl: 'https://a.test' })).toBe(
+      'See https://a.test',
+    );
   });
 });

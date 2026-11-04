@@ -320,6 +320,20 @@ export const serverEnvSchema = z.object({
    */
   PINTEREST_SANDBOX: flag,
 
+  /**
+   * ── X (SRS §7) ───────────────────────────────────────────────────────────
+   *
+   * An OAuth 2.0 *confidential* client from the X developer console, with
+   * read-and-write permission and the callback
+   * `${APP_URL}/api/v1/social/oauth/x/callback`. The X API is billed per
+   * request, so these credentials spend money: a post is $0.015, a post with a
+   * link $0.20, and every analytics read is charged.
+   *
+   * Absent credentials mean X is not offered at all.
+   */
+  X_CLIENT_ID: optionalString,
+  X_CLIENT_SECRET: optionalString,
+
   // ── AI (SRS §51) ──────────────────────────────────────────────────────────
   GEMINI_API_KEY: optionalString,
   /**

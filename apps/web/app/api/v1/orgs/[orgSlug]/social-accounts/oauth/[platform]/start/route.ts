@@ -7,7 +7,7 @@ import { NotFoundError } from '@orbit/core';
 import { jsonOk } from '@/server/api-response';
 import { readJsonBody, withAuth } from '@/server/with-auth';
 import { ensureProvidersRegistered } from '@/server/providers';
-import { issueOAuthState, oauthStateCookie } from '@/features/social/oauth-state';
+import { issueOAuthState, oauthStateCookie, pkceVerifierFor } from '@/features/social/oauth-state';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -89,6 +89,8 @@ export const POST = withAuth<Params>(
     const { url, scopes } = provider.getAuthorizationUrl({
       redirectUri,
       state,
+      // Ignored by every platform but the ones that require PKCE.
+      codeVerifier: pkceVerifierFor(nonce),
       ...(input.accountType ? { accountType: input.accountType } : {}),
     });
 

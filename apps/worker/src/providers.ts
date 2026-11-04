@@ -14,6 +14,7 @@ import { ThreadsProvider } from '@orbit/providers/threads';
 import { LinkedInProvider } from '@orbit/providers/linkedin';
 import { YouTubeProvider } from '@orbit/providers/youtube';
 import { PinterestProvider } from '@orbit/providers/pinterest';
+import { XProvider } from '@orbit/providers/x';
 import { MockProvider } from '@orbit/providers/mock';
 
 /**
@@ -201,6 +202,18 @@ export function ensureProvidersRegistered(): void {
     // Said at boot because a mismatch with the web app is silent otherwise: a
     // sandbox token sent to production reads as a dead connection.
     logger.info('registered Pinterest provider', { sandbox: env.PINTEREST_SANDBOX });
+  }
+
+  if (env.X_CLIENT_ID && env.X_CLIENT_SECRET) {
+    registerProvider(
+      new XProvider({
+        clientId: env.X_CLIENT_ID,
+        clientSecret: env.X_CLIENT_SECRET,
+        // Chunked upload, in ranges, so a video is never in memory whole.
+        readMediaRange,
+      }),
+    );
+    registeredAny = true;
   }
 
   if (env.FACEBOOK_APP_ID && env.FACEBOOK_APP_SECRET) {

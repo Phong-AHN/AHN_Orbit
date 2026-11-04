@@ -96,12 +96,88 @@ function issue(
  * `linkCharacterCost`.
  */
 export function countCharacters(body: string, capabilities: PlatformCapabilities): number {
+  const length = capabilities.text.weightedCounting
+    ? weightedLength
+    : (text: string) => [...text].length;
+
   const cost = capabilities.text.linkCharacterCost;
-  if (cost === undefined) return [...body].length;
+  if (cost === undefined) return length(body);
 
   const links = body.match(URL_PATTERN) ?? [];
   const withoutLinks = body.replace(URL_PATTERN, '');
-  return [...withoutLinks].length + links.length * cost;
+  return length(withoutLinks) + links.length * cost;
+}
+
+/**
+ * The text of a post on a platform with no separate hashtag or link field.
+ *
+ * Body, then the hashtags, then the destination link, a blank line apart —
+ * and neither repeated when the body already carries it, so a writer who
+ * typed the link into the text does not get it twice. The validator counts
+ * this and the adapter publishes it; being one function is what keeps the
+ * composer's count and the platform's verdict the same.
+ */
+export function composePublishedText(
+  draft: Pick<VariantDraft, 'body' | 'hashtags' | 'linkUrl'>,
+): string {
+  const body = draft.body.trim();
+  const tags = (draft.hashtags ?? [])
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length > 0)
+    .map((tag) => (tag.startsWith('#') ? tag : `#${tag}`))
+    .filter((tag) => !body.includes(tag))
+    .join(' ');
+  const link = draft.linkUrl && !body.includes(draft.linkUrl) ? draft.linkUrl : '';
+
+  return [body, tags, link].filter((part) => part.length > 0).join('\n\n');
+}
+
+/**
+ * The ranges X counts as one character; everything else counts as two.
+ *
+ * From X's published counting configuration (twitter-text v3): Latin, Greek,
+ * Cyrillic and the like up to U+10FF, plus three blocks of general punctuation.
+ * Vietnamese is split across the line — "á" and "ư" are in it, "ạ" and "ệ"
+ * (Latin Extended Additional, U+1E00–U+1EFF) are not.
+ */
+const LIGHT_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0x0000, 0x10ff],
+  [0x2000, 0x200d],
+  [0x2010, 0x201f],
+  [0x2032, 0x2037],
+];
+
+const codePointWeight = (codePoint: number) =>
+  LIGHT_RANGES.some(([low, high]) => codePoint >= low && codePoint <= high) ? 1 : 2;
+
+const graphemes =
+  typeof Intl !== 'undefined' && 'Segmenter' in Intl
+    ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+    : undefined;
+
+/**
+ * Length as X counts it.
+ *
+ * NFC first, as X does, so a letter typed as a base plus a combining mark
+ * counts the same as its precomposed form. An emoji sequence — a skin tone, a
+ * ZWJ family, a heart with its variation selector — counts as one emoji, 2.
+ */
+export function weightedLength(text: string): number {
+  const normalized = text.normalize('NFC');
+  const segments = graphemes
+    ? Array.from(graphemes.segment(normalized), (part) => part.segment)
+    : [...normalized];
+
+  let total = 0;
+  for (const segment of segments) {
+    const points = [...segment];
+    if (points.length > 1 && /\p{Extended_Pictographic}/u.test(segment)) {
+      total += 2;
+      continue;
+    }
+    for (const point of points) total += codePointWeight(point.codePointAt(0) ?? 0);
+  }
+  return total;
 }
 
 function validateMediaItem(
@@ -277,8 +353,12 @@ export function validateDraft(
     issues.push(issue('ERROR', 'TEXT_UNSUPPORTED', 'body', 'This platform does not accept text.'));
   }
 
+  // The text the platform will actually receive, where hashtags and the link
+  // are written into it rather than sent alongside.
+  const published = capabilities.text.composedText ? composePublishedText(draft) : draft.body;
+
   if (capabilities.text.supported) {
-    const count = countCharacters(draft.body, capabilities);
+    const count = countCharacters(published, capabilities);
     if (count > capabilities.text.maxLength) {
       issues.push(
         issue('ERROR', 'TEXT_TOO_LONG', 'body', 'This is longer than the platform allows.', {
@@ -307,8 +387,10 @@ export function validateDraft(
   }
 
   // ── Links ───────────────────────────────────────────────────────────────
-  const bodyLinks = draft.body.match(URL_PATTERN) ?? [];
-  const totalLinks = bodyLinks.length + (draft.linkUrl ? 1 : 0);
+  // A composed text already contains the destination link, so it is counted
+  // once from there rather than once more on its own.
+  const bodyLinks = published.match(URL_PATTERN) ?? [];
+  const totalLinks = bodyLinks.length + (draft.linkUrl && !capabilities.text.composedText ? 1 : 0);
 
   if (totalLinks > 0 && !capabilities.link.supported) {
     issues.push(
@@ -336,6 +418,21 @@ export function validateDraft(
         count: media.length,
         maxAttachments: capabilities.media.maxAttachments,
       }),
+    );
+  }
+
+  const solo = media.find((m) => capabilities.media.soloKinds.includes(m.kind));
+  if (solo && media.length > 1) {
+    issues.push(
+      issue(
+        'ERROR',
+        'SOLO_MEDIA_KIND',
+        'media',
+        solo.kind === 'VIDEO'
+          ? 'A video has to be the only attachment on this platform.'
+          : 'A GIF has to be the only attachment on this platform.',
+        { kind: solo.kind },
+      ),
     );
   }
 

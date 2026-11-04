@@ -25,6 +25,7 @@ const PLATFORM_NAMES: Record<string, string> = {
   YOUTUBE: 'YouTube',
   LINKEDIN: 'LinkedIn',
   PINTEREST: 'Pinterest',
+  X: 'X',
 };
 
 /** "YouTube", not "Youtube": brand names are not title case. */

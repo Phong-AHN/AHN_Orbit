@@ -11,12 +11,15 @@ import {
   type TenantContext,
 } from '@orbit/core';
 import { withTenant, type TenantDb } from '@orbit/db';
-import { logger } from '@orbit/observability';
+import { logError, logger } from '@orbit/observability';
 import { enqueue } from '@orbit/queue';
 import {
   CredentialCipher,
+  attemptRefresh,
   capabilitiesFor,
   getProvider,
+  refreshIsDue,
+  tryGetProvider,
   type AccountHealth,
   type DecryptedCredential,
   type DiscoveredAccount,
@@ -25,7 +28,7 @@ import {
 import { audit, type AuditInput } from '@/server/audit';
 import { ensureProvidersRegistered } from '@/server/providers';
 import { applyHealthVerdict } from './health';
-import { issueOAuthState } from './oauth-state';
+import { issueOAuthState, pkceVerifierFor } from './oauth-state';
 
 /**
  * Social account connection (T1.6).
@@ -115,43 +118,136 @@ export async function loadCredential(
   ctx: TenantContext,
   socialAccountId: string,
 ): Promise<DecryptedCredential> {
-  return withTenant(ctx, async (db) => {
+  const credential = await withTenant(ctx, async (db) => {
     const row = await db.socialCredential.findFirst({
       where: { socialAccountId },
     });
     if (!row) throw new NotFoundError('Credential');
-
-    const aad = { organizationId: ctx.organizationId, socialAccountId };
-
-    return {
-      accessToken: cipher.open(
-        {
-          ciphertext: Buffer.from(row.accessTokenCiphertext),
-          iv: Buffer.from(row.accessTokenIv),
-          authTag: Buffer.from(row.accessTokenAuthTag),
-          keyVersion: row.keyVersion,
-        },
-        aad,
-      ),
-      ...(row.refreshTokenCiphertext && row.refreshTokenIv && row.refreshTokenAuthTag
-        ? {
-            refreshToken: cipher.open(
-              {
-                ciphertext: Buffer.from(row.refreshTokenCiphertext),
-                iv: Buffer.from(row.refreshTokenIv),
-                authTag: Buffer.from(row.refreshTokenAuthTag),
-                keyVersion: row.keyVersion,
-              },
-              aad,
-            ),
-          }
-        : {}),
-      ...(row.expiresAt ? { expiresAt: row.expiresAt } : {}),
-      ...(row.refreshableUntil ? { refreshableUntil: row.refreshableUntil } : {}),
-      scopes: row.scopes,
-      keyVersion: row.keyVersion,
-    };
+    return openStoredCredential(row, { organizationId: ctx.organizationId, socialAccountId });
   });
+
+  if (!refreshIsDue(credential)) return credential;
+  return renewUnderLock(ctx, socialAccountId, credential);
+}
+
+/**
+ * Renew a credential close to expiry, one renewal at a time — the same rule
+ * the worker follows, for the same reason: X and TikTok replace the refresh
+ * token on every use, so a second renewal racing the first would present a
+ * spent token and end the connection. Under the row lock the second one finds
+ * the first one's fresh token and the adapter answers STILL_VALID.
+ *
+ * Anything short of a renewal returns the credential as it was; if it has
+ * really expired, the call that uses it fails through the normal path.
+ */
+async function renewUnderLock(
+  ctx: TenantContext,
+  socialAccountId: string,
+  stale: DecryptedCredential,
+): Promise<DecryptedCredential> {
+  const aad = { organizationId: ctx.organizationId, socialAccountId };
+
+  const account = await withTenant(ctx, (db) =>
+    db.socialAccount.findFirst({ where: { id: socialAccountId }, select: { platform: true } }),
+  );
+  ensureProvidersRegistered();
+  const provider = account ? tryGetProvider(account.platform) : undefined;
+  if (!provider) return stale;
+
+  try {
+    return await withTenant(
+      ctx,
+      async (db) => {
+        await db.$queryRaw`SELECT 1 FROM "SocialCredential" WHERE "socialAccountId" = ${socialAccountId}::uuid FOR UPDATE`;
+
+        const row = await db.socialCredential.findFirst({ where: { socialAccountId } });
+        if (!row) throw new NotFoundError('Credential');
+        const current = openStoredCredential(row, aad);
+
+        const attempt = await attemptRefresh(provider, current);
+
+        if (attempt.kind === 'REFRESHED') {
+          await storeCredential(db, ctx.organizationId, socialAccountId, attempt.issued);
+          logger.info('credential renewed before use', {
+            socialAccountId,
+            organizationId: ctx.organizationId,
+            platform: account?.platform,
+          });
+          return attempt.credential;
+        }
+
+        if (attempt.kind === 'RECONNECT') {
+          logger.warn('credential cannot be renewed; using it until it fails', {
+            socialAccountId,
+            organizationId: ctx.organizationId,
+            platform: account?.platform,
+            reason: attempt.reason,
+          });
+        } else if (attempt.kind === 'FAILED') {
+          logError('credential renewal failed; using the stored one', attempt.error, {
+            socialAccountId,
+            organizationId: ctx.organizationId,
+          });
+        }
+
+        return current;
+      },
+      // The renewal is a network call inside the transaction.
+      { timeoutMs: 45_000 },
+    );
+  } catch (error) {
+    logError('credential renewal could not be recorded', error, {
+      socialAccountId,
+      organizationId: ctx.organizationId,
+    });
+    return stale;
+  }
+}
+
+/** The only place ciphertext becomes a token, in memory. */
+function openStoredCredential(
+  row: {
+    accessTokenCiphertext: Uint8Array;
+    accessTokenIv: Uint8Array;
+    accessTokenAuthTag: Uint8Array;
+    refreshTokenCiphertext: Uint8Array | null;
+    refreshTokenIv: Uint8Array | null;
+    refreshTokenAuthTag: Uint8Array | null;
+    keyVersion: number;
+    expiresAt: Date | null;
+    refreshableUntil: Date | null;
+    scopes: string[];
+  },
+  aad: { organizationId: string; socialAccountId: string },
+): DecryptedCredential {
+  return {
+    accessToken: cipher.open(
+      {
+        ciphertext: Buffer.from(row.accessTokenCiphertext),
+        iv: Buffer.from(row.accessTokenIv),
+        authTag: Buffer.from(row.accessTokenAuthTag),
+        keyVersion: row.keyVersion,
+      },
+      aad,
+    ),
+    ...(row.refreshTokenCiphertext && row.refreshTokenIv && row.refreshTokenAuthTag
+      ? {
+          refreshToken: cipher.open(
+            {
+              ciphertext: Buffer.from(row.refreshTokenCiphertext),
+              iv: Buffer.from(row.refreshTokenIv),
+              authTag: Buffer.from(row.refreshTokenAuthTag),
+              keyVersion: row.keyVersion,
+            },
+            aad,
+          ),
+        }
+      : {}),
+    ...(row.expiresAt ? { expiresAt: row.expiresAt } : {}),
+    ...(row.refreshableUntil ? { refreshableUntil: row.refreshableUntil } : {}),
+    scopes: row.scopes,
+    keyVersion: row.keyVersion,
+  };
 }
 
 // ── Listing ─────────────────────────────────────────────────────────────────
@@ -661,6 +757,8 @@ export async function startReconnect(
     redirectUri: input.redirectUri,
     state,
     ...(accountType ? { accountType } : {}),
+    // The callback derives the same verifier from the same nonce.
+    codeVerifier: pkceVerifierFor(nonce),
   });
 
   logger.info('reconnect started', {

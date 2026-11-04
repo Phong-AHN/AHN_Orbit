@@ -44,6 +44,7 @@ const CONNECTABLE = [
   ['LINKEDIN', 'LinkedIn'],
   ['YOUTUBE', 'YouTube'],
   ['PINTEREST', 'Pinterest'],
+  ['X', 'X'],
 ] as const;
 
 /**
