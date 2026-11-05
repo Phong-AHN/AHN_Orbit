@@ -14,6 +14,37 @@ import { toJsonSchema } from './json-schema';
 const source = (relative: string) =>
   readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
 
+describe('the summary a person confirms', () => {
+  /** A number somebody confirms an irreversible act on has to be the real one. */
+  it('names only the accounts a publish will reach', async () => {
+    // Each tool's input is its own, so the catalogue can only type it `never`.
+    const prepare = AGENT_TOOLS.find((tool) => tool.name === 'publish_now')?.prepare as unknown as (
+      input: { postId: string },
+      call: unknown,
+    ) => Promise<{ summary: string }>;
+
+    const prepared = await prepare(
+      { postId: 'post-1' },
+      {
+        get: () =>
+          Promise.resolve({
+            post: {
+              status: 'PARTIALLY_PUBLISHED',
+              body: 'The caption',
+              variants: [
+                { platform: 'FACEBOOK', status: 'PUBLISHED' },
+                { platform: 'X', status: 'FAILED' },
+                { platform: 'TIKTOK', status: 'NEEDS_REVIEW' },
+              ],
+            },
+          }),
+      },
+    );
+
+    expect(prepared.summary.split('\n')).toContain('Accounts: X');
+  });
+});
+
 describe('agent tool catalogue', () => {
   it('has unique, MCP-valid names', () => {
     const names = AGENT_TOOLS.map((t) => t.name);

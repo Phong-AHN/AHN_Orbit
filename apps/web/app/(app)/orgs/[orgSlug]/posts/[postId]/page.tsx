@@ -6,6 +6,7 @@ import {
   isAppError,
   isEditLocked,
   isUserPrincipal,
+  publishableVariantStatuses,
   statusAfterDecision,
 } from '@orbit/core';
 import { allowedTransitions, canTransition } from '@orbit/rbac';
@@ -234,6 +235,7 @@ export default async function ComposerPage({ params }: PageProps) {
           editLocked={isEditLocked(post.status)}
           workspaceTimezone={post.workspace.timezone}
           canPublishNow={pageCan(ctx, 'post:publish_now', scope)}
+          publishableStatuses={publishableVariantStatuses()}
           approveAndSchedule={approveAndSchedule}
           members={team}
           canAssign={pageCan(ctx, 'post:assign', scope)}

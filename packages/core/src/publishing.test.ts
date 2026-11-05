@@ -4,6 +4,7 @@ import {
   isClaimAbandoned,
   newClaimToken,
   postStatusFor,
+  publishableVariantStatuses,
   retryableVariantStatuses,
   summariseVariants,
   variantStatusFor,
@@ -191,5 +192,19 @@ describe('retryableVariantStatuses', () => {
     expect(retryableVariantStatuses()).toEqual(['FAILED']);
     expect(retryableVariantStatuses()).not.toContain('PUBLISHED');
     expect(retryableVariantStatuses()).not.toContain('NEEDS_REVIEW');
+  });
+});
+
+describe('publishableVariantStatuses', () => {
+  it('is what has not gone out yet, and what failed to', () => {
+    expect(publishableVariantStatuses()).toEqual(['DRAFT', 'SCHEDULED', 'FAILED']);
+  });
+
+  it('never takes a variant that has an outcome or may have one', () => {
+    // Published is the double post. PUBLISHING is in flight, and nobody knows
+    // whether a parked one went out.
+    for (const status of ['PUBLISHED', 'PUBLISHING', 'NEEDS_REVIEW', 'CANCELED'] as const) {
+      expect(publishableVariantStatuses()).not.toContain(status);
+    }
   });
 });

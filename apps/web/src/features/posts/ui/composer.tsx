@@ -74,6 +74,8 @@ export interface ComposerProps {
   workspaceTimezone: string;
   /** Owner, Admin and Account Manager only (docs/RBAC.md §4.4). */
   canPublishNow: boolean;
+  /** Variant statuses that go out when this post does, for the confirmation. */
+  publishableStatuses: readonly string[];
   /**
    * The open internal review, when this principal may both approve it and
    * schedule the result — an internal workspace (**D-106**). Offers the
@@ -475,7 +477,11 @@ export function Composer(props: ComposerProps) {
           workspaceTimezone={props.workspaceTimezone}
           canPublishNow={props.canPublishNow}
           approveAndSchedule={props.approveAndSchedule}
-          accountCount={post.variants.length}
+          // Not every account: a partly published post goes only to the rest,
+          // and this number is what somebody confirms an irreversible act on.
+          accountCount={
+            post.variants.filter((v) => props.publishableStatuses.includes(v.status)).length
+          }
           onScheduled={() => {
             void refreshPost();
           }}

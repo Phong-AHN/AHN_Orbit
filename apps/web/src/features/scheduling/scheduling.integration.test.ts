@@ -619,6 +619,26 @@ describe('rescheduling', () => {
     ).rejects.toBeInstanceOf(ConflictError);
   });
 
+  it('schedules a failed post again with the accounts it already had', async () => {
+    const postId = await scheduled();
+
+    // Only the worker writes these; set them directly to reach the retry.
+    await platformDb.post.update({ where: { id: postId }, data: { status: 'FAILED' } });
+    await platformDb.postVariant.updateMany({ where: { postId }, data: { status: 'FAILED' } });
+
+    await schedulePost(
+      ownerA,
+      postId,
+      { localTime: { year: 2026, month: 3, day: 11, hour: 9, minute: 0 } },
+      fingerprint,
+    );
+
+    const variants = await platformDb.postVariant.findMany({ where: { postId } });
+    expect(variants.map((variant) => variant.status)).toEqual(['SCHEDULED']);
+    expect(variants[0]?.scheduledFor?.toISOString()).toBe('2026-03-11T09:00:00.000Z');
+    expect((await getPost(ownerA, postId)).status).toBe('SCHEDULED');
+  });
+
   it('refuses a Content Creator, who holds no reschedule right', async () => {
     const postId = await scheduled();
 

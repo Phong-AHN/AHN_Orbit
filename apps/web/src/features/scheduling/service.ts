@@ -7,9 +7,11 @@ import {
   clock,
   contentHash,
   earliestSlot,
+  publishableVariantStatuses,
   resolveSchedule,
   zonedDayRange,
   type TenantContext,
+  type VariantStatus,
 } from '@orbit/core';
 import { withTenant, type TenantDb } from '@orbit/db';
 import { assertCan } from '@orbit/rbac';
@@ -142,7 +144,7 @@ async function resolveIntent(
 }
 
 /**
- * Stamp the schedule onto the post and every publishable variant.
+ * Stamp the schedule onto the post and the variants in `statuses`.
  *
  * Also computes each variant's `contentHash` from its *effective* content —
  * the override where present, the master copy otherwise. That hash is layer 1
@@ -155,6 +157,7 @@ async function applySchedule(
   postId: string,
   scheduledFor: Date,
   timeZone: string,
+  statuses: readonly VariantStatus[],
 ): Promise<number> {
   const post = await db.post.findFirst({
     where: { id: postId, deletedAt: null },
@@ -166,7 +169,7 @@ async function applySchedule(
         select: { mediaAssetId: true },
       },
       variants: {
-        where: { deletedAt: null, status: { in: ['DRAFT', 'SCHEDULED'] } },
+        where: { deletedAt: null, status: { in: [...statuses] } },
         select: {
           id: true,
           body: true,
@@ -233,13 +236,20 @@ export async function schedulePost(
 
   const updated = await transitionPost(ctx, postId, 'SCHEDULED', fingerprint, {
     onTransition: async (db) => {
-      const variants = await applySchedule(db, postId, resolved.scheduledFor, resolved.timeZone);
+      const variants = await applySchedule(
+        db,
+        postId,
+        resolved.scheduledFor,
+        resolved.timeZone,
+        publishableVariantStatuses(),
+      );
 
       if (variants === 0) {
-        // A post with nowhere to publish must not sit in SCHEDULED forever.
-        throw new ValidationError('Post has no accounts to publish to', {
-          userMessage: 'Choose at least one account before scheduling.',
-          details: [{ field: 'socialAccountIds', issue: 'none selected' }],
+        // A post with nowhere to publish must not sit in SCHEDULED forever. One
+        // with no accounts at all was refused by validation already, so this
+        // one has them and they are all settled.
+        throw new ConflictError('No accounts left to schedule', {
+          userMessage: 'Every account either published or is waiting for a decision.',
         });
       }
 
@@ -330,7 +340,9 @@ export async function reschedulePost(
     const intent = await resolveIntent(db, post.workspaceId, input);
     assertSchedulable(intent.scheduledFor, clock.now());
 
-    await applySchedule(db, postId, intent.scheduledFor, intent.timeZone);
+    // Not the failed ones: `post:reschedule` is a lesser right than
+    // `post:retry_failed`, and moving a post must not be a way to retry it.
+    await applySchedule(db, postId, intent.scheduledFor, intent.timeZone, ['DRAFT', 'SCHEDULED']);
 
     await audit(db, ctx, {
       action: 'post.rescheduled',

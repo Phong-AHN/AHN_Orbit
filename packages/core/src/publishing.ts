@@ -175,3 +175,15 @@ export function postStatusFor(summary: VariantOutcomeSummary): PostStatus | null
 export function retryableVariantStatuses(): readonly VariantStatus[] {
   return ['FAILED'];
 }
+
+/**
+ * Variants that go out when a post is published or scheduled.
+ *
+ * The ones not attempted yet, and the ones a retry would touch: a failed post
+ * is sent again from the same composer, and leaving its failed variants out
+ * made a post with accounts look as though it had none. Everything else has an
+ * outcome or is waiting for one, for the reasons a retry leaves it alone.
+ */
+export function publishableVariantStatuses(): readonly VariantStatus[] {
+  return ['DRAFT', 'SCHEDULED', ...retryableVariantStatuses()];
+}

@@ -1,10 +1,10 @@
 import {
   ConflictError,
   NotFoundError,
-  ValidationError,
   clock,
   contentHash,
   publishIdempotencyKey,
+  publishableVariantStatuses,
   type TenantContext,
 } from '@orbit/core';
 import { withTenant } from '@orbit/db';
@@ -50,7 +50,7 @@ export async function publishNow(
             select: { mediaAssetId: true },
           },
           variants: {
-            where: { deletedAt: null, status: { in: ['DRAFT', 'SCHEDULED'] } },
+            where: { deletedAt: null, status: { in: [...publishableVariantStatuses()] } },
             select: {
               id: true,
               body: true,
@@ -62,10 +62,11 @@ export async function publishNow(
       });
       if (!found) throw new NotFoundError('Post');
 
+      // A post with no accounts at all was refused by validation already, so
+      // this one has them and they are all settled.
       if (found.variants.length === 0) {
-        throw new ValidationError('Post has no accounts to publish to', {
-          userMessage: 'Choose at least one account before publishing.',
-          details: [{ field: 'socialAccountIds', issue: 'none selected' }],
+        throw new ConflictError('No accounts left to publish to', {
+          userMessage: 'Every account either published or is waiting for a decision.',
         });
       }
 

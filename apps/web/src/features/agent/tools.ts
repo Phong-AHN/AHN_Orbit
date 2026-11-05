@@ -6,6 +6,7 @@ import {
   MEDIA_KINDS,
   POST_STATUSES,
   SOCIAL_COMMENT_STATES,
+  publishableVariantStatuses,
 } from '@orbit/core';
 import {
   createPostSchema,
@@ -58,21 +59,35 @@ interface PostView {
   body?: string | null;
   status?: string;
   scheduledFor?: string | null;
-  variants?: Array<{ platform?: string; socialAccount?: { name?: string | null } | null }>;
+  variants?: Array<{
+    platform?: string;
+    status?: string;
+    socialAccount?: { name?: string | null } | null;
+  }>;
 }
 
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text);
 
-/** The post as the person confirming should see it: its words and where it goes. */
-async function describePost(call: RouteCall, postId: string): Promise<string> {
+/**
+ * The post as the person confirming should see it: its words and where it goes.
+ *
+ * `going` narrows "where" to the variants the action will take, for the actions
+ * that send: a partly published post goes only to the accounts still to come.
+ */
+async function describePost(
+  call: RouteCall,
+  postId: string,
+  going?: readonly string[],
+): Promise<string> {
   const { post } = await call.get<{ post: PostView }>('post', { postId });
   const name = post.title?.trim() || clip(post.body?.trim() || '(no text)', 60);
   const targets = (post.variants ?? [])
+    .filter((v) => !going || going.includes(v.status ?? ''))
     .map((v) => [v.platform, v.socialAccount?.name].filter(Boolean).join(' '))
     .filter(Boolean);
   return [
     `Post “${name}” (currently ${post.status ?? 'unknown'})`,
-    targets.length > 0 ? `Accounts: ${targets.join(', ')}` : 'Accounts: none selected',
+    targets.length > 0 ? `Accounts: ${targets.join(', ')}` : 'Accounts: none',
     post.body ? `Text: ${clip(post.body, 600)}` : null,
   ]
     .filter(Boolean)
@@ -535,7 +550,8 @@ const workflow = [
       const at = body.useNextQueueSlot
         ? 'in the next queue slot'
         : `at ${body.localTime} (workspace time)`;
-      return prepared(`Schedule ${at}.\n${await describePost(call, postId)}`, {
+      const post = await describePost(call, postId, publishableVariantStatuses());
+      return prepared(`Schedule ${at}.\n${post}`, {
         route: 'postSchedule',
         method: 'POST',
         params: { postId },
@@ -590,11 +606,18 @@ const workflow = [
     permission: 'post:publish_now',
     input: z.object({ postId: id }),
     prepare: async ({ postId }, call) =>
-      prepared(`PUBLISH NOW — this goes live immediately.\n${await describePost(call, postId)}`, {
-        route: 'postPublishNow',
-        method: 'POST',
-        params: { postId },
-      }),
+      prepared(
+        `PUBLISH NOW — this goes live immediately.\n${await describePost(
+          call,
+          postId,
+          publishableVariantStatuses(),
+        )}`,
+        {
+          route: 'postPublishNow',
+          method: 'POST',
+          params: { postId },
+        },
+      ),
   }),
   tool({
     name: 'retry_failed_publish',
