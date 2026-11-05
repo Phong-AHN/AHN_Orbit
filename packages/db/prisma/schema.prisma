@@ -76,6 +76,7 @@ enum Platform {
   YOUTUBE
   THREADS
   PINTEREST
+  BLUESKY
 }
 
 enum SocialAccountStatus {

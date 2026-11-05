@@ -31,6 +31,7 @@ const PLATFORMS = [
   'YOUTUBE',
   'PINTEREST',
   'X',
+  'BLUESKY',
 ] as const;
 type ConnectablePlatform = (typeof PLATFORMS)[number];
 
@@ -43,6 +44,7 @@ const PLATFORM_LABEL: Record<ConnectablePlatform, string> = {
   YOUTUBE: 'YouTube channel',
   PINTEREST: 'Pinterest account',
   X: 'X account',
+  BLUESKY: 'Bluesky account',
 };
 
 const PLATFORM_ARTICLE: Record<ConnectablePlatform, string> = {
@@ -54,6 +56,7 @@ const PLATFORM_ARTICLE: Record<ConnectablePlatform, string> = {
   YOUTUBE: 'a YouTube channel',
   PINTEREST: 'a Pinterest account',
   X: 'an X account',
+  BLUESKY: 'a Bluesky account',
 };
 
 const PLATFORM_NOTE: Record<ConnectablePlatform, string> = {
@@ -72,6 +75,8 @@ const PLATFORM_NOTE: Record<ConnectablePlatform, string> = {
   PINTEREST:
     'You will sign in at Pinterest with the account itself. One sign-in connects one account, and Social Square will read the boards you can pin to so a post can be filed on the right one.',
   X: 'You will sign in at X with the account itself, and one sign-in connects one account. Social Square posts and reads post and follower numbers; it does not read or send direct messages.',
+  BLUESKY:
+    'You will sign in at bsky.social with the account itself, and one sign-in connects one account. Social Square asks only to create and delete posts and to upload images — not to read your messages or change your profile.',
 };
 
 /** The sign-in each platform actually shows, so the button does not mislead. */
@@ -84,6 +89,7 @@ const CONTINUE_LABEL: Record<ConnectablePlatform, string> = {
   YOUTUBE: 'Continue with Google',
   PINTEREST: 'Continue with Pinterest',
   X: 'Continue with X',
+  BLUESKY: 'Continue with Bluesky',
 };
 
 interface PageProps {
@@ -177,7 +183,8 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
     (platform === 'LINKEDIN' && !(env.LINKEDIN_CLIENT_ID && env.LINKEDIN_CLIENT_SECRET)) ||
     (platform === 'YOUTUBE' && !(env.YOUTUBE_CLIENT_ID && env.YOUTUBE_CLIENT_SECRET)) ||
     (platform === 'PINTEREST' && !(env.PINTEREST_CLIENT_ID && env.PINTEREST_CLIENT_SECRET)) ||
-    (platform === 'X' && !(env.X_CLIENT_ID && env.X_CLIENT_SECRET));
+    (platform === 'X' && !(env.X_CLIENT_ID && env.X_CLIENT_SECRET)) ||
+    (platform === 'BLUESKY' && !env.BLUESKY_PRIVATE_KEY);
 
   const accountsHref = `/orgs/${orgSlug}/settings/accounts`;
   const returnTo = `/orgs/${orgSlug}/settings/accounts/connect?workspaceId=${workspaceId}&brandId=${brandId}&platform=${platform}`;
@@ -228,15 +235,17 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
           description={
             platform === 'YOUTUBE'
               ? 'YouTube needs a Google Cloud OAuth client with the YouTube Data API enabled. An administrator has to set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET on both the web app and the worker.'
-              : platform === 'X'
-                ? 'X needs an OAuth 2.0 app from the X developer console, with read and write permission and a funded pay-per-use account. An administrator has to set X_CLIENT_ID and X_CLIENT_SECRET on both the web app and the worker.'
-                : platform === 'PINTEREST'
-                  ? 'Pinterest needs its own app, in standard access rather than trial. An administrator has to create it at developers.pinterest.com and set PINTEREST_CLIENT_ID and PINTEREST_CLIENT_SECRET on both the web app and the worker.'
-                  : platform === 'LINKEDIN'
-                    ? 'LinkedIn needs an app approved for the Community Management API. An administrator has to set LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET on both the web app and the worker.'
-                    : platform === 'THREADS'
-                      ? 'Threads needs its own app credentials — a Threads app issues two id/secret pairs and this wants the Threads one. An administrator has to set THREADS_APP_ID and THREADS_APP_SECRET on both the web app and the worker.'
-                      : 'TikTok needs its own app, separate from the Meta one. An administrator has to create it at developers.tiktok.com and set TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET on both the web app and the worker.'
+              : platform === 'BLUESKY'
+                ? 'Bluesky needs no app review, only a signing key. An administrator has to generate one with apps/web/scripts/generate-bluesky-key.mjs and set BLUESKY_PRIVATE_KEY on both the web app and the worker.'
+                : platform === 'X'
+                  ? 'X needs an OAuth 2.0 app from the X developer console, with read and write permission and a funded pay-per-use account. An administrator has to set X_CLIENT_ID and X_CLIENT_SECRET on both the web app and the worker.'
+                  : platform === 'PINTEREST'
+                    ? 'Pinterest needs its own app, in standard access rather than trial. An administrator has to create it at developers.pinterest.com and set PINTEREST_CLIENT_ID and PINTEREST_CLIENT_SECRET on both the web app and the worker.'
+                    : platform === 'LINKEDIN'
+                      ? 'LinkedIn needs an app approved for the Community Management API. An administrator has to set LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET on both the web app and the worker.'
+                      : platform === 'THREADS'
+                        ? 'Threads needs its own app credentials — a Threads app issues two id/secret pairs and this wants the Threads one. An administrator has to set THREADS_APP_ID and THREADS_APP_SECRET on both the web app and the worker.'
+                        : 'TikTok needs its own app, separate from the Meta one. An administrator has to create it at developers.tiktok.com and set TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET on both the web app and the worker.'
           }
         />
       ) : staged.length > 0 ? (

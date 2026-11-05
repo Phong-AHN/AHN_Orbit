@@ -753,7 +753,7 @@ export async function startReconnect(
     ...(input.returnTo !== undefined ? { returnTo: input.returnTo } : {}),
   });
 
-  const { url, scopes } = provider.getAuthorizationUrl({
+  const { url, scopes } = await provider.getAuthorizationUrl({
     redirectUri: input.redirectUri,
     state,
     ...(accountType ? { accountType } : {}),

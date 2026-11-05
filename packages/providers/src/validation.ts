@@ -98,7 +98,9 @@ function issue(
 export function countCharacters(body: string, capabilities: PlatformCapabilities): number {
   const length = capabilities.text.weightedCounting
     ? weightedLength
-    : (text: string) => [...text].length;
+    : capabilities.text.countGraphemes
+      ? graphemeLength
+      : (text: string) => [...text].length;
 
   const cost = capabilities.text.linkCharacterCost;
   if (cost === undefined) return length(body);
@@ -154,6 +156,11 @@ const graphemes =
   typeof Intl !== 'undefined' && 'Segmenter' in Intl
     ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
     : undefined;
+
+/** Grapheme clusters, as Bluesky counts them. Code points where no segmenter exists. */
+export function graphemeLength(text: string): number {
+  return graphemes ? Array.from(graphemes.segment(text)).length : [...text].length;
+}
 
 /**
  * Length as X counts it.

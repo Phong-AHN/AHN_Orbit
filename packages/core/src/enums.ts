@@ -42,6 +42,7 @@ export const PLATFORMS = [
   'YOUTUBE',
   'THREADS',
   'PINTEREST',
+  'BLUESKY',
 ] as const;
 export type Platform = (typeof PLATFORMS)[number];
 

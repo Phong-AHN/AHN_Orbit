@@ -15,6 +15,7 @@ import { LinkedInProvider } from '@orbit/providers/linkedin';
 import { YouTubeProvider } from '@orbit/providers/youtube';
 import { PinterestProvider } from '@orbit/providers/pinterest';
 import { XProvider } from '@orbit/providers/x';
+import { BlueskyProvider, blueskyClientId, parsePrivateJwk } from '@orbit/providers/bluesky';
 import { MockProvider } from '@orbit/providers/mock';
 
 /**
@@ -202,6 +203,26 @@ export function ensureProvidersRegistered(): void {
     // Said at boot because a mismatch with the web app is silent otherwise: a
     // sandbox token sent to production reads as a dead connection.
     logger.info('registered Pinterest provider', { sandbox: env.PINTEREST_SANDBOX });
+  }
+
+  if (env.BLUESKY_PRIVATE_KEY) {
+    try {
+      registerProvider(
+        new BlueskyProvider({
+          clientId: blueskyClientId(env.APP_URL),
+          privateKeyJwk: parsePrivateJwk(env.BLUESKY_PRIVATE_KEY),
+          // Images go up as blobs, at most 2 MB each, so whole is fine.
+          readMedia: wholeMediaReader('BLUESKY'),
+        }),
+      );
+      registeredAny = true;
+    } catch (error) {
+      // Named, never the value: a key set wrongly should not take publishing
+      // down for every other platform.
+      logger.error('Bluesky is not offered: BLUESKY_PRIVATE_KEY is unusable', {
+        reason: error instanceof Error ? error.message : 'unknown',
+      });
+    }
   }
 
   if (env.X_CLIENT_ID && env.X_CLIENT_SECRET) {

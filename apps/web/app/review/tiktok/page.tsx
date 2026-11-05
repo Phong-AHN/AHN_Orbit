@@ -109,7 +109,7 @@ export default async function TikTokReviewPage({ searchParams }: PageProps) {
 
   // Exactly what the product's TikTok adapter asks for, read from it.
   ensureProvidersRegistered();
-  const { scopes } = getProvider('TIKTOK').getAuthorizationUrl({
+  const { scopes } = await getProvider('TIKTOK').getAuthorizationUrl({
     redirectUri: tiktokReviewRedirectUri(),
     state: 'scope-list',
   });

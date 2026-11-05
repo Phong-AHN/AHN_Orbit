@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
 
   ensureProvidersRegistered();
   const { state, nonce } = issueTikTokState();
-  const { url } = getProvider('TIKTOK').getAuthorizationUrl({
+  const { url } = await getProvider('TIKTOK').getAuthorizationUrl({
     redirectUri: tiktokReviewRedirectUri(),
     state,
   });

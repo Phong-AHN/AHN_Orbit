@@ -1006,10 +1006,11 @@ tới khi có khách hàng thật yêu cầu.
 
 ---
 
-### 6. Nền tảng — đủ cả tám
+### 6. Nền tảng — chín
 
-Facebook, Instagram, TikTok, Threads, LinkedIn, YouTube, Pinterest và **X**
-(2026-11-04, đăng bài + analytics; xem mục "X" bên dưới để cấu hình app).
+Facebook, Instagram, TikTok, Threads, LinkedIn, YouTube, Pinterest, **X**
+(2026-11-04) và **Bluesky** (2026-11-05, D-112) — đăng bài + analytics; xem các
+mục "X" và "Bluesky" bên dưới để cấu hình.
 
 ---
 
@@ -1539,6 +1540,39 @@ chọn giùm.
   khác hẳn.
 - **Sửa pin sau khi đăng** — Orbit chưa có luồng sửa-sau-khi-đăng ở bất kỳ nền
   tảng nào.
+
+---
+
+## Bluesky (added 2026-11-05, **D-112**)
+
+### 🔴 Blocking
+
+- [ ] **Chạy migration** `20261105000000_bluesky_platform` lên production
+      (`pnpm db:migrate:deploy`). Chỉ thêm giá trị `BLUESKY` vào enum, an toàn
+      khi chạy trước code. Chưa chạy thì mọi lượt kết nối Bluesky sẽ lỗi.
+- [ ] **Sinh khoá**: `node apps/web/scripts/generate-bluesky-key.mjs` → một dòng
+      JWK. Đặt vào `BLUESKY_PRIVATE_KEY` trên **cả** Vercel và Railway. **Giữ
+      nguyên khoá**: đổi khoá là mọi tài khoản Bluesky phải kết nối lại.
+- [ ] Worker trên Railway cần **`APP_URL=https://www.anhoi.co`** — client id của
+      Bluesky dựng từ `APP_URL`, sai là không làm mới được token.
+
+Không có cổng developer, không có app review, không tốn phí. Bluesky nhận diện
+Social Square qua hai địa chỉ công khai (tự phục vụ khi có khoá):
+`https://www.anhoi.co/oauth/bluesky/client-metadata.json` và
+`https://www.anhoi.co/oauth/bluesky/jwks.json`.
+
+### 🟡 Cần biết
+
+- **300 ký tự** (đếm theo grapheme), **tối đa 4 ảnh**, mỗi ảnh **≤ 2 MB**.
+  Hashtag và link ghi thẳng vào bài và tự thành link/hashtag bấm được.
+- **Chưa hỗ trợ**: video, GIF, @mention (cần tra DID), thẻ preview link.
+- Chỉ xin quyền **tạo/xoá bài và upload ảnh** — không đọc tin nhắn, không sửa
+  hồ sơ.
+- Chỉ tài khoản do Bluesky host (đăng nhập ở bsky.social). Tài khoản trên PDS
+  tự host chưa kết nối được.
+- **Analytics**: like, repost, reply, quote, bookmark; followers. Bluesky
+  **không** có số lượt xem/impressions.
+- Token sống ≤ 30 phút, tự làm mới trước khi dùng (D-111).
 
 ---
 

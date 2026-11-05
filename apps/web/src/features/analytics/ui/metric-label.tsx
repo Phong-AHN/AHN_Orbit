@@ -86,6 +86,16 @@ const LABEL: Record<string, string> = {
   x_following: 'Following',
   x_posts: 'Posts',
   x_listed: 'Listed',
+
+  // Bluesky, from the public AppView. It reports no impressions or views.
+  bsky_likes: 'Likes',
+  bsky_reposts: 'Reposts',
+  bsky_replies: 'Replies',
+  bsky_quotes: 'Quotes',
+  bsky_bookmarks: 'Bookmarks',
+  bsky_followers: 'Followers',
+  bsky_following: 'Following',
+  bsky_posts: 'Posts',
 };
 
 export function metricLabel(name: string): string {

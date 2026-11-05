@@ -184,9 +184,9 @@ export function runProviderContractTests(fixtures: ContractFixtures): void {
     // ── OAuth surface ─────────────────────────────────────────────────────
 
     describe('authorization', () => {
-      it('builds a URL carrying the state it was given', () => {
+      it('builds a URL carrying the state it was given', async () => {
         const provider = fixtures.createProvider();
-        const { url, scopes } = provider.getAuthorizationUrl({
+        const { url, scopes } = await provider.getAuthorizationUrl({
           redirectUri: 'https://app.test/callback',
           state: 'signed-state-value',
           // The connect flow always supplies one; adapters without PKCE ignore it.
@@ -194,13 +194,15 @@ export function runProviderContractTests(fixtures: ContractFixtures): void {
         });
 
         expect(url).toMatch(/^https:\/\//);
-        expect(url).toContain('signed-state-value');
+        // Directly, or by reference: a pushed authorization request (Bluesky)
+        // sends the state to the server first and the URL carries its handle.
+        expect(url).toMatch(/signed-state-value|request_uri=/);
         expect(scopes.length).toBeGreaterThan(0);
       });
 
-      it('never puts a client secret in the authorization URL', () => {
+      it('never puts a client secret in the authorization URL', async () => {
         const provider = fixtures.createProvider();
-        const { url } = provider.getAuthorizationUrl({
+        const { url } = await provider.getAuthorizationUrl({
           redirectUri: 'https://app.test/callback',
           state: 's',
           codeVerifier: CONTRACT_VERIFIER,

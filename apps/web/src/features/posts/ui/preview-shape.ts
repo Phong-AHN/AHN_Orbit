@@ -43,6 +43,14 @@ const SHAPES: Record<string, PreviewShape> = {
    * X, where the whole post is short and nothing folds below the limit for
    * most accounts. Links are clickable, and one on its own becomes a card.
    */
+  /** Bluesky: short posts, nothing folds, links clickable once marked. */
+  BLUESKY: {
+    captionBelow: false,
+    foldAt: 300,
+    foldLabel: 'Show more',
+    aspect: 'natural',
+    linksClickable: true,
+  },
   X: {
     captionBelow: false,
     foldAt: 280,

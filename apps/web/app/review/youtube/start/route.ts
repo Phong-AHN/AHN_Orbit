@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
 
   ensureProvidersRegistered();
   const { state, nonce } = issueState();
-  const { url } = getProvider('YOUTUBE').getAuthorizationUrl({
+  const { url } = await getProvider('YOUTUBE').getAuthorizationUrl({
     redirectUri: reviewRedirectUri(),
     state,
   });

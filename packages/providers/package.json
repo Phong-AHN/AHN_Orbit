@@ -16,7 +16,8 @@
     "./linkedin": "./dist/linkedin/index.js",
     "./youtube": "./dist/youtube/index.js",
     "./pinterest": "./dist/pinterest/index.js",
-    "./x": "./dist/x/index.js"
+    "./x": "./dist/x/index.js",
+    "./bluesky": "./dist/bluesky/index.js"
   },
   "scripts": {
     "build": "tsc -b",

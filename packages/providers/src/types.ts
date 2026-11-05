@@ -453,7 +453,15 @@ export interface SocialProvider {
   capabilities(accountType?: string | null): PlatformCapabilities;
 
   // OAuth and credential lifecycle
-  getAuthorizationUrl(input: AuthorizationUrlInput): { url: string; scopes: readonly string[] };
+  /**
+   * May be async: Bluesky requires a pushed authorization request — a call to
+   * its server — before there is a URL to send anybody to. Callers await it.
+   */
+  getAuthorizationUrl(
+    input: AuthorizationUrlInput,
+  ):
+    | { url: string; scopes: readonly string[] }
+    | Promise<{ url: string; scopes: readonly string[] }>;
   exchangeCode(input: CallbackInput): Promise<ConnectedAccounts>;
   refreshCredential(credential: DecryptedCredential): Promise<RefreshOutcome>;
   probeHealth(

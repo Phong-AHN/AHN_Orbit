@@ -86,7 +86,7 @@ export const POST = withAuth<Params>(
       returnTo: input.returnTo,
     });
 
-    const { url, scopes } = provider.getAuthorizationUrl({
+    const { url, scopes } = await provider.getAuthorizationUrl({
       redirectUri,
       state,
       // Ignored by every platform but the ones that require PKCE.

@@ -84,6 +84,13 @@ export const platformCapabilitiesSchema = z.object({
      */
     weightedCounting: z.boolean().default(false),
     /**
+     * Count grapheme clusters — what a reader sees as one character — rather
+     * than code points. Bluesky's limit is 300 graphemes: a family emoji is one,
+     * where counting code points would make it seven and refuse a post the
+     * platform accepts.
+     */
+    countGraphemes: z.boolean().default(false),
+    /**
      * The limit applies to the text as published — body, then hashtags, then
      * the destination link — because the platform has no separate field for
      * either and the adapter writes them into the post. Counted with

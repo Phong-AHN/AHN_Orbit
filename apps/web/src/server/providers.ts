@@ -9,6 +9,12 @@ import { LinkedInProvider } from '@orbit/providers/linkedin';
 import { YouTubeProvider } from '@orbit/providers/youtube';
 import { PinterestProvider } from '@orbit/providers/pinterest';
 import { XProvider } from '@orbit/providers/x';
+import {
+  BlueskyProvider,
+  blueskyClientId,
+  parsePrivateJwk,
+  type PrivateEcJwk,
+} from '@orbit/providers/bluesky';
 import { MockProvider } from '@orbit/providers/mock';
 
 /**
@@ -148,6 +154,16 @@ export function ensureProvidersRegistered(): void {
     logger.info('registered X provider', { platforms: ['X'] });
   }
 
+  const blueskyKey = parseBlueskyKey(env.BLUESKY_PRIVATE_KEY);
+  if (allowed && blueskyKey) {
+    // No media reader: the web app connects accounts; only the worker uploads.
+    registerProvider(
+      new BlueskyProvider({ clientId: blueskyClientId(env.APP_URL), privateKeyJwk: blueskyKey }),
+    );
+    registeredAny = true;
+    logger.info('registered Bluesky provider', { platforms: ['BLUESKY'] });
+  }
+
   if (allowed && env.FACEBOOK_APP_ID && env.FACEBOOK_APP_SECRET) {
     registerProvider(
       new FacebookProvider({
@@ -204,6 +220,19 @@ export function ensureProvidersRegistered(): void {
   }
 
   logger.info('providers registered', { platforms: supportedPlatforms() });
+}
+
+/** The Bluesky client key, or nothing — saying why when it is set but unusable. */
+export function parseBlueskyKey(raw: string | undefined): PrivateEcJwk | undefined {
+  if (!raw) return undefined;
+  try {
+    return parsePrivateJwk(raw);
+  } catch (error) {
+    logger.error('Bluesky is not offered: BLUESKY_PRIVATE_KEY is unusable', {
+      reason: error instanceof Error ? error.message : 'unknown',
+    });
+    return undefined;
+  }
 }
 
 export function providerIsSupported(platform: Parameters<typeof isSupported>[0]): boolean {

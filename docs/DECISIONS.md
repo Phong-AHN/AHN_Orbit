@@ -4490,6 +4490,52 @@ on their existing schedules; nothing reads on page views.
 
 Not verified against the live API: no X app exists for this deployment yet.
 
+## D-112 — Bluesky over atproto OAuth
+
+The owner asked for Bluesky. It is the strictest OAuth in the product and the
+only free API.
+
+**Client identity without a portal.** atproto identifies a client by the URL of
+its metadata document; Social Square serves it at
+`/oauth/bluesky/client-metadata.json` and the public half of its ES256 key at
+`/oauth/bluesky/jwks.json`, both built from `APP_URL` and
+`BLUESKY_PRIVATE_KEY` by the same functions the adapter uses. Confidential
+client (`private_key_jwt`), because a public client's sessions end after two
+weeks.
+
+**The flow.** A pushed authorization request (mandatory) carries state, PKCE
+and scope to bsky.social first; the URL carries only `request_uri`, so
+`getAuthorizationUrl` may now return a Promise and every caller awaits it.
+Every request carries a DPoP proof with the server's nonce, learned by being
+refused and retried once. After the exchange the account is traced
+independently — DID → DID document → PDS → its authorization server — and
+refused unless that server issued the token.
+
+**The session key, derived not stored.** Tokens are bound to a DPoP key. It is
+`HMAC(client key, "bluesky-dpop:" + PKCE verifier)` as a P-256 scalar, so the
+start and the callback produce the same key with nothing in between; after the
+exchange it is kept with the tokens. The credential's `accessToken` holds a JSON
+session (token, DPoP key, PDS, issuer, DID), sealed like any token.
+
+**Least privilege.** `atproto repo:app.bsky.feed.post?action=create&action=delete
+blob:image/*` — granular permissions, live on bsky.social — not
+`transition:generic`.
+
+**Publishing.** Text with link and hashtag facets at UTF-8 byte offsets; up to
+four images as blobs (2 MB each). The record key is a TID chosen by Social
+Square and recorded before the write, so reconciliation is one `getRecord`, and
+a retry that finds its key already taken counts as published. Counted in
+graphemes (`text.countGraphemes`, a new generic capability field).
+
+**Analytics** from the public AppView, unauthenticated: likes, reposts,
+replies, quotes, bookmarks; followers. No impressions exist to report.
+
+**Not built:** video (a separate upload service), GIFs, mentions (need handle
+→ DID resolution), link cards (Bluesky does not scrape), and accounts on a
+self-hosted PDS with its own authorization server.
+
+Not verified against the live service: no key is deployed yet.
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

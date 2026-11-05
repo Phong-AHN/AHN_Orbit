@@ -334,6 +334,19 @@ export const serverEnvSchema = z.object({
   X_CLIENT_ID: optionalString,
   X_CLIENT_SECRET: optionalString,
 
+  /**
+   * ── Bluesky (SRS §7, D-112) ──────────────────────────────────────────────
+   *
+   * Social Square's ES256 private key, as a one-line JWK with a `kid`
+   * (`node apps/web/scripts/generate-bluesky-key.mjs`). There is no app to
+   * register: atproto identifies the client by the metadata document at
+   * `${APP_URL}/oauth/bluesky/client-metadata.json`, and the public half of
+   * this key is published at `${APP_URL}/oauth/bluesky/jwks.json`. Changing
+   * the key disconnects every Bluesky account. Set on both the web app and
+   * the worker; absent means Bluesky is not offered.
+   */
+  BLUESKY_PRIVATE_KEY: optionalString,
+
   // ── AI (SRS §51) ──────────────────────────────────────────────────────────
   GEMINI_API_KEY: optionalString,
   /**
