@@ -1547,9 +1547,8 @@ chọn giùm.
 
 ### 🔴 Blocking
 
-- [ ] **Chạy migration** `20261105000000_bluesky_platform` lên production
-      (`pnpm db:migrate:deploy`). Chỉ thêm giá trị `BLUESKY` vào enum, an toàn
-      khi chạy trước code. Chưa chạy thì mọi lượt kết nối Bluesky sẽ lỗi.
+- [x] **Chạy migration** `20261105000000_bluesky_platform` lên production —
+      đã chạy 2026-11-05; `migrate status` up to date, `migrate diff` rỗng.
 - [ ] **Sinh khoá**: `node apps/web/scripts/generate-bluesky-key.mjs` → một dòng
       JWK. Đặt vào `BLUESKY_PRIVATE_KEY` trên **cả** Vercel và Railway. **Giữ
       nguyên khoá**: đổi khoá là mọi tài khoản Bluesky phải kết nối lại.
