@@ -399,6 +399,19 @@ export async function deleteWorkspace(
     });
     if (!workspace) throw new NotFoundError('Workspace');
 
+    // The same rule as deleting one brand, across all of them: a client whose
+    // accounts are still connected could keep publishing scheduled posts after
+    // the client itself had gone from every list.
+    const connected = await db.socialAccount.count({
+      where: { workspaceId, deletedAt: null, status: { not: 'DISABLED' } },
+    });
+    if (connected > 0) {
+      throw new ConflictError('Workspace still has connected social accounts', {
+        userMessage: `Disconnect this client’s ${connected} social account${connected === 1 ? '' : 's'} before deleting it, so nothing is left publishing.`,
+        context: { workspaceId, connected },
+      });
+    }
+
     const now = clock.now();
     await db.workspace.update({ where: { id: workspaceId }, data: { deletedAt: now } });
     await db.brand.updateMany({ where: { workspaceId }, data: { deletedAt: now } });
@@ -531,11 +544,14 @@ export async function deleteBrand(
     });
     if (!brand) throw new NotFoundError('Brand');
 
-    const connected = await db.socialAccount.count({ where: { brandId, deletedAt: null } });
+    // A staged row — an account picked up by a connect flow nobody finished —
+    // is not a connection and is swept away on its own; it must not block this.
+    const connected = await db.socialAccount.count({
+      where: { brandId, deletedAt: null, status: { not: 'DISABLED' } },
+    });
     if (connected > 0) {
       throw new ConflictError('Brand still has connected social accounts', {
-        userMessage:
-          'Disconnect this brand’s social accounts before deleting it, so nothing is left publishing.',
+        userMessage: `Disconnect this brand’s ${connected} social account${connected === 1 ? '' : 's'} before deleting it, so nothing is left publishing.`,
         context: { brandId, connected },
       });
     }

@@ -6,6 +6,7 @@ import {
   createBrand,
   createWorkspace,
   deleteBrand,
+  deleteWorkspace,
   getBrand,
   getWorkspace,
   listWorkspaces,
@@ -255,6 +256,51 @@ describe('brands', () => {
     });
 
     await expect(deleteBrand(ctxAOwner, brand.id, fingerprint)).rejects.toThrow(ConflictError);
+  });
+
+  /** An abandoned connect flow leaves a staged row; it is not a connection. */
+  it('is not blocked by a staged account nobody finished connecting', async () => {
+    const brand = await createBrand(ctxAOwner, workspaceA, { name: 'Half Wired' }, fingerprint);
+    await platformDb.socialAccount.create({
+      data: {
+        organizationId: A.org,
+        workspaceId: workspaceA,
+        brandId: brand.id,
+        platform: 'FACEBOOK',
+        externalId: 'ext-staged',
+        displayName: 'Staged Page',
+        status: 'DISABLED',
+      },
+    });
+
+    await deleteBrand(ctxAOwner, brand.id, fingerprint);
+    await expect(getBrand(ctxAOwner, brand.id)).rejects.toThrow(NotFoundError);
+  });
+
+  it('refuses to delete a client whose brands still have connected accounts', async () => {
+    const workspace = await createWorkspace(
+      ctxAOwner,
+      { name: 'Wired Client', timezone: 'Asia/Ho_Chi_Minh' },
+      fingerprint,
+    );
+    const brand = await createBrand(ctxAOwner, workspace.id, { name: 'Wired' }, fingerprint);
+    await platformDb.socialAccount.create({
+      data: {
+        organizationId: A.org,
+        workspaceId: workspace.id,
+        brandId: brand.id,
+        platform: 'FACEBOOK',
+        externalId: 'ext-wired-client',
+        displayName: 'Page',
+      },
+    });
+
+    await expect(deleteWorkspace(ctxAOwner, workspace.id, fingerprint)).rejects.toThrow(
+      ConflictError,
+    );
+    expect(await platformDb.workspace.count({ where: { id: workspace.id, deletedAt: null } })).toBe(
+      1,
+    );
   });
 
   it('soft-deletes rather than removing the row', async () => {

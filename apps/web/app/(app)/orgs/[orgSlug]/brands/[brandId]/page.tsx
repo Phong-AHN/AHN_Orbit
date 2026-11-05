@@ -6,6 +6,7 @@ import { getBrand } from '@/features/tenancy/service';
 import { getBrandVoice } from '@/features/brand-voice/service';
 import { BrandVoiceForm } from '@/features/brand-voice/ui/brand-voice-form';
 import { RenameButton } from '@/features/tenancy/ui/rename-button';
+import { DeleteButton } from '@/features/tenancy/ui/delete-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,13 +46,25 @@ export default async function BrandPage({ params }: PageProps) {
         title={brand.name}
         description="The context every suggestion for this brand is grounded in."
         actions={
-          pageCan(ctx, 'brand:update', { workspaceId: brand.workspaceId, brandId }) ? (
-            <RenameButton
-              endpoint={`/api/v1/orgs/${encodeURIComponent(orgSlug)}/brands/${encodeURIComponent(brandId)}`}
-              currentName={brand.name}
-              noun="brand"
-            />
-          ) : null
+          <div className="flex flex-wrap items-center gap-1">
+            {pageCan(ctx, 'brand:update', { workspaceId: brand.workspaceId, brandId }) ? (
+              <RenameButton
+                endpoint={`/api/v1/orgs/${encodeURIComponent(orgSlug)}/brands/${encodeURIComponent(brandId)}`}
+                currentName={brand.name}
+                noun="brand"
+              />
+            ) : null}
+            {pageCan(ctx, 'brand:delete', { workspaceId: brand.workspaceId, brandId }) ? (
+              <DeleteButton
+                endpoint={`/api/v1/orgs/${encodeURIComponent(orgSlug)}/brands/${encodeURIComponent(brandId)}`}
+                name={brand.name}
+                noun="brand"
+                consequence={`${brand.name} leaves every list, along with its Brand Brain. Its connected social accounts have to be disconnected first. Only support can restore a deleted brand.`}
+                // This page is the brand; afterwards there is nothing here.
+                redirectTo={`/orgs/${orgSlug}/settings/workspaces`}
+              />
+            ) : null}
+          </div>
         }
       />
 

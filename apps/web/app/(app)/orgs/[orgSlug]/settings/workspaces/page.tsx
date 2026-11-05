@@ -18,6 +18,7 @@ import { CreateWorkspaceForm } from '@/features/tenancy/ui/create-workspace-form
 import { CreateBrandForm } from '@/features/tenancy/ui/create-brand-form';
 import { ClientApprovalToggle } from '@/features/tenancy/ui/client-approval-toggle';
 import { RenameButton } from '@/features/tenancy/ui/rename-button';
+import { DeleteButton } from '@/features/tenancy/ui/delete-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -141,6 +142,14 @@ export default async function WorkspacesPage({ params, searchParams }: PageProps
                           noun="client"
                         />
                       ) : null}
+                      {pageCan(ctx, 'workspace:delete', { workspaceId: workspace.id }) ? (
+                        <DeleteButton
+                          endpoint={`${api}/workspaces/${encodeURIComponent(workspace.id)}`}
+                          name={workspace.name}
+                          noun="client"
+                          consequence={`${workspace.name} and its ${workspace.brands.length} brand${workspace.brands.length === 1 ? '' : 's'} leave every list, and their posts can no longer be opened. Connected social accounts have to be disconnected first. Only support can restore a deleted client.`}
+                        />
+                      ) : null}
                     </div>
                     <p className="mt-0.5 text-xs text-ink-muted">
                       {workspace.timezone}
@@ -215,6 +224,17 @@ export default async function WorkspacesPage({ params, searchParams }: PageProps
                                   endpoint={`${api}/brands/${encodeURIComponent(brand.id)}`}
                                   currentName={brand.name}
                                   noun="brand"
+                                />
+                              ) : null}
+                              {pageCan(ctx, 'brand:delete', {
+                                workspaceId: workspace.id,
+                                brandId: brand.id,
+                              }) ? (
+                                <DeleteButton
+                                  endpoint={`${api}/brands/${encodeURIComponent(brand.id)}`}
+                                  name={brand.name}
+                                  noun="brand"
+                                  consequence={`${brand.name} leaves every list, along with its Brand Brain. Its connected social accounts have to be disconnected first. Only support can restore a deleted brand.`}
                                 />
                               ) : null}
                               <Badge tone={connected > 0 ? 'success' : 'warning'}>
