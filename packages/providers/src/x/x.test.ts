@@ -378,6 +378,9 @@ describe('publishing', () => {
     });
     expect(api.callsTo(/m-1\/append/)).toHaveLength(1);
     expect(api.callTo(/m-1\/finalize/)).toBeDefined();
+    // FINALIZE returned no processing_info, so the media is ready: STATUS is
+    // not asked, and X can refuse it for an image.
+    expect(api.callTo(/\/2\/media\/upload\?/)).toBeUndefined();
     expect(api.jsonTo(/media\/metadata/)).toEqual({
       id: 'm-1',
       metadata: { alt_text: { text: 'A bowl of pho' } },
@@ -438,20 +441,43 @@ describe('publishing', () => {
     await provider(api).publish(
       publishContext({
         media: [image()],
-        previousRef: { contentHash: 'hash-1', mediaIds: ['m-1'], expiresAt: NOW + 3_600_000 },
+        previousRef: {
+          contentHash: 'hash-1',
+          mediaIds: ['m-1'],
+          pendingIds: ['m-1'],
+          expiresAt: NOW + 3_600_000,
+        },
       }),
     );
 
     expect(api.callTo(/media\/upload\/initialize/)).toBeUndefined();
+    // Still processing when the last attempt stopped, so it is waited on.
+    expect(api.callTo(/\/2\/media\/upload\?/)).toBeDefined();
     expect(api.jsonTo(/\/2\/tweets$/, 'POST')['media']).toEqual({ media_ids: ['m-1'] });
+  });
+
+  /** A ref from before `pendingIds` cannot say what is processing; start again. */
+  it('uploads afresh rather than trust a ref that does not say what is pending', async () => {
+    await provider(api).publish(
+      publishContext({
+        media: [image()],
+        previousRef: { contentHash: 'hash-1', mediaIds: ['m-old'], expiresAt: NOW + 3_600_000 },
+      }),
+    );
+
+    expect(api.callTo(/media\/upload\/initialize/)).toBeDefined();
+    expect(api.callTo(/\/2\/media\/upload\?/)).toBeUndefined();
   });
 
   it('stops before creating a post when processing outlasts the budget', async () => {
     restoreClock();
     restoreClock = () => undefined;
-    api.on(/\/2\/media\/upload\?/, {
-      body: { data: { id: 'm-1', processing_info: { state: 'in_progress', check_after_secs: 0 } } },
-    });
+    const processing = { state: 'in_progress', check_after_secs: 0 };
+    api
+      .on(/\/2\/media\/upload\/m-1\/finalize/, {
+        body: { data: { id: 'm-1', expires_after_secs: 86_400, processing_info: processing } },
+      })
+      .on(/\/2\/media\/upload\?/, { body: { data: { id: 'm-1', processing_info: processing } } });
 
     const error = await provider(api, { pollBudgetMs: 20 })
       .publish(publishContext({ media: [image()] }))
@@ -487,6 +513,31 @@ describe('failures', () => {
     expect(error.code).toBe('PROVIDER_VALIDATION_ERROR');
     expect(error.userMessage).toMatch(/identical/);
     expect(error.context?.['clientStanding']).toBeUndefined();
+  });
+
+  /** A post with media is several calls; the failure has to say which, and why. */
+  it('names the step that refused, and gives X its own words', async () => {
+    api.on(/\/2\/media\/upload\/m-1\/append/, {
+      status: 400,
+      body: {
+        title: 'Invalid Request',
+        detail: 'One or more parameters to your request was invalid.',
+      },
+    });
+
+    const error = await provider(api)
+      .publish(publishContext({ media: [image()] }))
+      .catch(
+        (caught: { code?: string; userMessage?: string; context?: Record<string, unknown> }) =>
+          caught,
+      );
+
+    expect(error.code).toBe('PROVIDER_VALIDATION_ERROR');
+    expect(error.userMessage).toBe(
+      'X rejected this post: One or more parameters to your request was invalid.',
+    );
+    expect(error.context?.['xEndpoint']).toBe('/2/media/upload/m-1/append');
+    expect(error.context?.['httpStatus']).toBe(400);
   });
 
   it('reports an app that is not enrolled as client standing', async () => {

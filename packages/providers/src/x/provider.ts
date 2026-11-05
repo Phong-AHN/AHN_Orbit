@@ -142,6 +142,8 @@ interface MediaResponse {
 interface MediaRef {
   contentHash: string;
   mediaIds: string[];
+  /** The ones FINALIZE said are still processing; a still usually has none. */
+  pendingIds: string[];
   /** Epoch ms; the earliest any of them expires. */
   expiresAt: number;
 }
@@ -412,25 +414,26 @@ export class XProvider implements SocialProvider {
     if (reusable) {
       ref = previous;
     } else {
-      const uploaded: Array<{ id: string; expiresAt: number }> = [];
+      const uploaded: Array<{ id: string; expiresAt: number; processing: boolean }> = [];
       for (const media of ctx.media) uploaded.push(await this.upload(ctx, media));
 
       ref = {
         contentHash: ctx.contentHash,
         mediaIds: uploaded.map((item) => item.id),
+        pendingIds: uploaded.filter((item) => item.processing).map((item) => item.id),
         expiresAt: Math.min(...uploaded.map((item) => item.expiresAt)),
       };
       await ctx.recordProviderRef?.({ ...ref });
     }
 
-    for (const id of ref.mediaIds) await this.awaitProcessing(ctx, id);
-    return ref;
+    for (const id of ref.pendingIds) await this.awaitProcessing(ctx, id);
+    return { ...ref, pendingIds: [] };
   }
 
   private async upload(
     ctx: PublishContext,
     media: PublishMedia,
-  ): Promise<{ id: string; expiresAt: number }> {
+  ): Promise<{ id: string; expiresAt: number; processing: boolean }> {
     const read = this.options.readMediaRange;
     if (!read) {
       throw toAppError('X', {
@@ -510,14 +513,20 @@ export class XProvider implements SocialProvider {
     const lifetime =
       finalized.body.data?.expires_after_secs ?? initialized.body.data?.expires_after_secs ?? 0;
 
-    return { id, expiresAt: clock.nowMs() + lifetime * 1000 };
+    return {
+      id,
+      expiresAt: clock.nowMs() + lifetime * 1000,
+      // Verified: "If `processing_info` is returned, proceed to Step 4 to wait
+      // for processing. If not, the media is ready to use."
+      processing: Boolean(finalized.body.data?.processing_info),
+    };
   }
 
   /**
    * Wait until X has processed an upload.
    *
-   * A still has nothing to process and answers at once. Running out of budget
-   * is **not** ambiguous: no post exists yet, so the failure is UNAVAILABLE
+   * Only for media FINALIZE said is processing — STATUS is not a question to
+   * ask about anything else. Running out of budget is **not** ambiguous: no post exists yet, so the failure is UNAVAILABLE
    * and the retry resumes these same ids.
    */
   private async awaitProcessing(ctx: PublishContext, mediaId: string): Promise<void> {
@@ -805,16 +814,21 @@ function categoryFor(media: PublishMedia): string {
 
 function readMediaRef(ref: Record<string, unknown> | undefined): MediaRef | undefined {
   if (!ref) return undefined;
-  const { contentHash, mediaIds, expiresAt } = ref;
+  const { contentHash, mediaIds, pendingIds, expiresAt } = ref;
+  const strings = (value: unknown): value is string[] =>
+    Array.isArray(value) && value.every((id) => typeof id === 'string');
+
+  // A ref with no `pendingIds` predates them and cannot say what is still
+  // processing, so it is not reused: uploading again is always safe.
   if (
     typeof contentHash !== 'string' ||
-    !Array.isArray(mediaIds) ||
-    !mediaIds.every((id) => typeof id === 'string') ||
+    !strings(mediaIds) ||
+    !strings(pendingIds) ||
     typeof expiresAt !== 'number'
   ) {
     return undefined;
   }
-  return { contentHash, mediaIds: mediaIds as string[], expiresAt };
+  return { contentHash, mediaIds, pendingIds, expiresAt };
 }
 
 function withoutLinks(text: string): string {

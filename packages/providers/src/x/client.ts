@@ -148,7 +148,7 @@ export class XClient {
     const text = await response.text();
     const parsed = text ? (safeJson(text) as T & XErrorBody) : ({} as T);
 
-    if (!response.ok) throw this.toError(parsed as XErrorBody, response);
+    if (!response.ok) throw this.toError(parsed as XErrorBody, response, request);
 
     return { body: parsed, status: response.status };
   }
@@ -196,10 +196,11 @@ export class XClient {
     return parsed;
   }
 
-  private toError(body: XErrorBody, response: Response) {
+  private toError(body: XErrorBody, response: Response, request: XRequest) {
     const standing = clientStanding(response.status, body);
     const kind = kindForStatus(response.status, body);
     const first = body.errors?.[0];
+    const reason = body.detail ?? first?.detail ?? first?.message ?? body.title;
 
     // `x-rate-limit-reset` is an epoch second, not a delay.
     const reset = Number(response.headers.get('x-rate-limit-reset'));
@@ -210,12 +211,7 @@ export class XClient {
 
     return toAppError('X', {
       kind,
-      message:
-        body.detail ??
-        first?.detail ??
-        first?.message ??
-        body.title ??
-        `X returned HTTP ${response.status}`,
+      message: reason ?? `X returned HTTP ${response.status}`,
       ...(body.type ? { providerCode: body.type } : {}),
       httpStatus: response.status,
       ...(retryAfter !== undefined ? { retryAfterSeconds: retryAfter } : {}),
@@ -226,9 +222,17 @@ export class XClient {
               userMessage:
                 'X does not accept a post identical to one this account already published. Change the text and try again.',
             }
-          : {}),
+          : // X's own words, on a write: "the platform rejected this post" sends
+            // somebody to edit a caption when the fault may be elsewhere.
+            (kind === 'VALIDATION' || kind === 'MEDIA') && request.method === 'POST' && reason
+            ? { userMessage: `X rejected this post: ${reason.slice(0, 200)}` }
+            : {}),
       meta: {
+        // Which step refused. A post with an image is half a dozen calls, and
+        // without this they all read as "the platform rejected this post".
+        xEndpoint: request.path,
         ...(body.title ? { xTitle: body.title } : {}),
+        ...(reason ? { xDetail: reason.slice(0, 300) } : {}),
         // A rate limit or an empty credit balance is the app's standing, not a
         // broken connection: the account is left ACTIVE (D-085).
         ...(standing || response.status === 429 ? { clientStanding: true } : {}),
