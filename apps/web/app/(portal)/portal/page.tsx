@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Card, CardBody, Empty, PageHeader } from '@orbit/ui';
 import { listPortalMemberships } from '@/server/portal-context';
+import { SignOutButton } from '@/features/auth/ui/sign-out-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,6 +51,10 @@ export default async function PortalHome() {
           ))}
         </ul>
       )}
+
+      <p className="mt-8 text-sm">
+        <SignOutButton appearance="link" />
+      </p>
     </main>
   );
 }

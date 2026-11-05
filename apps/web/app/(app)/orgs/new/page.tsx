@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { SESSION_COOKIE_NAME, requireSession, resolveUser } from '@orbit/auth';
 import { PageHeader } from '@orbit/ui';
 import { CreateOrganizationForm } from '@/features/tenancy/ui/create-organization-form';
+import { SignOutButton } from '@/features/auth/ui/sign-out-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +40,8 @@ export default async function NewOrganizationPage() {
         <Link href="/orgs" className="hover:underline">
           Back to your organizations
         </Link>
+        {' · '}
+        <SignOutButton appearance="link" />
       </p>
     </main>
   );

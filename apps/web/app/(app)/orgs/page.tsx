@@ -9,6 +9,7 @@ import {
   resolveUser,
 } from '@orbit/auth';
 import { homeForUser } from '@/server/home';
+import { SignOutButton } from '@/features/auth/ui/sign-out-button';
 import { Badge, Card, CardBody, Empty, PageHeader, buttonClassName } from '@orbit/ui';
 
 export const dynamic = 'force-dynamic';
@@ -106,6 +107,10 @@ export default async function OrganizationsPage() {
           ))}
         </ul>
       )}
+
+      <p className="mt-8 text-sm text-ink-muted">
+        Signed in as {user.email} · <SignOutButton appearance="link" />
+      </p>
     </main>
   );
 }

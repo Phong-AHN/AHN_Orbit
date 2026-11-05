@@ -21,7 +21,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       tone="ops"
       brand={{ label: 'Social Square', href: '/admin', sublabel: 'Platform operations' }}
       groups={shellGroups('/admin', ADMIN_NAV)}
-      utilities={<span className="truncate text-xs text-ink-muted">{admin.email}</span>}
+      account={{ name: admin.name, email: admin.email }}
     >
       {children}
     </AppShell>

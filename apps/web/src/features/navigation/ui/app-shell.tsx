@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { buttonClassName, cn } from '@orbit/ui';
+import { SignOutButton } from '@/features/auth/ui/sign-out-button';
 import { bestMatch } from '../active-path';
 
 /**
@@ -79,8 +80,14 @@ export interface AppShellProps {
   groups: ShellNavGroup[];
   /** The one thing this role most likely came to do. */
   action?: { label: string; href: string } | undefined;
-  /** Top-right: the notification bell, a signed-in address. */
+  /** Top-right: the notification bell, the tour. */
   utilities?: React.ReactNode;
+  /**
+   * Who is signed in, shown at the foot of the rail with Sign out. In the rail
+   * rather than the top bar so it is in the same place on every surface, and
+   * inside the drawer on a phone, where the top bar has no room.
+   */
+  account?: { name: string | null; email: string } | undefined;
   tone?: SurfaceTone;
   children: React.ReactNode;
 }
@@ -120,6 +127,7 @@ export function AppShell({
   groups,
   action,
   utilities,
+  account,
   tone = 'agency',
   children,
 }: AppShellProps) {
@@ -141,6 +149,7 @@ export function AppShell({
       brand={brand}
       groups={groups}
       action={action}
+      account={account}
       activeHref={activeHref}
       skin={skin}
     />
@@ -223,12 +232,14 @@ function RailContent({
   brand,
   groups,
   action,
+  account,
   activeHref,
   skin,
 }: {
   brand: AppShellProps['brand'];
   groups: ShellNavGroup[];
   action: AppShellProps['action'];
+  account: AppShellProps['account'];
   activeHref: string | undefined;
   skin: { rail: string; edge: string; mast: string };
 }) {
@@ -281,6 +292,18 @@ function RailContent({
           </div>
         ))}
       </nav>
+
+      {account ? (
+        <div className={cn('border-t px-3 py-3', skin.edge)}>
+          <div className="mb-1 min-w-0 px-2">
+            {account.name ? (
+              <p className="truncate text-sm font-medium text-ink">{account.name}</p>
+            ) : null}
+            <p className="truncate text-xs text-ink-muted">{account.email}</p>
+          </div>
+          <SignOutButton />
+        </div>
+      ) : null}
     </>
   );
 }

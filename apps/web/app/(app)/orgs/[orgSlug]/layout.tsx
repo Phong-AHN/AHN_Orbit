@@ -36,7 +36,7 @@ export default async function OrgLayout({
   params: Promise<{ orgSlug: string }>;
 }) {
   const { orgSlug } = await params;
-  const { ctx, organization } = await requirePageContext(orgSlug);
+  const { ctx, organization, user } = await requirePageContext(orgSlug);
 
   const base = `/orgs/${orgSlug}`;
 
@@ -56,6 +56,7 @@ export default async function OrgLayout({
       tone="agency"
       brand={{ label: organization.name, href: `${base}/dashboard` }}
       groups={groups}
+      account={{ name: user.name, email: user.email }}
       {...(primary ? { action: { label: primary.label, href: `${base}${primary.path}` } } : {})}
       utilities={
         <>

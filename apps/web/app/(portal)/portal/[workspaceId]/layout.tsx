@@ -35,7 +35,7 @@ export default async function PortalLayout({
   params: Promise<{ workspaceId: string }>;
 }) {
   const { workspaceId } = await params;
-  const { workspace } = await requirePortalContext(workspaceId);
+  const { workspace, user } = await requirePortalContext(workspaceId);
 
   const base = `/portal/${workspace.id}`;
 
@@ -44,6 +44,7 @@ export default async function PortalLayout({
       tone="client"
       brand={{ label: workspace.name, href: base }}
       groups={shellGroups(base, PORTAL_NAV)}
+      account={{ name: user.name, email: user.email }}
       utilities={
         <NotificationBell
           endpoint={`/api/v1/portal/workspaces/${encodeURIComponent(workspace.id)}/notifications`}

@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { Card, CardBody, Empty, PageHeader, buttonClassName } from '@orbit/ui';
 import { safeNext, type Entrance } from '@/features/navigation/home';
 import { homeForSession } from '@/server/home';
+import { SignOutButton } from '@/features/auth/ui/sign-out-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -92,6 +93,12 @@ export default async function ContinuePage({
           />
         </CardBody>
       </Card>
+
+      {/* The commonest reason to land here is having signed in with the
+          wrong Google account. */}
+      <p className="mt-6 text-sm text-ink-muted">
+        Wrong account? <SignOutButton appearance="link" label="Sign in with a different account" />
+      </p>
     </main>
   );
 }
