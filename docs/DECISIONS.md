@@ -4536,6 +4536,26 @@ self-hosted PDS with its own authorization server.
 
 Not verified against the live service: no key is deployed yet.
 
+## D-113 — Plan limits lifted for the organizations that exist today
+
+The owner asked to lift subscription limits on existing accounts, because the
+product is operating internally.
+
+**Data, not code.** Every limit check reads a key from `Subscription.limits` and
+skips when it is absent, and the API and UI already treat a missing limit as
+"none", so `limits = {}` is a supported state and no code changes. Migration
+`20261105010000_lift_plan_limits_for_internal_use` sets it, leaving `plan` and
+`status` alone (nothing gates on them).
+
+**Not a deployment-wide switch.** Sign-up is open, so a flag would also give
+strangers unmetered AI and storage. Organizations created later still start on
+`DEFAULT_TRIAL_LIMITS`.
+
+**Reversible.** Each organization's previous limits are kept in its audit log
+(`subscription.limits_lifted`, in `before`). The migration fails as a whole if
+any row is left capped. The AI rate limit is a guard against a runaway loop, not
+a plan limit, and stays.
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

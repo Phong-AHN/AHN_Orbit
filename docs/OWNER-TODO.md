@@ -1543,6 +1543,15 @@ chọn giùm.
 
 ---
 
+## Mở giới hạn gói cho tài khoản hiện có (**D-113**)
+
+- [ ] **Chạy migration** `20261105010000_lift_plan_limits_for_internal_use` lên
+      production (`pnpm db:migrate:deploy`). Đặt `limits = {}` cho mọi tổ chức
+      đang có; giá trị cũ lưu trong audit log. Tổ chức tạo sau vẫn theo gói
+      trial, nên khi tạo thêm tổ chức nội bộ thì phải mở riêng.
+
+---
+
 ## Bluesky (added 2026-11-05, **D-112**)
 
 ### 🔴 Blocking
