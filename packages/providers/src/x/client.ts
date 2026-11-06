@@ -201,6 +201,9 @@ export class XClient {
     const kind = kindForStatus(response.status, body);
     const first = body.errors?.[0];
     const reason = body.detail ?? first?.detail ?? first?.message ?? body.title;
+    // Every step of sending a post: the writes, and the wait on media, which is
+    // the one GET among them. A refused read has no post to reject.
+    const sending = request.method === 'POST' || request.path.startsWith('/2/media/');
 
     // `x-rate-limit-reset` is an epoch second, not a delay.
     const reset = Number(response.headers.get('x-rate-limit-reset'));
@@ -222,10 +225,13 @@ export class XClient {
               userMessage:
                 'X does not accept a post identical to one this account already published. Change the text and try again.',
             }
-          : // X's own words, on a write: "the platform rejected this post" sends
-            // somebody to edit a caption when the fault may be elsewhere.
-            (kind === 'VALIDATION' || kind === 'MEDIA') && request.method === 'POST' && reason
-            ? { userMessage: `X rejected this post: ${reason.slice(0, 200)}` }
+          : // X's own words: "the platform rejected this post" sends somebody to
+            // edit a caption when the fault may be elsewhere. Never left generic,
+            // so the generic copy can only mean a build older than this one.
+            (kind === 'VALIDATION' || kind === 'MEDIA') && sending
+            ? {
+                userMessage: `X rejected this post: ${(reason ?? `HTTP ${response.status}`).slice(0, 200)}`,
+              }
             : {}),
       meta: {
         // Which step refused. A post with an image is half a dozen calls, and

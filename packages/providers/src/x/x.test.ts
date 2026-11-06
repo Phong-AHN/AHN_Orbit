@@ -540,6 +540,55 @@ describe('failures', () => {
     expect(error.context?.['httpStatus']).toBe(400);
   });
 
+  /**
+   * The generic copy has to mean "this never went through here", or it cannot
+   * tell a refusal from a worker still running the build before this one.
+   */
+  it('gives X its own words when the wait on processing is refused', async () => {
+    api
+      .on(/\/2\/media\/upload\/m-1\/finalize/, {
+        body: {
+          data: {
+            id: 'm-1',
+            expires_after_secs: 86_400,
+            processing_info: { state: 'pending', check_after_secs: 0 },
+          },
+        },
+      })
+      .on(/\/2\/media\/upload\?/, {
+        status: 400,
+        body: { title: 'Invalid Request', detail: 'The media_id is not valid.' },
+      });
+
+    const error = await provider(api)
+      .publish(publishContext({ media: [image()] }))
+      .catch((caught: { userMessage?: string; context?: Record<string, unknown> }) => caught);
+
+    expect(error.userMessage).toBe('X rejected this post: The media_id is not valid.');
+    expect(error.context?.['xEndpoint']).toBe('/2/media/upload');
+  });
+
+  it('still says it was X when the refusal gives no reason', async () => {
+    api.on(/\/2\/tweets$/, { status: 400, body: {} }, 'POST');
+
+    const error = await provider(api)
+      .publish(publishContext())
+      .catch((caught: { userMessage?: string }) => caught);
+
+    expect(error.userMessage).toBe('X rejected this post: HTTP 400');
+  });
+
+  /** A read has no post to reject: its failure is not about the content. */
+  it('does not call a refused read a rejected post', async () => {
+    api.on(/\/2\/users\/me/, { status: 400, body: { detail: 'Bad read' } });
+
+    const error = await provider(api)
+      .probeHealth(credential, { externalId: 'x-user-1' })
+      .catch((caught: { userMessage?: string }) => caught);
+
+    expect((error as { userMessage?: string }).userMessage).not.toMatch(/rejected this post: /);
+  });
+
   it('reports an app that is not enrolled as client standing', async () => {
     api.on(
       /\/2\/tweets$/,
