@@ -21,6 +21,7 @@ import { processNotification } from './processors/notifications.js';
 import { processPublish } from './processors/publish.js';
 import { processScheduler } from './processors/scheduler-job.js';
 import { ensureProvidersRegistered } from './providers.js';
+import { workerBuild } from './build-info.js';
 
 /**
  * The worker service (docs/ARCHITECTURE.md §5, T1.11).
@@ -85,7 +86,11 @@ async function main(): Promise<void> {
     },
   });
 
-  logger.info('worker ready', { queues: workers.map((w) => w.name), healthPort: port });
+  logger.info('worker ready', {
+    queues: workers.map((w) => w.name),
+    healthPort: port,
+    ...workerBuild(),
+  });
 }
 
 /**

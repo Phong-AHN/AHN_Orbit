@@ -892,6 +892,21 @@ cả hai đều gọi API.
 > `FIREBASE_PRIVATE_KEY`, `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`,
 > `SENTRY_DSN`, `ORBIT_ROLE=worker`.
 
+> **Railway bỏ qua commit chỉ sửa `packages/` (phát hiện 06/11/2026).** Từ 29/10
+> đến 06/11, mọi commit đụng `apps/worker/` đều được deploy, còn 12 commit chỉ sửa
+> `packages/` đều bị bỏ qua, dù `railway.json` có liệt kê `packages/**`. Sửa
+> provider mà không đụng `apps/worker/` thì worker vẫn chạy bản cũ.
+>
+> 1. **Watch Paths.** Service worker, Settings, Build, Watch Paths: thêm
+>    `/packages/**` và `/pnpm-lock.yaml`.
+> 2. **Deploy ngay.** `Ctrl+K`, chọn **Deploy Latest Commit**. Nút **Redeploy**
+>    chỉ dựng lại đúng commit cũ.
+> 3. **Trước 01/12/2026.** Railway ngừng đọc `railway.json` từ ngày này. Chuyển
+>    thiết lập trong file sang dashboard hoặc `.railway/railway.ts`.
+> 4. **Một worker duy nhất.** Repo đang nối với ba project Railway:
+>    `sunny-reverence`, `glorious-happiness`, `disciplined-warmth`. Worker nào
+>    dùng chung Redis production đều nhận job, nên bản cũ vẫn có thể xử lý bài.
+
 | `RESEND_API_KEY` + `EMAIL_FROM` | Resend | tuỳ chọn² |
 | `SENTRY_DSN` | Sentry | tuỳ chọn |
 

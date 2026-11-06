@@ -24,6 +24,7 @@ import {
   type JobContext,
 } from '@orbit/queue';
 import { capabilitiesFor, getProvider } from '@orbit/providers';
+import { workerBuild } from '../build-info.js';
 import { recordHealthVerdict } from '../health/record.js';
 import { claimVariant, releaseClaim, settleClaim, type Claim } from './claim.js';
 import { closeAttempt, findInFlightAttempt, openAttempt, updateJobState } from './attempts.js';
@@ -355,7 +356,9 @@ async function classifyAndMaybeReconcile(
       // whitelisted, non-sensitive set the logger emits (codes, http status,
       // Meta's fbtrace id); `scrubMeta` keeps it to flat scalars so nothing
       // structured can smuggle a payload into the column.
-      ...(isAppError(error) ? { providerMeta: scrubMeta(error.context) } : {}),
+      ...(isAppError(error)
+        ? { providerMeta: { ...scrubMeta(error.context), ...workerBuild() } }
+        : {}),
       ...(isAppError(error) && typeof error.context?.['httpStatus'] === 'number'
         ? { httpStatus: error.context['httpStatus'] }
         : {}),
