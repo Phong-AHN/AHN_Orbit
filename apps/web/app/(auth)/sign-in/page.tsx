@@ -1,10 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { SignInPanel } from '@/features/auth/ui/sign-in-panel';
+import { redirectIfSignedIn } from '@/server/home';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'Sign in' };
+
+interface PageProps {
+  searchParams: Promise<{ next?: string | string[] }>;
+}
 
 /**
  * The agency entrance — the default door, and where every "please sign in"
@@ -15,10 +20,17 @@ export const metadata: Metadata = { title: 'Sign in' };
  * refusing would lock out anyone who kept the old bookmark, and it would make
  * the three entrances report what kind of account an address is.
  *
+ * Somebody still signed in never sees the form: they go straight to where
+ * they belong, or to `next` (`redirectIfSignedIn`). The same holds at all three
+ * entrances.
+ *
  * The route group is `(auth)` and has no shell: a signed-out person has no
  * organization, so there is no navigation to give them.
  */
-export default function SignInPage() {
+export default async function SignInPage({ searchParams }: PageProps) {
+  const { next } = await searchParams;
+  await redirectIfSignedIn('agency', typeof next === 'string' ? next : undefined);
+
   return (
     <SignInPanel
       entrance="agency"

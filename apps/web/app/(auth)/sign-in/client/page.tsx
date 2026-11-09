@@ -1,10 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { SignInPanel } from '@/features/auth/ui/sign-in-panel';
+import { redirectIfSignedIn } from '@/server/home';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'Client sign-in' };
+
+interface PageProps {
+  searchParams: Promise<{ next?: string | string[] }>;
+}
 
 /**
  * The client entrance.
@@ -19,7 +24,10 @@ export const metadata: Metadata = { title: 'Client sign-in' };
  * they land in the agency surface, because that is where they have more to do;
  * with it they reach the portal, which is what they just asked for.
  */
-export default function ClientSignInPage() {
+export default async function ClientSignInPage({ searchParams }: PageProps) {
+  const { next } = await searchParams;
+  await redirectIfSignedIn('portal', typeof next === 'string' ? next : undefined);
+
   return (
     <SignInPanel
       entrance="portal"

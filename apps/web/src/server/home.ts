@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import {
   SESSION_COOKIE_NAME,
   listAccessibleOrganizations,
@@ -6,8 +7,14 @@ import {
   resolveUser,
   type AuthenticatedUser,
 } from '@orbit/auth';
+import { logger } from '@orbit/observability';
 import { canPlatform } from '@orbit/rbac';
-import { resolveHome, type Entrance, type Home } from '@/features/navigation/home';
+import {
+  resolveHome,
+  signedInDestination,
+  type Entrance,
+  type Home,
+} from '@/features/navigation/home';
 import { portalWorkspacesFor } from './portal-context';
 
 /**
@@ -53,6 +60,36 @@ export async function homeForUser(user: AuthenticatedUser, entrance?: Entrance):
     },
     entrance,
   );
+}
+
+/**
+ * On a sign-in page: send somebody who is still signed in on, instead of
+ * asking them to sign in again.
+ *
+ * The test is `currentUser()` — the same session check whose failure is the
+ * only thing that sends a page to `/sign-in` — so a person is bounced one way
+ * or the other, never both.
+ *
+ * If working out where they belong fails (the database, say), the form is
+ * shown. Signing in must not become impossible because of a convenience.
+ */
+export async function redirectIfSignedIn(
+  entrance: Entrance,
+  next: string | undefined,
+): Promise<void> {
+  let destination: string | null = null;
+
+  try {
+    destination = signedInDestination(await homeForSession(entrance), entrance, next);
+  } catch (error) {
+    logger.warn('could not check for an existing session on a sign-in page', {
+      entrance,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  // Outside the try: `redirect` works by throwing.
+  if (destination) redirect(destination);
 }
 
 /** The signed-in user, or null. Never redirects. */

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { SignInPanel } from '@/features/auth/ui/sign-in-panel';
+import { redirectIfSignedIn } from '@/server/home';
 
 export const metadata: Metadata = {
   title: 'Operations sign-in',
@@ -7,6 +8,10 @@ export const metadata: Metadata = {
 };
 
 export const dynamic = 'force-dynamic';
+
+interface PageProps {
+  searchParams: Promise<{ next?: string | string[] }>;
+}
 
 /**
  * The platform operations entrance.
@@ -25,7 +30,12 @@ export const dynamic = 'force-dynamic';
  *
  * Deliberately unlinked from anywhere in the product, and `noindex`.
  */
-export default function OpsSignInPage() {
+export default async function OpsSignInPage({ searchParams }: PageProps) {
+  const { next } = await searchParams;
+  // A signed-in admin lands on operations; anybody else on their own home,
+  // exactly as the form would have sent them.
+  await redirectIfSignedIn('ops', typeof next === 'string' ? next : undefined);
+
   return (
     <SignInPanel
       entrance="ops"

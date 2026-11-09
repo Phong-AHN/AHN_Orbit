@@ -1,6 +1,15 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { continuePath, resolveHome, safeNext, type HomeFacts } from './home';
+import {
+  continuePath,
+  resolveHome,
+  safeNext,
+  signedInDestination,
+  type Home,
+  type HomeFacts,
+} from './home';
 
 const facts = (over: Partial<HomeFacts> = {}): HomeFacts => ({
   agency: [],
@@ -167,5 +176,76 @@ describe('continuePath', () => {
   it('omits the destination when there is none', () => {
     expect(continuePath('agency', null)).toBe('/continue?entrance=agency');
     expect(continuePath('agency')).toBe('/continue?entrance=agency');
+  });
+});
+
+describe('signedInDestination', () => {
+  const agency: Home = { surface: 'agency', path: '/orgs/ahn/dashboard' };
+
+  it('shows the form when nobody is signed in', () => {
+    expect(signedInDestination(null, 'agency')).toBeNull();
+    expect(signedInDestination(null, 'agency', '/orgs/ahn/posts/abc')).toBeNull();
+  });
+
+  /** The request: a session that has not been signed out goes straight in. */
+  it('sends somebody still signed in to their home', () => {
+    expect(signedInDestination(agency, 'agency')).toBe('/orgs/ahn/dashboard');
+    expect(signedInDestination({ surface: 'portal', path: '/portal/ws-1' }, 'portal')).toBe(
+      '/portal/ws-1',
+    );
+  });
+
+  it('follows a link they were sent to sign in for', () => {
+    expect(signedInDestination(agency, 'agency', '/orgs/ahn/posts/abc')).toBe(
+      '/orgs/ahn/posts/abc',
+    );
+  });
+
+  it('ignores a destination that is not safe to follow', () => {
+    expect(signedInDestination(agency, 'agency', '//evil.example')).toBe('/orgs/ahn/dashboard');
+    expect(signedInDestination(agency, 'agency', 'https://evil.example')).toBe(
+      '/orgs/ahn/dashboard',
+    );
+  });
+
+  /** A sign-in page that redirects to a sign-in page would never stop. */
+  it('never answers with an entrance', () => {
+    for (const next of ['/sign-in', '/sign-in/client', '/sign-in/ops?next=/admin', '/continue']) {
+      const destination = signedInDestination(agency, 'agency', next);
+      expect(destination, next).toBe('/orgs/ahn/dashboard');
+    }
+
+    const nowhere = signedInDestination({ surface: 'none', path: null }, 'ops', '/sign-in');
+    expect(nowhere).not.toMatch(/^\/sign-in/);
+  });
+
+  /**
+   * Signed in with nothing to open: `/continue` says so and offers another
+   * account. The form would only lead back to the same place.
+   */
+  it('sends somebody entitled to nothing to the page that explains it', () => {
+    expect(signedInDestination({ surface: 'none', path: null }, 'agency')).toBe(
+      '/continue?entrance=agency',
+    );
+  });
+});
+
+describe('the sign-in entrances', () => {
+  const page = (relative: string) =>
+    readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
+
+  /** A fourth entrance added without this would ask a signed-in person again. */
+  it('each send a signed-in person on before rendering the form', () => {
+    for (const [file, entrance] of [
+      ['../../../app/(auth)/sign-in/page.tsx', 'agency'],
+      ['../../../app/(auth)/sign-in/client/page.tsx', 'portal'],
+      ['../../../app/(auth)/sign-in/ops/page.tsx', 'ops'],
+    ] as const) {
+      const source = page(file);
+      expect(source, file).toContain(`await redirectIfSignedIn('${entrance}'`);
+      expect(source.indexOf('redirectIfSignedIn('), file).toBeLessThan(
+        source.indexOf('<SignInPanel'),
+      );
+    }
   });
 });

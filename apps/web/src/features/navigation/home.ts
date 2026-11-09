@@ -154,3 +154,27 @@ export function continuePath(entrance: Entrance, next?: string | null | undefine
 
   return `/continue?${params.toString()}`;
 }
+
+/**
+ * Where a sign-in page sends somebody who is already signed in, or null to
+ * show the form.
+ *
+ * The session cookie lasts fourteen days, but the entrances used to show the
+ * form regardless — so somebody still signed in who followed the home page's
+ * "Sign in" link was asked to sign in again, as though the session had gone.
+ *
+ * The same order as `/continue`: a safe `next`, then the home surface.
+ * Somebody signed in with nowhere to go is sent to `/continue`, which says so
+ * and offers a different account, rather than shown a form that would only
+ * bring them back to the same place. `safeNext` already refuses every sign-in
+ * path, so the answer is never an entrance — which is what keeps this from
+ * looping.
+ */
+export function signedInDestination(
+  home: Home | null,
+  entrance: Entrance,
+  next?: string | null | undefined,
+): string | null {
+  if (!home) return null;
+  return safeNext(next) ?? home.path ?? continuePath(entrance);
+}
