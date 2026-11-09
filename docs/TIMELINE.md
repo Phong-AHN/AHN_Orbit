@@ -11,6 +11,8 @@ Cách đọc:
 - Có những ngày làm việc không commit, nên code của ngày đó nằm trong commit của ngày sau. Ví dụ: việc ngày 19/8 nằm trong commit 22/8, việc từ 5/10 đến 13/10 nằm trong commit `61e3cb9` ngày 14/10. Một số D-xxx vì thế được ghi muộn hơn ngày thảo luận.
 - Mật khẩu, token và chuỗi kết nối từng dán vào chat **không** chép vào đây.
 
+**Từ 9/11, file được ghi tiếp sau mỗi việc hoàn thành**, cùng commit với việc đó. Mỗi mục ghi: yêu cầu, việc đã làm, commit và D-xxx, sự cố nếu có, và việc còn mở. Mục "Việc còn mở" ở cuối file cũng được cập nhật theo.
+
 ---
 
 ## Tóm tắt các mốc
@@ -329,7 +331,7 @@ Cách đọc:
   - Bảng gói hiện là bản mẫu, chưa có giá.
 - 13:20 anh push cả ba commit trên lên `origin/main`.
 - Meta từ chối video của `instagram_business_basic`: chưa quay đủ luồng đăng nhập, cấp quyền và hiển thị profile. Đã soạn kịch bản quay lại và ghi chú cho người duyệt.
-- Dựng timeline này.
+- Dựng timeline này (`c967632`). Từ đây file được ghi tiếp sau mỗi việc.
 
 ---
 
