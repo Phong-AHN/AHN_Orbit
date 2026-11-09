@@ -78,7 +78,13 @@ export async function applyHealthVerdict(
       workspaceId: account.workspaceId,
       brandId: account.brandId,
       before: { status: account.status },
-      after: { status: verdict.status, source: 'health-probe' },
+      // Where the verdict came from and why, as the worker records it (D-114):
+      // a check somebody asked for is told apart from the hourly sweep.
+      after: {
+        status: verdict.status,
+        source: 'manual-check',
+        ...(verdict.message ? { reason: verdict.message.slice(0, 300) } : {}),
+      },
     });
   }
 

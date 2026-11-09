@@ -3,6 +3,7 @@ import {
   classifyHttpStatus,
   parseRetryAfter,
   toAppError,
+  tokenEndpointFailure,
   type NormalizedProviderFailure,
   type ProviderErrorKind,
 } from '../errors.js';
@@ -188,12 +189,12 @@ export function normalizeTikTokError(
  *
  * `invalid_grant` covers both an authorization code that was already used and a
  * refresh token TikTok no longer honours — different causes, same remedy: the
- * account has to be connected again.
+ * account has to be connected again. `invalid_client` and
+ * `unauthorized_client` are not here: they are about our client key, and
+ * `tokenEndpointFailure` reads them that way for every platform.
  */
 const OAUTH_KINDS: Record<string, ProviderErrorKind> = {
-  invalid_client: 'AUTHENTICATION',
   invalid_grant: 'AUTHENTICATION',
-  unauthorized_client: 'PERMISSION',
   access_denied: 'PERMISSION',
   invalid_request: 'VALIDATION',
   invalid_scope: 'VALIDATION',
@@ -222,14 +223,12 @@ export function normalizeTikTokOAuthError(
   body: TikTokOAuthErrorBody,
   httpStatus: number,
 ): AppError {
-  const code = body.error ?? 'unknown';
-  const kind = OAUTH_KINDS[code] ?? classifyHttpStatus(httpStatus);
-
-  return toAppError('TIKTOK', {
-    kind,
-    message: `TikTok OAuth refused: ${code}${body.error_description ? ` — ${body.error_description}` : ''}`,
-    providerCode: code,
-    httpStatus,
+  return tokenEndpointFailure('TIKTOK', {
+    status: httpStatus,
+    code: body.error,
+    description: body.error_description,
+    fallback: (status) =>
+      (body.error ? OAUTH_KINDS[body.error] : undefined) ?? classifyHttpStatus(status),
     meta: {
       ...(body.log_id ? { logId: body.log_id } : {}),
       // Says which half of the API answered, so a reader is not left wondering

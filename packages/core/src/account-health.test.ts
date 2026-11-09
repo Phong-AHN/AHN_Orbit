@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   HEALTH_PROBE_INTERVAL_MS,
   accountStatusForErrorCode,
+  brokenVerdictStep,
   classifyHealthChange,
   isClientStandingFailure,
   isProbeDue,
@@ -161,3 +162,26 @@ describe('classifyHealthChange', () => {
 
 // Notification copy moved to `@orbit/notifications` in T1.15; its tests moved
 // with it (`packages/notifications/src/content.test.ts`).
+
+/**
+ * Two findings, ten minutes apart, before a working account is taken out of
+ * service (D-114). One was too few: it made accounts flap.
+ */
+describe('brokenVerdictStep', () => {
+  it('asks for a second look before taking a working account out of service', () => {
+    expect(brokenVerdictStep({ currentStatus: 'ACTIVE', confirmation: false })).toBe(
+      'CONFIRM_LATER',
+    );
+  });
+
+  it('records the second finding', () => {
+    expect(brokenVerdictStep({ currentStatus: 'ACTIVE', confirmation: true })).toBe('RECORD');
+  });
+
+  /** Nothing left to protect, and no notification to repeat. */
+  it('records at once about an account already marked broken', () => {
+    expect(brokenVerdictStep({ currentStatus: 'NEEDS_RECONNECT', confirmation: false })).toBe(
+      'RECORD',
+    );
+  });
+});

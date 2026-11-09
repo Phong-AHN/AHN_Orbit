@@ -1,5 +1,10 @@
 import { clock } from '@orbit/core';
-import { normalizeUnknownError, toAppError, type ProviderErrorKind } from '../errors.js';
+import {
+  normalizeUnknownError,
+  toAppError,
+  tokenEndpointFailure,
+  type ProviderErrorKind,
+} from '../errors.js';
 import { clientAssertion, dpopProof, type Es256Key } from './crypto.js';
 
 /**
@@ -110,18 +115,13 @@ export class BlueskyHttp {
     const body = text ? (safeJson(text) as Record<string, unknown>) : {};
 
     if (!response.ok) {
-      const code = String(body['error'] ?? response.status);
-      throw toAppError('BLUESKY', {
-        // A refresh token already used, or revoked, is a connection to make again.
-        kind:
-          code === 'invalid_grant' || response.status === 401
-            ? 'AUTHENTICATION'
-            : kindForStatus(response.status),
-        message: `Bluesky OAuth refused: ${code}${
-          body['error_description'] ? ` — ${String(body['error_description'])}` : ''
-        }`,
-        providerCode: code,
-        httpStatus: response.status,
+      // A refresh token already used, or revoked, is `invalid_grant`. A 401 is
+      // the server refusing our client assertion — our key, not the account.
+      throw tokenEndpointFailure('BLUESKY', {
+        status: response.status,
+        code: body['error'] ? String(body['error']) : undefined,
+        description: body['error_description'] ? String(body['error_description']) : undefined,
+        fallback: kindForStatus,
       });
     }
     return body;

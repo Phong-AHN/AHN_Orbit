@@ -1,4 +1,9 @@
-import { normalizeUnknownError, toAppError, type ProviderErrorKind } from '../errors.js';
+import {
+  normalizeUnknownError,
+  toAppError,
+  tokenEndpointFailure,
+  type ProviderErrorKind,
+} from '../errors.js';
 import { PINTEREST_API_HOST } from './capabilities.js';
 
 /**
@@ -157,12 +162,13 @@ export class PinterestClient {
     const parsed = text ? (safeJson(text) as Record<string, unknown>) : {};
 
     if (!response.ok) {
-      throw toAppError('PINTEREST', {
-        kind: kindForStatus(response.status),
-        message: `Pinterest OAuth refused: ${String(
-          parsed['message'] ?? parsed['error'] ?? response.status,
-        )}`,
-        httpStatus: response.status,
+      // The client id and secret travel as Basic auth, so a 401 here is about
+      // them, not about the account being renewed.
+      throw tokenEndpointFailure('PINTEREST', {
+        status: response.status,
+        code: parsed['error'] ? String(parsed['error']) : undefined,
+        description: parsed['message'] ? String(parsed['message']) : undefined,
+        fallback: kindForStatus,
       });
     }
 

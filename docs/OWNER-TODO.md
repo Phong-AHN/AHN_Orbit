@@ -907,6 +907,29 @@ cả hai đều gọi API.
 >    `sunny-reverence`, `glorious-happiness`, `disciplined-warmth`. Worker nào
 >    dùng chung Redis production đều nhận job, nên bản cũ vẫn có thể xử lý bài.
 
+> **Tài khoản mạng xã hội bị "mất kết nối" (D-114, 09/11/2026).** Code đã sửa để
+> một lần làm mới token thất bại, hay một lần nền tảng từ chối, không còn đánh
+> dấu tài khoản là cần kết nối lại. Còn bốn việc chỉ anh làm được:
+>
+> 1. **Key giống hệt nhau trên Vercel và Railway.** Token cấp ở web (lúc kết
+>    nối) được làm mới ở worker. Nếu `X_CLIENT_SECRET`, `YOUTUBE_CLIENT_ID/SECRET`,
+>    `TIKTOK_CLIENT_KEY/SECRET`, `PINTEREST_*`, `LINKEDIN_*`, `INSTAGRAM_*`,
+>    `THREADS_*`, `FACEBOOK_*` hay `BLUESKY_PRIVATE_KEY` khác nhau giữa hai nơi,
+>    nền tảng sẽ từ chối worker. Giờ lỗi này không làm rớt tài khoản nữa, nhưng
+>    token sẽ không làm mới được. Log worker sẽ báo *"refused Social Square's own
+>    app credentials"*.
+> 2. **Một worker duy nhất** (mục 4 ở trên). Worker cũ chạy code cũ vẫn hạ cấp
+>    tài khoản theo cách cũ. Code mới không chặn được nó.
+> 3. **Google Cloud → OAuth consent screen → Publishing status = In production.**
+>    Ở chế độ *Testing*, Google huỷ refresh token sau 7 ngày, và kênh YouTube rớt
+>    đúng chu kỳ đó.
+> 4. **Kênh YouTube "Pinlo"** đang `DISABLED` từ 02/11 (một lần kết nối lại bị bỏ
+>    dở). Vào Settings → Accounts, kết nối lại YouTube.
+>
+> Muốn biết vì sao một tài khoản rớt: mỗi lần đổi trạng thái giờ được ghi vào
+> audit log (`social_account.health_degraded`), kèm lý do và commit của worker
+> đã ghi.
+
 | `RESEND_API_KEY` + `EMAIL_FROM` | Resend | tuỳ chọn² |
 | `SENTRY_DSN` | Sentry | tuỳ chọn |
 

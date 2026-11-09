@@ -15,15 +15,18 @@ import { logError, logger } from '@orbit/observability';
 import { enqueue } from '@orbit/queue';
 import {
   CredentialCipher,
+  asDueForRenewal,
   attemptRefresh,
   capabilitiesFor,
   getProvider,
   refreshIsDue,
+  settleRenewal,
   tryGetProvider,
   type AccountHealth,
   type DecryptedCredential,
   type DiscoveredAccount,
   type IssuedCredential,
+  type RefreshAttempt,
 } from '@orbit/providers';
 import { audit, type AuditInput } from '@/server/audit';
 import { ensureProvidersRegistered } from '@/server/providers';
@@ -137,71 +140,114 @@ export async function loadCredential(
  * spent token and end the connection. Under the row lock the second one finds
  * the first one's fresh token and the adapter answers STILL_VALID.
  *
- * Anything short of a renewal returns the credential as it was; if it has
- * really expired, the call that uses it fails through the normal path.
+ * What comes back is decided by `settleRenewal`: never a credential that has
+ * already expired, because using one only produces a 401 that reads as a dead
+ * connection (D-114).
  */
 async function renewUnderLock(
   ctx: TenantContext,
   socialAccountId: string,
   stale: DecryptedCredential,
 ): Promise<DecryptedCredential> {
-  const aad = { organizationId: ctx.organizationId, socialAccountId };
+  const platform = await platformOf(ctx, socialAccountId);
+  if (!platform) return stale;
 
-  const account = await withTenant(ctx, (db) =>
-    db.socialAccount.findFirst({ where: { id: socialAccountId }, select: { platform: true } }),
-  );
-  ensureProvidersRegistered();
-  const provider = account ? tryGetProvider(account.platform) : undefined;
-  if (!provider) return stale;
-
+  let renewal: Awaited<ReturnType<typeof renewInTransaction>>;
   try {
-    return await withTenant(
-      ctx,
-      async (db) => {
-        await db.$queryRaw`SELECT 1 FROM "SocialCredential" WHERE "socialAccountId" = ${socialAccountId}::uuid FOR UPDATE`;
-
-        const row = await db.socialCredential.findFirst({ where: { socialAccountId } });
-        if (!row) throw new NotFoundError('Credential');
-        const current = openStoredCredential(row, aad);
-
-        const attempt = await attemptRefresh(provider, current);
-
-        if (attempt.kind === 'REFRESHED') {
-          await storeCredential(db, ctx.organizationId, socialAccountId, attempt.issued);
-          logger.info('credential renewed before use', {
-            socialAccountId,
-            organizationId: ctx.organizationId,
-            platform: account?.platform,
-          });
-          return attempt.credential;
-        }
-
-        if (attempt.kind === 'RECONNECT') {
-          logger.warn('credential cannot be renewed; using it until it fails', {
-            socialAccountId,
-            organizationId: ctx.organizationId,
-            platform: account?.platform,
-            reason: attempt.reason,
-          });
-        } else if (attempt.kind === 'FAILED') {
-          logError('credential renewal failed; using the stored one', attempt.error, {
-            socialAccountId,
-            organizationId: ctx.organizationId,
-          });
-        }
-
-        return current;
-      },
-      // The renewal is a network call inside the transaction.
-      { timeoutMs: 45_000 },
-    );
+    renewal = await renewInTransaction(ctx, socialAccountId, platform, { force: false });
   } catch (error) {
+    // The lock or the write failed, not the platform. Nothing is known about
+    // the account; the stored credential is used if it still works.
     logError('credential renewal could not be recorded', error, {
       socialAccountId,
       organizationId: ctx.organizationId,
     });
-    return stale;
+    return settleRenewal(platform, stale, { kind: 'FAILED', error });
   }
+
+  if (!renewal) return stale;
+  return settleRenewal(platform, renewal.current, renewal.attempt);
+}
+
+/**
+ * Renew now, whatever the stored expiry says — for a health check whose token
+ * the platform has just refused. Null when there was nothing to renew with.
+ * Same contract as the worker's `renewNow`.
+ */
+async function renewNow(
+  ctx: TenantContext,
+  socialAccountId: string,
+): Promise<DecryptedCredential | null> {
+  const platform = await platformOf(ctx, socialAccountId);
+  if (!platform) return null;
+
+  const renewal = await renewInTransaction(ctx, socialAccountId, platform, { force: true });
+  if (!renewal || renewal.attempt.kind === 'UNCHANGED') return null;
+
+  return settleRenewal(platform, { ...renewal.current, expiresAt: new Date(0) }, renewal.attempt);
+}
+
+async function platformOf(ctx: TenantContext, socialAccountId: string): Promise<Platform | null> {
+  const account = await withTenant(ctx, (db) =>
+    db.socialAccount.findFirst({ where: { id: socialAccountId }, select: { platform: true } }),
+  );
+  ensureProvidersRegistered();
+  return account && tryGetProvider(account.platform) ? account.platform : null;
+}
+
+/** Lock the row, re-read it, ask the adapter, store what comes back. */
+async function renewInTransaction(
+  ctx: TenantContext,
+  socialAccountId: string,
+  platform: Platform,
+  options: { force: boolean },
+): Promise<{ current: DecryptedCredential; attempt: RefreshAttempt } | null> {
+  const aad = { organizationId: ctx.organizationId, socialAccountId };
+  const provider = tryGetProvider(platform);
+  if (!provider) return null;
+
+  return withTenant(
+    ctx,
+    async (db) => {
+      await db.$queryRaw`SELECT 1 FROM "SocialCredential" WHERE "socialAccountId" = ${socialAccountId}::uuid FOR UPDATE`;
+
+      const row = await db.socialCredential.findFirst({ where: { socialAccountId } });
+      if (!row) throw new NotFoundError('Credential');
+      const current = openStoredCredential(row, aad);
+
+      const offered = options.force ? asDueForRenewal(current) : current;
+      if (!offered) return { current, attempt: { kind: 'UNCHANGED' as const } };
+
+      const attempt = await attemptRefresh(provider, offered);
+
+      if (attempt.kind === 'REFRESHED') {
+        await storeCredential(db, ctx.organizationId, socialAccountId, attempt.issued);
+        logger.info('credential renewed before use', {
+          socialAccountId,
+          organizationId: ctx.organizationId,
+          platform,
+          forced: options.force,
+        });
+      } else if (attempt.kind === 'RECONNECT') {
+        logger.warn('the platform refused to renew a credential', {
+          socialAccountId,
+          organizationId: ctx.organizationId,
+          platform,
+          reason: attempt.reason,
+        });
+      } else if (attempt.kind === 'FAILED') {
+        logError('credential renewal failed', attempt.error, {
+          socialAccountId,
+          organizationId: ctx.organizationId,
+          platform,
+        });
+      }
+
+      return { current, attempt };
+    },
+    // The renewal is a network call inside the transaction.
+    { timeoutMs: 45_000 },
+  );
 }
 
 /** The only place ciphertext becomes a token, in memory. */
@@ -637,31 +683,63 @@ export async function checkAccountHealth(
     };
   }
 
-  const credential = await loadCredential(ctx, socialAccountId);
   ensureProvidersRegistered();
   const provider = getProvider(account.platform);
 
-  let health: AccountHealth;
+  /**
+   * One probe as a verdict. Throws only for what says nothing about the
+   * account: a timeout, a 500, a renewal that could not be made just now, or
+   * the platform refusing our app as a whole. A credential the platform will
+   * not renew is a verdict, with the platform's reason.
+   */
+  const probeWith = async (open: () => Promise<DecryptedCredential>): Promise<AccountHealth> => {
+    try {
+      return await provider.probeHealth(await open(), { externalId: account.externalId });
+    } catch (error) {
+      const code = isAppError(error) ? error.code : null;
+      const demotedTo =
+        code && !isClientStandingFailure(error) ? accountStatusForErrorCode(code) : null;
+      if (!demotedTo) throw error;
 
-  try {
-    health = await provider.probeHealth(credential, { externalId: account.externalId });
-  } catch (error) {
-    const code = isAppError(error) ? error.code : null;
-    const demotedTo =
-      code && !isClientStandingFailure(error) ? accountStatusForErrorCode(code) : null;
+      return {
+        status: demotedTo,
+        grantedScopes: account.scopes,
+        missingScopes: [],
+        message: isAppError(error) ? error.userMessage : 'The connection is no longer valid.',
+        checkedAt: clock.now(),
+      };
+    }
+  };
 
-    // Says nothing about the account — a timeout, a 500, a network blip, or a
-    // platform refusing our app as a whole. Let it surface as the error it is
-    // rather than blaming the connection.
-    if (!demotedTo) throw error;
+  let health = await probeWith(() => loadCredential(ctx, socialAccountId));
 
-    health = {
-      status: demotedTo,
-      grantedScopes: account.scopes,
-      missingScopes: [],
-      message: isAppError(error) ? error.userMessage : 'The connection is no longer valid.',
-      checkedAt: clock.now(),
-    };
+  /**
+   * Before calling it broken, renew and look again (D-114). A platform that
+   * refuses a token it issued an hour ago has usually withdrawn it early, and
+   * the refresh token is often still good. The worker's probe does the same,
+   * and also waits ten minutes for a second finding; a person who pressed
+   * "check now" gets the answer at once.
+   */
+  if (health.status === 'NEEDS_RECONNECT') {
+    let renewed: DecryptedCredential | null = null;
+    try {
+      renewed = await renewNow(ctx, socialAccountId);
+    } catch (error) {
+      if (isAppError(error) && error.code === 'PROVIDER_AUTHENTICATION_ERROR') {
+        // The platform refused the refresh token: the exact reason, and final.
+        health = { ...health, message: error.userMessage, checkedAt: clock.now() };
+      } else {
+        logError('renewal before a health verdict failed; keeping the first verdict', error, {
+          socialAccountId,
+          organizationId: ctx.organizationId,
+        });
+      }
+    }
+
+    if (renewed) {
+      const fresh = renewed;
+      health = await probeWith(async () => fresh);
+    }
   }
 
   await withTenant(ctx, (db) =>

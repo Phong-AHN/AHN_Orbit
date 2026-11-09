@@ -77,6 +77,37 @@ export function accountStatusForErrorCode(code: ErrorCode): SocialAccountStatus 
   }
 }
 
+/**
+ * How long the first sign of a broken connection waits to be confirmed.
+ *
+ * Long enough to outlast what is not a broken connection — a platform's bad
+ * minute, a token endpoint that blinked, a renewal another process was midway
+ * through — and short enough that a connection that really is dead is reported
+ * within a quarter of an hour (D-114).
+ */
+export const HEALTH_CONFIRM_DELAY_MS = 10 * 60 * 1_000;
+
+/**
+ * What to do with a probe that found the connection broken.
+ *
+ * A working account is taken out of service only on **two** findings, ten
+ * minutes apart, each made after renewing the token where the platform allows
+ * it. One finding used to be enough, and one was too few: a single refused
+ * call put a connection that worked in front of a person as "reconnect this",
+ * the next probe found it working, and the account flapped between the two —
+ * which reads to the person as an account that keeps disconnecting.
+ *
+ * An account already marked as needing reconnection has nothing left to
+ * protect, so a finding about it is recorded at once.
+ */
+export function brokenVerdictStep(input: {
+  currentStatus: SocialAccountStatus;
+  confirmation: boolean;
+}): 'RECORD' | 'CONFIRM_LATER' {
+  if (input.currentStatus !== 'ACTIVE') return 'RECORD';
+  return input.confirmation ? 'RECORD' : 'CONFIRM_LATER';
+}
+
 export interface HealthChange {
   /** The verdict differs from what is stored, so the row needs updating. */
   changed: boolean;

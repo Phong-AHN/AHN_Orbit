@@ -435,6 +435,23 @@ describe('tokens', () => {
     expect(tiktokUserFieldsFor(['video.publish'])).toBe('open_id');
   });
 
+  it('does not blame the account when TikTok refuses our client key', async () => {
+    const local = new FakeTikTok().on(/oauth\/token/, {
+      status: 401,
+      body: { error: 'invalid_client', error_description: 'Client key or secret is incorrect.' },
+    });
+
+    const refused = provider(local).refreshCredential({
+      ...credential,
+      expiresAt: new Date(Date.now() - 1_000),
+    });
+
+    await expect(refused).rejects.toMatchObject({
+      code: 'PROVIDER_UNAVAILABLE',
+      context: expect.objectContaining({ clientStanding: true }),
+    });
+  });
+
   it('asks for a reconnect once the refresh token itself has expired', async () => {
     const outcome = await provider(tokenApi()).refreshCredential({
       ...credential,

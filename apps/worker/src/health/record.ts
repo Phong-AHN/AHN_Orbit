@@ -7,6 +7,7 @@ import {
 } from '@orbit/core';
 import { withTenant, type TenantDb } from '@orbit/db';
 import { notify } from '@orbit/notifications';
+import { workerBuild } from '../build-info.js';
 
 /**
  * Recording what we learned about an account (T1.7).
@@ -117,8 +118,16 @@ async function writeAudit(
       brandId: account.brandId,
       before: { status: account.status },
       // The message is the provider's safe text. No token material reaches here:
-      // `probeHealth` returns a status and a sentence, never a credential.
-      after: { status: input.verdict.status, source: input.source },
+      // `probeHealth` returns a status and a sentence, never a credential. The
+      // reason and the worker's commit are what make "why does this account keep
+      // disconnecting" answerable afterwards — including when the answer is a
+      // second, older worker still taking jobs (D-114).
+      after: {
+        status: input.verdict.status,
+        source: input.source,
+        ...(input.verdict.message ? { reason: input.verdict.message.slice(0, 300) } : {}),
+        ...workerBuild(),
+      },
       correlationId: input.correlationId,
     },
   });

@@ -265,6 +265,38 @@ describe('credentials', () => {
     expect(outcome.credential.refreshToken).toBe('1//refresh');
   });
 
+  /** Google says a refresh token is dead with a 400, which read as a bad request. */
+  it('asks for a reconnection when Google refuses the refresh token', async () => {
+    api.on(/oauth2.*\/token/, {
+      status: 400,
+      body: { error: 'invalid_grant', error_description: 'Token has been expired or revoked.' },
+    });
+
+    const outcome = await provider(api).refreshCredential({
+      ...credential,
+      expiresAt: new Date(Date.now() - 60_000),
+    } as never);
+
+    expect(outcome.status).toBe('REQUIRES_RECONNECT');
+  });
+
+  it('does not blame the channel when Google refuses our client', async () => {
+    api.on(/oauth2.*\/token/, {
+      status: 401,
+      body: { error: 'invalid_client', error_description: 'The OAuth client was not found.' },
+    });
+
+    const refused = provider(api).refreshCredential({
+      ...credential,
+      expiresAt: new Date(Date.now() - 60_000),
+    } as never);
+
+    await expect(refused).rejects.toMatchObject({
+      code: 'PROVIDER_UNAVAILABLE',
+      context: expect.objectContaining({ clientStanding: true }),
+    });
+  });
+
   it('will not renew a credential that has no refresh token', async () => {
     const outcome = await provider(api).refreshCredential({
       accessToken: 'ya29.token',

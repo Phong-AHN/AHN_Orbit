@@ -4556,6 +4556,95 @@ strangers unmetered AI and storage. Organizations created later still start on
 any row is left capped. The AI rate limit is a guard against a runaway loop, not
 a plan limit, and stays.
 
+## D-114 — An account is called disconnected only when it is
+
+The owner reported accounts disconnecting "very often" and asked for every
+cause to be found and fixed, with Buffer's handling as the reference. Reading
+the renewal and health paths found four ways a working connection was marked
+`NEEDS_RECONNECT`, each of which a later probe undid — so an account flapped
+between broken and fine, which reads to a person as an account that keeps
+disconnecting. The production history that would say which of them happened
+most could not be read from the development machine (a read-only query of the
+production database was refused); the fixes cover all four.
+
+### What was wrong
+
+1. **An expired token was used after a renewal that did not succeed.** Renewal
+   handed back the stored credential whatever happened. For X (two-hour tokens)
+   and Google (one hour) that guaranteed a 401, the 401 read as a dead token,
+   and the account was demoted — for a network blip at the token endpoint, a
+   database lock that timed out, or a renewal another process was midway
+   through.
+2. **Refusals of our own app were read as refusals of the account.** RFC 6749
+   §5.2 says `invalid_client`, `unauthorized_client` and a 401 from the token
+   endpoint are about **the client**. X and Bluesky read any 401 as a dead
+   token and TikTok read `invalid_client` that way, so a worker holding a wrong
+   or rotated secret told every account on the platform to reconnect, and
+   reconnecting fixed nothing. Google answers a dead refresh token with
+   `invalid_grant` on a 400, which read as a bad request; the renewal failed,
+   the expired token was used, and only then did a 401 demote the channel, with
+   a message that named the wrong cause.
+3. **One refused call was enough.** The probe and the publish engine both
+   demoted on a single authentication or permission error, with no second look
+   and no attempt to renew a token the platform had withdrawn early.
+4. **A publish refusal was taken as a verdict on the connection.** A 401 or 403
+   on one post — an X media endpoint, an Instagram container, a Page role for
+   one action — took a working account out of service.
+
+### What changed
+
+- **`settleRenewal`** (`@orbit/providers`) decides what a caller gets after a
+  renewal, in the web app and the worker alike. Renewed → the new credential.
+  Still valid → the stored one, whatever the renewal said. Expired and the
+  platform refused the refresh token → an authentication error carrying the
+  platform's reason. Expired and anything else → a retryable
+  `PROVIDER_UNAVAILABLE`, so the work is tried again and nothing is said about
+  the account. A token with less than a minute left counts as expired.
+- **`tokenEndpointFailure`** reads every token endpoint by the standard:
+  `invalid_grant` (and X's `invalid_request`) is a dead connection; client
+  errors and a codeless 401 are `PROVIDER_UNAVAILABLE` with `clientStanding`
+  and a message for an administrator. X, Google, TikTok, LinkedIn, Pinterest
+  and Bluesky use it. Meta's platforms renew with the access token itself and
+  were not affected.
+- **Two findings before a working account is demoted.** The probe renews the
+  token now (`renewNow`, under the same row lock) and probes again before it
+  believes a broken verdict. If that still fails, it records nothing and queues
+  a confirmation probe ten minutes later (`trigger: 'confirm'`); only that
+  second finding is recorded. An account already marked broken is recorded at
+  once, as before. "Check now" in the web app renews and probes again but does
+  not wait, because a person asked.
+- **A failed publish asks; it does not decide.** A credential failure enqueues
+  an immediate probe (`trigger: 'publish'`) instead of demoting. The post still
+  fails, as Buffer's do; the account is judged by probing the account.
+- **The trail says why.** Health audit rows carry the reason and, from the
+  worker, the commit it was built from, so a second, older worker still taking
+  jobs shows up in the record. The web app's rows say `manual-check`.
+
+### What Buffer does, and what was taken from it
+
+From Buffer's help centre (read 2026-11-09): a disconnected channel is
+**refreshed** — re-authorised in place, keeping everything scheduled — rather
+than removed and added again; Buffer emails on a disconnection and lists
+channels needing attention first; posts on a disconnected channel fail and are
+not retried automatically. It names password changes, revoked access, lost
+admin rights and platform expiry (LinkedIn every 60 days, Facebook user tokens
+about 60 days) as causes. No automatic renewal or pre-expiry warning is
+documented. Social Square already reconnects in place (the staged credential
+replaces the old one and a `NEEDS_RECONNECT` account returns to `ACTIVE`),
+notifies by email and in the app, and lists broken accounts first. What it
+adds beyond Buffer is renewing tokens before they expire, which is why its
+false disconnections came from the renewal path.
+
+### Not done
+
+- A warning before an unrenewable token expires (LinkedIn without refresh
+  tokens; TikTok and Pinterest refresh tokens at a year).
+- Retrying a publish once after renewing on a 401.
+- A staged account left `DISABLED` by an abandoned reconnection stays that way
+  until it is reconnected; the sweep does not probe `DISABLED` rows.
+
+- **Date:** 2026-11-09 · **Status:** IMPLEMENTED (no migration)
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

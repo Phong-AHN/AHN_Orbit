@@ -35,14 +35,21 @@ export async function processAccountHealth(job: JobContext<'account-health'>): P
     correlationId,
   });
 
+  // The sweep honours the hourly debounce. A failed publish and a pending
+  // confirmation are questions that need answering now (D-114).
+  const trigger = payload.trigger ?? 'sweep';
+
   const result = await probeAccount({
     ctx,
     socialAccountId: payload.socialAccountId,
     correlationId,
+    confirmation: trigger === 'confirm',
+    ...(trigger === 'sweep' ? {} : { minIntervalMs: 0 }),
   });
 
   switch (result.kind) {
     case 'PROBED':
+    case 'CONFIRMING':
       return;
 
     case 'SKIPPED':

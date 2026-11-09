@@ -1,5 +1,10 @@
 import { clock } from '@orbit/core';
-import { normalizeUnknownError, toAppError, type ProviderErrorKind } from '../errors.js';
+import {
+  normalizeUnknownError,
+  toAppError,
+  tokenEndpointFailure,
+  type ProviderErrorKind,
+} from '../errors.js';
 import { X_API_HOST } from './capabilities.js';
 
 /**
@@ -177,19 +182,15 @@ export class XClient {
     const parsed = text ? (safeJson(text) as Record<string, unknown>) : {};
 
     if (!response.ok) {
-      const code = String(parsed['error'] ?? response.status);
-      throw toAppError('X', {
-        // A refresh token that has already been used, or revoked, is a
-        // connection a person has to make again.
-        kind:
-          code === 'invalid_grant' || code === 'invalid_request' || response.status === 401
-            ? 'AUTHENTICATION'
-            : kindForStatus(response.status, parsed as XErrorBody),
-        message: `X OAuth refused: ${code}${
-          parsed['error_description'] ? ` — ${String(parsed['error_description'])}` : ''
-        }`,
-        providerCode: code,
-        httpStatus: response.status,
+      throw tokenEndpointFailure('X', {
+        status: response.status,
+        code: parsed['error'] ? String(parsed['error']) : undefined,
+        description: parsed['error_description'] ? String(parsed['error_description']) : undefined,
+        // X answers a refresh token that was already used, or revoked, with
+        // `invalid_request` rather than `invalid_grant`. A 401 is not that: it
+        // is X refusing our client id and secret.
+        grantCodes: ['invalid_request'],
+        fallback: (status) => kindForStatus(status, parsed as XErrorBody),
       });
     }
 

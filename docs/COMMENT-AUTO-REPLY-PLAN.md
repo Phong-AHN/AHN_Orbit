@@ -53,7 +53,7 @@ phân loại comment, đọc nội dung bài đăng, và hướng dẫn theo lo�
 | Gợi ý trong inbox | Route `/community/{id}/suggest` có, nhưng UI inbox chưa có nút. Hiện chỉ gọi được qua MCP hoặc Copilot | Thêm vào UI ở Phase 2 |
 
 D-108 ghi rõ ở mục *Not done*: *"Answering comments automatically. Comments are public; this stays
-D-067."* Tính năng này **đảo ngược một quyết định đã ghi**, nên cần một quyết định mới (D-114).
+D-067."* Tính năng này **đảo ngược một quyết định đã ghi**, nên cần một quyết định mới (D-115).
 
 ---
 
@@ -337,7 +337,7 @@ Mỗi phase dùng được độc lập và có thể dừng ở đó. Thời l�
 
 | Việc | Ai làm |
 |---|---|
-| Chốt §11, ghi D-114 nới D-067 cho comment | Chủ dự án, rồi dev ghi |
+| Chốt §11, ghi D-115 nới D-067 cho comment | Chủ dự án, rồi dev ghi |
 | Sửa Watch Paths trên Railway, giữ một worker, đặt `GEMINI_API_KEY` và key Meta trên worker | Chủ dự án |
 | Làm CI xanh: `format:check` và 3 test integration đang lỗi | Dev |
 | Sửa §1b của `OWNER-TODO` và rà §1c–§1g xem có câu nào mâu thuẫn, quay lại video | Chủ dự án, dev soạn |

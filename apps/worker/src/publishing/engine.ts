@@ -1,4 +1,5 @@
 import {
+  HEALTH_CONFIRM_DELAY_MS,
   PublishingTimeoutError,
   RECONCILE_WINDOW_MS,
   accountStatusForErrorCode,
@@ -25,7 +26,6 @@ import {
 } from '@orbit/queue';
 import { capabilitiesFor, getProvider } from '@orbit/providers';
 import { workerBuild } from '../build-info.js';
-import { recordHealthVerdict } from '../health/record.js';
 import { claimVariant, releaseClaim, settleClaim, type Claim } from './claim.js';
 import { closeAttempt, findInFlightAttempt, openAttempt, updateJobState } from './attempts.js';
 import { markPostPublishing, rollUpPost } from './rollup.js';
@@ -571,8 +571,9 @@ async function applyOutcome(
       await auditPublish(run, subject, 'post_variant.publish_failed', { errorCode: outcome.code });
       await rollUpPost(subject.postId);
 
-      // Some failures are about the post; two are about the connection (T1.7).
-      await demoteAccountIfCredentialFailed(run, subject, outcome.code, outcome.clientStanding);
+      // Some failures are about the post; two may be about the connection, and
+      // the health check is what finds out which (T1.7, D-114).
+      await checkAccountAfterCredentialFailure(run, subject, outcome.code, outcome.clientStanding);
       await raiseNotification(run, subject, 'publishing.failed');
 
       return { kind: 'FAILED', variantId: subject.variantId, reason: outcome.code };
@@ -668,38 +669,40 @@ async function raiseNotification(
 }
 
 /**
- * A failed publish that was really a failed *connection* (T1.7).
+ * A failed publish that may have been a failed *connection* (T1.7, D-114).
  *
- * This is the moment the commonest publishing failure stops being a dead end.
- * Before it existed, a dead token failed one post, left the account `ACTIVE`,
- * and then failed the next post identically — the publishing log filled up with
- * the same error while the accounts page reported everything fine.
+ * Before T1.7 a dead token failed one post, left the account `ACTIVE`, and
+ * failed the next post identically while the accounts page reported
+ * everything fine. So a credential failure here used to demote the account on
+ * the spot.
  *
- * `accountStatusForErrorCode` decides what counts, and it is deliberately narrow:
- * a caption that was too long says nothing about the credential, and demoting an
- * account over it would pause publishing for every other post on it.
+ * It no longer decides. A refusal of one post is evidence about the post as
+ * much as the connection: an X media endpoint, an Instagram container, a
+ * Page role on one action each answer 401 or 403 for reasons that leave the
+ * account working, and every one of them took a good account out of service
+ * and told somebody to reconnect it. What this does now is ask the health
+ * check to look at the account at once. That probe renews the token where it
+ * can, probes again, and confirms ten minutes later before it marks anything —
+ * the one place that decides whether a connection is broken.
  *
- * Failures here are logged, never rethrown. The publish outcome is already
- * recorded and correct; losing that to a notification problem would be trading a
- * handled failure for an unhandled one.
+ * `accountStatusForErrorCode` still decides what is worth asking about, and a
+ * refusal of our app (`clientStanding`) is not. Failures here are logged,
+ * never rethrown: the publish outcome is already recorded and correct.
  */
-async function demoteAccountIfCredentialFailed(
+async function checkAccountAfterCredentialFailure(
   run: ClaimedRun,
   subject: PublishSubject,
   code: string,
   clientStanding: boolean | undefined,
 ): Promise<void> {
-  const status = accountStatusForErrorCode(code as ErrorCode);
-  if (!status) return;
+  if (!accountStatusForErrorCode(code as ErrorCode)) return;
 
   /**
    * Some permission failures are about our app, not this connection.
    *
    * TikTok refuses a public post from an unaudited client with a 403 that maps
-   * to `PROVIDER_PERMISSION_ERROR` — and the account is fine. Demoting it takes
-   * a working connection out of service and tells somebody to reconnect it,
-   * which resolves nothing: the remedy lives in the developer portal, with a
-   * different person entirely.
+   * to `PROVIDER_PERMISSION_ERROR`, and the account is fine. Nothing about the
+   * account is worth checking.
    */
   if (clientStanding) {
     logger.warn('publish failed on client standing; the account is untouched', {
@@ -712,28 +715,28 @@ async function demoteAccountIfCredentialFailed(
   }
 
   try {
-    const change = await recordHealthVerdict({
-      ctx: run.ctx,
-      socialAccountId: subject.socialAccountId,
-      correlationId: run.correlationId,
-      source: 'publish',
-      verdict: {
-        status,
-        checkedAt: clock.now(),
-        message: safeMessageFor(code),
-      },
-    });
-
-    if (change.degraded) {
-      logger.warn('account marked as needing reconnection after a failed publish', {
-        socialAccountId: subject.socialAccountId,
+    // One check per account per confirmation window, however many of its
+    // posts fail in it.
+    const window = Math.floor(clock.now().getTime() / HEALTH_CONFIRM_DELAY_MS);
+    await enqueue(
+      'account-health',
+      {
         organizationId: run.organizationId,
-        variantId: subject.variantId,
-        errorCode: code,
-      });
-    }
+        correlationId: run.correlationId,
+        socialAccountId: subject.socialAccountId,
+        trigger: 'publish',
+      },
+      { jobId: `health-publish-${subject.socialAccountId}-${window}` },
+    );
+
+    logger.warn('a publish failed on its credential; the health check will look at the account', {
+      socialAccountId: subject.socialAccountId,
+      organizationId: run.organizationId,
+      variantId: subject.variantId,
+      errorCode: code,
+    });
   } catch (error) {
-    logError('could not record account health after a failed publish', error, {
+    logError('could not ask for a health check after a failed publish', error, {
       socialAccountId: subject.socialAccountId,
       organizationId: run.organizationId,
     });

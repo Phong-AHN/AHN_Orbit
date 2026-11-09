@@ -7,7 +7,7 @@ import {
   setClock,
 } from '@orbit/core';
 import { platformDb } from '@orbit/db';
-import { closeQueues, closeSharedConnection, redis } from '@orbit/queue';
+import { closeQueues, closeSharedConnection, queueFor, redis } from '@orbit/queue';
 import { registerProvider, resetRegistry } from '@orbit/providers';
 import { MockProvider } from '@orbit/providers/mock';
 import { publishVariant } from './engine.js';
@@ -597,32 +597,33 @@ describe('failure classification', () => {
     expect(job?.state).toBe('FAILED');
   });
 
-  it('marks the account as needing reconnection after an authentication error', async () => {
-    // T1.7. Before this, a dead token failed one post, left the account ACTIVE,
-    // and then failed the next post identically — the publishing log filled up
-    // while the accounts page reported everything fine.
+  /**
+   * T1.7 made a credential failure demote the account on the spot; D-114 makes
+   * it ask instead. A refusal of one post is evidence about that post as much
+   * as the connection, so the health check, which probes the account itself,
+   * renews where it can and confirms before it marks anything, decides.
+   */
+  it('asks the health check about the account after an authentication error', async () => {
     await seedScheduled();
     mock.fault = 'AUTH_EXPIRED';
 
     await publishVariant(jobContext());
 
     const account = await platformDb.socialAccount.findUniqueOrThrow({ where: { id: ACCOUNT } });
-    expect(account.status).toBe('NEEDS_RECONNECT');
-    expect(account.healthError).toBeTruthy();
-    expect(account.healthCheckedAt).not.toBeNull();
+    expect(account.status).toBe('ACTIVE');
+    expect(account.healthError).toBeNull();
+    expect(
+      await platformDb.notification.count({
+        where: { organizationId: ORG, type: 'social_account.needs_reconnect' },
+      }),
+    ).toBe(0);
 
-    // The person who can fix it is told, in the same transaction (T1.15 delivers).
-    const notifications = await platformDb.notification.findMany({
-      where: { organizationId: ORG, resourceId: ACCOUNT },
-    });
-    expect(notifications).toHaveLength(1);
-    expect(notifications[0]?.userId).toBe(OWNER);
-    expect(notifications[0]?.type).toBe('social_account.needs_reconnect');
-
-    const audits = await platformDb.auditLog.findMany({
-      where: { organizationId: ORG, action: 'social_account.health_degraded' },
-    });
-    expect(audits).toHaveLength(1);
+    const probes = await queueFor('account-health').getJobs(['waiting', 'delayed', 'prioritized']);
+    const asked = probes.filter(
+      (job) => (job.data as { socialAccountId?: string }).socialAccountId === ACCOUNT,
+    );
+    expect(asked).toHaveLength(1);
+    expect((asked[0]?.data as { trigger?: string }).trigger).toBe('publish');
   });
 
   /**
@@ -643,6 +644,14 @@ describe('failure classification', () => {
     const account = await platformDb.socialAccount.findUniqueOrThrow({ where: { id: ACCOUNT } });
     expect(account.status).toBe('ACTIVE');
     expect(account.healthError).toBeNull();
+
+    // Not even a health check: there is nothing about the account to ask.
+    const probes = await queueFor('account-health').getJobs(['waiting', 'delayed', 'prioritized']);
+    expect(
+      probes.filter(
+        (job) => (job.data as { socialAccountId?: string }).socialAccountId === ACCOUNT,
+      ),
+    ).toHaveLength(0);
 
     // And nobody is told to reconnect something that is not broken.
     expect(

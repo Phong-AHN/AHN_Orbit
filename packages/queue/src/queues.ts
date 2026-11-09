@@ -84,6 +84,12 @@ export const engagementPayloadSchema = jobEnvelopeSchema.extend({
 
 export const accountHealthPayloadSchema = jobEnvelopeSchema.extend({
   socialAccountId: z.string().uuid(),
+  /**
+   * What asked for the probe (D-114). The hourly sweep honours the hourly
+   * debounce; a failed publish and a pending confirmation do not, because
+   * each is a question that needs answering now. Absent means the sweep.
+   */
+  trigger: z.enum(['sweep', 'publish', 'confirm']).optional(),
 });
 
 export const notificationPayloadSchema = jobEnvelopeSchema.extend({

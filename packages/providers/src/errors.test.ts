@@ -12,6 +12,7 @@ import {
   normalizeUnknownError,
   parseRetryAfter,
   toAppError,
+  tokenEndpointFailure,
 } from './errors.js';
 
 describe('classifyHttpStatus', () => {
@@ -159,5 +160,78 @@ describe('ProviderErrorMap', () => {
 
   it('falls back to UNAVAILABLE with no code and no status', () => {
     expect(map.classify(undefined)).toBe('UNAVAILABLE');
+  });
+});
+
+/**
+ * A token endpoint's refusal, read by the standard (RFC 6749 §5.2) for every
+ * platform (D-114). Reading these wrongly is what told every account on a
+ * platform to reconnect when only our own app credentials were at fault.
+ */
+describe('tokenEndpointFailure', () => {
+  const fallback = classifyHttpStatus;
+
+  /** Google says a refresh token is dead with a 400, not a 401. */
+  it('reads invalid_grant as a dead connection, whatever the status', () => {
+    const error = tokenEndpointFailure('YOUTUBE', { status: 400, code: 'invalid_grant', fallback });
+    expect(error.code).toBe('PROVIDER_AUTHENTICATION_ERROR');
+    expect(error.context['clientStanding']).toBeUndefined();
+  });
+
+  it.each([
+    ['invalid_client', 401],
+    ['invalid_client', 400],
+    ['unauthorized_client', 400],
+    ['unsupported_grant_type', 400],
+  ])('reads %s (HTTP %i) as about our app, never the account', (code, status) => {
+    const error = tokenEndpointFailure('X', { status, code, fallback });
+
+    expect(error.code).toBe('PROVIDER_UNAVAILABLE');
+    expect(error.context['clientStanding']).toBe(true);
+    expect(error.userMessage).toMatch(/administrator/);
+    expect(error.userMessage).toMatch(/reconnecting the account will not help/);
+  });
+
+  /** The standard's own meaning of a 401 at the token endpoint. */
+  it('reads a 401 with no code as a refusal of our client', () => {
+    const error = tokenEndpointFailure('PINTEREST', { status: 401, fallback });
+    expect(error.code).toBe('PROVIDER_UNAVAILABLE');
+    expect(error.context['clientStanding']).toBe(true);
+  });
+
+  /** X answers a spent refresh token with `invalid_request`. */
+  it("honours a platform's own word for a dead refresh token", () => {
+    const error = tokenEndpointFailure('X', {
+      status: 400,
+      code: 'invalid_request',
+      grantCodes: ['invalid_request'],
+      fallback,
+    });
+    expect(error.code).toBe('PROVIDER_AUTHENTICATION_ERROR');
+  });
+
+  it('leaves everything else to the platform reading of the status', () => {
+    expect(tokenEndpointFailure('LINKEDIN', { status: 503, fallback }).code).toBe(
+      'PROVIDER_UNAVAILABLE',
+    );
+    expect(tokenEndpointFailure('LINKEDIN', { status: 429, fallback }).code).toBe(
+      'PROVIDER_RATE_LIMIT',
+    );
+    expect(
+      tokenEndpointFailure('LINKEDIN', { status: 503, fallback }).context['clientStanding'],
+    ).toBeUndefined();
+  });
+
+  it('keeps the platform code and description for whoever reads the log', () => {
+    const error = tokenEndpointFailure('YOUTUBE', {
+      status: 400,
+      code: 'invalid_grant',
+      description: 'Token has been expired or revoked.',
+      fallback,
+    });
+    expect(error.message).toBe(
+      'Google OAuth refused: invalid_grant — Token has been expired or revoked.',
+    );
+    expect(error.context['providerCode']).toBe('invalid_grant');
   });
 });

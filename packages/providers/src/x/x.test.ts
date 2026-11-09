@@ -339,6 +339,31 @@ describe('credentials', () => {
 
     expect(outcome.status).toBe('REQUIRES_RECONNECT');
   });
+
+  /**
+   * A 401 at the token endpoint is X refusing our client id and secret. Read
+   * as a dead token, it told every X account to reconnect whenever a worker
+   * held a wrong or rotated secret — and reconnecting fixed nothing (D-114).
+   */
+  it('does not blame the account when X refuses our client credentials', async () => {
+    api.on(/\/2\/oauth2\/token/, {
+      status: 401,
+      body: {
+        error: 'unauthorized_client',
+        error_description: 'Missing valid authorization header',
+      },
+    });
+
+    const refused = provider(api).refreshCredential({
+      ...credential,
+      expiresAt: new Date(NOW - 1000),
+    });
+
+    await expect(refused).rejects.toMatchObject({
+      code: 'PROVIDER_UNAVAILABLE',
+      context: expect.objectContaining({ clientStanding: true }),
+    });
+  });
 });
 
 describe('publishing', () => {

@@ -1,4 +1,9 @@
-import { normalizeUnknownError, toAppError, type ProviderErrorKind } from '../errors.js';
+import {
+  normalizeUnknownError,
+  toAppError,
+  tokenEndpointFailure,
+  type ProviderErrorKind,
+} from '../errors.js';
 import { LINKEDIN_API_HOST } from './capabilities.js';
 
 /**
@@ -171,13 +176,11 @@ export class LinkedInClient {
     const parsed = text ? (safeJson(text) as Record<string, unknown>) : {};
 
     if (!response.ok) {
-      throw toAppError('LINKEDIN', {
-        kind: kindForStatus(response.status),
-        message: `LinkedIn OAuth refused: ${String(parsed['error'] ?? response.status)}${
-          parsed['error_description'] ? ` — ${String(parsed['error_description'])}` : ''
-        }`,
-        ...(parsed['error'] ? { providerCode: String(parsed['error']) } : {}),
-        httpStatus: response.status,
+      throw tokenEndpointFailure('LINKEDIN', {
+        status: response.status,
+        code: parsed['error'] ? String(parsed['error']) : undefined,
+        description: parsed['error_description'] ? String(parsed['error_description']) : undefined,
+        fallback: kindForStatus,
       });
     }
 

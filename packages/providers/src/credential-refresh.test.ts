@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { ProviderUnavailableError, isClientStandingFailure } from '@orbit/core';
 import {
+  asDueForRenewal,
   attemptRefresh,
+  isExpired,
   mergeRefreshed,
   refreshIsDue,
+  settleRenewal,
   REFRESH_AHEAD_MS,
+  type RefreshAttempt,
 } from './credential-refresh.js';
 import type { DecryptedCredential, RefreshOutcome, SocialProvider } from './types.js';
 
@@ -98,5 +103,95 @@ describe('mergeRefreshed', () => {
     });
     expect(merged.refreshToken).toBe('new-refresh');
     expect(merged.scopes).toEqual(['a']);
+  });
+});
+
+/**
+ * What a caller gets after a renewal (D-114). An expired credential is never
+ * handed out: using one only produces a 401, which read as a dead connection
+ * and demoted accounts whose only problem was a renewal that blinked.
+ */
+describe('settleRenewal', () => {
+  const expired = credential({ expiresAt: new Date(NOW.getTime() - 60_000) });
+  const valid = credential({ expiresAt: new Date(NOW.getTime() + 60 * 60 * 1000) });
+  const transient: RefreshAttempt = { kind: 'FAILED', error: new Error('socket hang up') };
+
+  it('hands over a renewed credential', () => {
+    const renewed = credential({ accessToken: 'new-access' });
+    const attempt: RefreshAttempt = {
+      kind: 'REFRESHED',
+      issued: { accessToken: 'new-access', scopes: ['a'] },
+      credential: renewed,
+    };
+    expect(settleRenewal('X', expired, attempt, NOW)).toBe(renewed);
+  });
+
+  it('keeps a credential that still works, whatever the renewal said', () => {
+    expect(settleRenewal('X', valid, transient, NOW)).toBe(valid);
+    expect(settleRenewal('X', valid, { kind: 'RECONNECT', reason: 'no' }, NOW)).toBe(valid);
+    expect(settleRenewal('X', expired, { kind: 'UNCHANGED' }, NOW)).toBe(expired);
+  });
+
+  /** The flapping case: a blip at the token endpoint is not a dead connection. */
+  it('never uses an expired credential when the renewal merely failed', () => {
+    let thrown: unknown;
+    try {
+      settleRenewal('X', expired, transient, NOW);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ProviderUnavailableError);
+    expect((thrown as ProviderUnavailableError).retryable).toBe(true);
+    expect((thrown as ProviderUnavailableError).context['credentialRenewal']).toBe('FAILED');
+    expect(isClientStandingFailure(thrown)).toBe(false);
+  });
+
+  it('says plainly when the platform refused the refresh token', () => {
+    expect(() =>
+      settleRenewal(
+        'X',
+        expired,
+        { kind: 'RECONNECT', reason: 'X rejected the refresh token.' },
+        NOW,
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        code: 'PROVIDER_AUTHENTICATION_ERROR',
+        userMessage: 'X rejected the refresh token.',
+      }),
+    );
+  });
+
+  /** A wrong client secret is an administrator's problem, not the account's. */
+  it('passes a refusal of our own app through untouched', () => {
+    const appRefused = new ProviderUnavailableError('X OAuth refused: unauthorized_client', {
+      context: { clientStanding: true },
+    });
+
+    expect(() => settleRenewal('X', expired, { kind: 'FAILED', error: appRefused }, NOW)).toThrow(
+      appRefused,
+    );
+  });
+
+  it('treats a token with seconds left as expired', () => {
+    const almost = credential({ expiresAt: new Date(NOW.getTime() + 30_000) });
+    expect(isExpired(almost, NOW)).toBe(true);
+    expect(() => settleRenewal('X', almost, transient, NOW)).toThrow(ProviderUnavailableError);
+  });
+
+  it('never calls a credential with no expiry expired', () => {
+    expect(isExpired(credential({ expiresAt: undefined }), NOW)).toBe(false);
+  });
+});
+
+describe('asDueForRenewal', () => {
+  it('presents the credential as expired, so the adapter renews it now', () => {
+    expect(asDueForRenewal(credential())?.expiresAt?.getTime()).toBe(0);
+  });
+
+  /** Meta renews with the access token itself, which cannot renew a dead one. */
+  it('declines a credential with no refresh token', () => {
+    expect(asDueForRenewal(credential({ refreshToken: undefined }))).toBeNull();
   });
 });

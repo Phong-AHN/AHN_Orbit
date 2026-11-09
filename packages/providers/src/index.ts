@@ -40,10 +40,14 @@ export {
 } from './credential-cipher.js';
 
 export {
+  EXPIRY_MARGIN_MS,
   REFRESH_AHEAD_MS,
+  asDueForRenewal,
   attemptRefresh,
+  isExpired,
   mergeRefreshed,
   refreshIsDue,
+  settleRenewal,
   type RefreshAttempt,
 } from './credential-refresh.js';
 

@@ -106,6 +106,97 @@ export function classifyHttpStatus(status: number): ProviderErrorKind {
   return 'UNAVAILABLE';
 }
 
+/**
+ * What an OAuth token endpoint's refusal says, and about whom (RFC 6749 §5.2).
+ *
+ * Every adapter renews tokens at an endpoint that speaks the same standard,
+ * and each used to read its refusals its own way. Three of them took a 401 as
+ * "this account's token is dead" and two took `invalid_client` the same way —
+ * but the standard is plain that both are about **the client**: our app id,
+ * secret or signing key. A worker holding a wrong or rotated secret then told
+ * every account on that platform to reconnect, and reconnecting fixed nothing,
+ * because the next renewal from the same worker failed the same way.
+ * Meanwhile Google answers a dead refresh token with `invalid_grant` on a 400,
+ * which the status alone read as a bad request rather than a dead connection.
+ *
+ * - `invalid_grant` — the refresh token is spent, revoked or expired. Only a
+ *   person can fix that, so it is AUTHENTICATION.
+ * - `invalid_client`, `unauthorized_client`, `unsupported_grant_type`, or a
+ *   401 with no code — our credentials or configuration. UNAVAILABLE and
+ *   marked `clientStanding`, so no account is demoted for it and the message
+ *   points at the person who can act.
+ * - Anything else falls back to the caller's reading of the status.
+ *
+ * `grantCodes` lets a platform add its own word for a dead refresh token: X
+ * answers a spent one with `invalid_request`.
+ */
+export function tokenEndpointFailure(
+  platform: Platform,
+  input: {
+    status: number;
+    code?: string | undefined;
+    description?: string | undefined;
+    grantCodes?: readonly string[] | undefined;
+    fallback: (status: number) => ProviderErrorKind;
+    meta?: Record<string, string | number | boolean> | undefined;
+  },
+): AppError {
+  const code = input.code;
+  const label = PLATFORM_LABEL[platform] ?? platform;
+  const message = `${label} OAuth refused: ${code ?? input.status}${
+    input.description ? ` — ${input.description}` : ''
+  }`;
+
+  const common = {
+    message,
+    ...(code ? { providerCode: code } : {}),
+    httpStatus: input.status,
+  };
+
+  if (code === 'invalid_grant' || (code && input.grantCodes?.includes(code))) {
+    return toAppError(platform, {
+      ...common,
+      kind: 'AUTHENTICATION',
+      ...(input.meta ? { meta: input.meta } : {}),
+    });
+  }
+
+  const aboutTheClient =
+    (code !== undefined && OAUTH_CLIENT_CODES.has(code)) ||
+    (code === undefined && input.status === 401);
+
+  if (aboutTheClient) {
+    return toAppError(platform, {
+      ...common,
+      kind: 'UNAVAILABLE',
+      userMessage: `${label} refused Social Square's own app credentials. An administrator needs to check them; reconnecting the account will not help.`,
+      meta: { ...input.meta, clientStanding: true },
+    });
+  }
+
+  return toAppError(platform, {
+    ...common,
+    kind: input.fallback(input.status),
+    ...(input.meta ? { meta: input.meta } : {}),
+  });
+}
+
+/** The RFC 6749 codes that are about the client, never about the account. */
+const OAUTH_CLIENT_CODES = new Set([
+  'invalid_client',
+  'unauthorized_client',
+  'unsupported_grant_type',
+]);
+
+const PLATFORM_LABEL: Partial<Record<Platform, string>> = {
+  X: 'X',
+  YOUTUBE: 'Google',
+  TIKTOK: 'TikTok',
+  LINKEDIN: 'LinkedIn',
+  PINTEREST: 'Pinterest',
+  BLUESKY: 'Bluesky',
+};
+
 /** `Retry-After` accepts seconds or an HTTP date; both are handled. */
 export function parseRetryAfter(header: string | undefined, now = Date.now()): number | undefined {
   if (!header) return undefined;

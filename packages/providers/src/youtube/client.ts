@@ -1,4 +1,9 @@
-import { normalizeUnknownError, toAppError, type ProviderErrorKind } from '../errors.js';
+import {
+  normalizeUnknownError,
+  toAppError,
+  tokenEndpointFailure,
+  type ProviderErrorKind,
+} from '../errors.js';
 import { YOUTUBE_UPLOAD_HOST } from './capabilities.js';
 
 /**
@@ -240,15 +245,15 @@ export class YouTubeClient {
     const parsed = text ? (safeJson(text) as Record<string, unknown>) : {};
 
     if (!response.ok) {
-      const description = parsed['error_description'];
-
-      throw toAppError('YOUTUBE', {
-        kind: kindForStatus(response.status),
-        message: `Google OAuth refused: ${String(parsed['error'] ?? response.status)}${
-          description ? ` — ${String(description)}` : ''
-        }`,
-        ...(parsed['error'] ? { providerCode: String(parsed['error']) } : {}),
-        httpStatus: response.status,
+      // Google answers a dead refresh token with `invalid_grant` on a 400, which
+      // the status alone reads as a bad request and the renewal then retried
+      // for ever; and a wrong client secret with `invalid_client` on a 401,
+      // which it read as a dead connection.
+      throw tokenEndpointFailure('YOUTUBE', {
+        status: response.status,
+        code: parsed['error'] ? String(parsed['error']) : undefined,
+        description: parsed['error_description'] ? String(parsed['error_description']) : undefined,
+        fallback: kindForStatus,
       });
     }
 

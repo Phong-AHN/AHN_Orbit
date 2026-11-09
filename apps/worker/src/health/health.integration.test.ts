@@ -32,12 +32,13 @@ const HOUR = 60 * 60 * 1_000;
 let mock: MockProvider;
 let restoreClock: (() => void) | undefined;
 
-function jobFor(accountId = ACCOUNT, claimedOrg = ORG) {
+function jobFor(accountId = ACCOUNT, claimedOrg = ORG, trigger?: 'sweep' | 'publish' | 'confirm') {
   return {
     payload: {
       organizationId: claimedOrg,
       correlationId: 'itest-health',
       socialAccountId: accountId,
+      ...(trigger ? { trigger } : {}),
     },
     attempt: 1,
     jobId: 'queue-job-health-1',
@@ -91,6 +92,38 @@ async function seedAccount(id: string, externalId: string, scopes = ['mock_publi
       accessTokenAuthTag: new Uint8Array(sealed.authTag),
       keyVersion: sealed.keyVersion,
       scopes,
+    },
+  });
+}
+
+/** The confirmation a first broken finding asks for, if one is waiting (D-114). */
+async function pendingConfirmation(accountId = ACCOUNT) {
+  const jobs = await queueFor('account-health').getJobs(['delayed', 'waiting']);
+  return jobs.find(
+    (job) =>
+      (job.data as { socialAccountId?: string; trigger?: string }).socialAccountId === accountId &&
+      (job.data as { trigger?: string }).trigger === 'confirm',
+  );
+}
+
+/** Give the seeded account a refresh token, so a renewal can be made. */
+async function giveRefreshToken(id = ACCOUNT) {
+  const cipher = new CredentialCipher();
+  const access = cipher.seal('mock-access-token', { organizationId: ORG, socialAccountId: id });
+  const refresh = cipher.seal('mock-refresh-token', { organizationId: ORG, socialAccountId: id });
+
+  await platformDb.socialCredential.update({
+    where: { socialAccountId: id },
+    data: {
+      accessTokenCiphertext: new Uint8Array(access.ciphertext),
+      accessTokenIv: new Uint8Array(access.iv),
+      accessTokenAuthTag: new Uint8Array(access.authTag),
+      refreshTokenCiphertext: new Uint8Array(refresh.ciphertext),
+      refreshTokenIv: new Uint8Array(refresh.iv),
+      refreshTokenAuthTag: new Uint8Array(refresh.authTag),
+      keyVersion: access.keyVersion,
+      // Far enough out that opening it does not renew it; only the probe will.
+      expiresAt: new Date(NOW.getTime() + 30 * 24 * HOUR),
     },
   });
 }
@@ -201,10 +234,64 @@ describe('probing an account', () => {
     expect(await platformDb.auditLog.count({ where: { organizationId: ORG } })).toBe(0);
   });
 
-  it('demotes an account the provider says is broken, and tells the right people', async () => {
+  /**
+   * D-114. One refused probe used to demote a working account on the spot; the
+   * next probe found it fine, and the account flapped between the two. Now the
+   * first finding only asks for a second look ten minutes later.
+   */
+  it('confirms a first broken finding before taking the account out of service', async () => {
     mock.fault = 'AUTH_EXPIRED';
 
     await processAccountHealth(jobFor());
+
+    const untouched = await platformDb.socialAccount.findUniqueOrThrow({ where: { id: ACCOUNT } });
+    expect(untouched.status).toBe('ACTIVE');
+    expect(untouched.healthError).toBeNull();
+    expect(await platformDb.notification.count({ where: { organizationId: ORG } })).toBe(0);
+    expect(await platformDb.auditLog.count({ where: { organizationId: ORG } })).toBe(0);
+
+    const confirmation = await pendingConfirmation();
+    expect(confirmation).toBeDefined();
+    expect(confirmation?.opts.delay).toBe(10 * 60_000);
+  });
+
+  it('leaves an account in service when the second look finds it working', async () => {
+    mock.fault = 'AUTH_EXPIRED';
+    await processAccountHealth(jobFor());
+
+    // Ten minutes later, the platform answers normally.
+    restoreClock?.();
+    restoreClock = setClock(fixedClock(new Date(NOW.getTime() + 10 * 60_000)));
+    await processAccountHealth(jobFor(ACCOUNT, ORG, 'confirm'));
+
+    const account = await platformDb.socialAccount.findUniqueOrThrow({ where: { id: ACCOUNT } });
+    expect(account.status).toBe('ACTIVE');
+    expect(await platformDb.notification.count({ where: { organizationId: ORG } })).toBe(0);
+  });
+
+  /** A token withdrawn early is not a dead connection while it can be renewed. */
+  it('renews and looks again before believing a refused token', async () => {
+    await giveRefreshToken();
+    mock.fault = 'AUTH_EXPIRED';
+
+    await processAccountHealth(jobFor());
+
+    const account = await platformDb.socialAccount.findUniqueOrThrow({ where: { id: ACCOUNT } });
+    expect(account.status).toBe('ACTIVE');
+    expect(mock.callCounts.refresh).toBe(1);
+    expect(mock.callCounts.health).toBe(2);
+    expect(await pendingConfirmation()).toBeUndefined();
+
+    const credential = await platformDb.socialCredential.findUniqueOrThrow({
+      where: { socialAccountId: ACCOUNT },
+    });
+    expect(credential.lastRefreshedAt).toEqual(NOW);
+  });
+
+  it('demotes an account a second look also finds broken, and tells the right people', async () => {
+    mock.fault = 'AUTH_EXPIRED';
+
+    await processAccountHealth(jobFor(ACCOUNT, ORG, 'confirm'));
 
     const account = await platformDb.socialAccount.findUniqueOrThrow({ where: { id: ACCOUNT } });
     expect(account.status).toBe('NEEDS_RECONNECT');
@@ -225,13 +312,20 @@ describe('probing an account', () => {
     expect(audits).toHaveLength(1);
     expect(audits[0]?.action).toBe('social_account.health_degraded');
     expect(audits[0]?.actorType).toBe('WORKER');
+    // The reason travels with the record, so "why did it disconnect" can be
+    // answered afterwards.
+    expect(audits[0]?.after).toMatchObject({
+      status: 'NEEDS_RECONNECT',
+      source: 'health-probe',
+      reason: 'The mock account needs to be reconnected.',
+    });
   });
 
   it('does not notify twice about an account that is still broken', async () => {
     // Without the transition guard, an account left broken over a weekend would
     // generate a notification every hour — and people learn to ignore those.
     mock.fault = 'AUTH_EXPIRED';
-    await processAccountHealth(jobFor());
+    await processAccountHealth(jobFor(ACCOUNT, ORG, 'confirm'));
 
     const first = await platformDb.notification.count({ where: { organizationId: ORG } });
 
@@ -247,7 +341,7 @@ describe('probing an account', () => {
 
   it('restores an account when a later probe succeeds, and clears the error', async () => {
     mock.fault = 'AUTH_EXPIRED';
-    await processAccountHealth(jobFor());
+    await processAccountHealth(jobFor(ACCOUNT, ORG, 'confirm'));
 
     restoreClock?.();
     restoreClock = setClock(fixedClock(new Date(NOW.getTime() + HOUR)));
@@ -273,7 +367,7 @@ describe('probing an account', () => {
     // treats a withdrawn permission: the token lives, but it is not enough.
     await seedAccount(ACCOUNT_2, 'page-two', ['mock_read']);
 
-    await processAccountHealth(jobFor(ACCOUNT_2));
+    await processAccountHealth(jobFor(ACCOUNT_2, ORG, 'confirm'));
 
     const account = await platformDb.socialAccount.findUniqueOrThrow({ where: { id: ACCOUNT_2 } });
     expect(account.status).toBe('NEEDS_RECONNECT');

@@ -1,8 +1,15 @@
-import { NotFoundError, clock, type TenantContext } from '@orbit/core';
+import { NotFoundError, clock, type Platform, type TenantContext } from '@orbit/core';
 import { withTenant } from '@orbit/db';
 import { logError, logger } from '@orbit/observability';
-import { CredentialCipher, attemptRefresh, refreshIsDue, tryGetProvider } from '@orbit/providers';
-import type { DecryptedCredential, IssuedCredential } from '@orbit/providers';
+import {
+  CredentialCipher,
+  asDueForRenewal,
+  attemptRefresh,
+  refreshIsDue,
+  settleRenewal,
+  tryGetProvider,
+} from '@orbit/providers';
+import type { DecryptedCredential, IssuedCredential, RefreshAttempt } from '@orbit/providers';
 
 /**
  * Opening a stored credential, in one place (SRS §6).
@@ -112,74 +119,140 @@ export async function freshenCredential(
  * that. Under the lock the second one re-reads the row, finds the first one's
  * fresh token, and the adapter answers STILL_VALID without calling out.
  *
- * Anything short of a renewal returns the credential as it was. If it has
- * truly expired, the call that uses it fails through the normal path, which is
- * the one that records the error and decides whether to demote the account.
+ * What comes back is decided by `settleRenewal`: never a credential that has
+ * already expired, because using one only produces a 401 that reads as a dead
+ * connection (D-114).
  */
 async function renewUnderLock(
   ctx: TenantContext,
   socialAccountId: string,
   stale: DecryptedCredential,
 ): Promise<DecryptedCredential> {
-  const aad = { organizationId: ctx.organizationId, socialAccountId };
+  const platform = await platformOf(ctx, socialAccountId);
+  if (!platform) return stale;
 
-  const account = await withTenant(ctx, (db) =>
-    db.socialAccount.findFirst({ where: { id: socialAccountId }, select: { platform: true } }),
-  );
-  const provider = account ? tryGetProvider(account.platform) : undefined;
-  if (!provider) return stale;
-
+  let renewal: Renewal | null;
   try {
-    return await withTenant(
-      ctx,
-      async (db) => {
-        await db.$queryRaw`SELECT 1 FROM "SocialCredential" WHERE "socialAccountId" = ${socialAccountId}::uuid FOR UPDATE`;
-
-        const row = await db.socialCredential.findFirst({ where: { socialAccountId } });
-        if (!row) throw new NotFoundError('Credential');
-        const current = openCredential(row, aad);
-
-        const attempt = await attemptRefresh(provider, current);
-
-        if (attempt.kind === 'REFRESHED') {
-          const sealed = sealColumns(attempt.issued, aad);
-          await db.socialCredential.update({ where: { id: row.id }, data: sealed });
-          logger.info('credential renewed before use', {
-            socialAccountId,
-            organizationId: ctx.organizationId,
-            platform: account?.platform,
-          });
-          return { ...attempt.credential, keyVersion: sealed.keyVersion };
-        }
-
-        if (attempt.kind === 'RECONNECT') {
-          logger.warn('credential cannot be renewed; using it until it fails', {
-            socialAccountId,
-            organizationId: ctx.organizationId,
-            platform: account?.platform,
-            reason: attempt.reason,
-          });
-        } else if (attempt.kind === 'FAILED') {
-          logError('credential renewal failed; using the stored one', attempt.error, {
-            socialAccountId,
-            organizationId: ctx.organizationId,
-          });
-        }
-
-        return current;
-      },
-      // The renewal is a network call inside the transaction.
-      { timeoutMs: 45_000 },
-    );
+    renewal = await renewInTransaction(ctx, socialAccountId, platform, { force: false });
   } catch (error) {
-    // The lock or the write failed, not the platform. The stored credential
-    // is still the best one available.
+    // The lock or the write failed, not the platform. Nothing is known about
+    // the account; the stored credential is used if it still works.
     logError('credential renewal could not be recorded', error, {
       socialAccountId,
       organizationId: ctx.organizationId,
     });
-    return stale;
+    return settleRenewal(platform, stale, { kind: 'FAILED', error });
   }
+
+  if (!renewal) return stale;
+  return settleRenewal(platform, renewal.current, renewal.attempt);
+}
+
+/**
+ * Renew now, whatever the stored expiry says.
+ *
+ * For a probe whose token the platform has just refused: a token withdrawn
+ * early is not a dead connection while the refresh token still works, and
+ * asking costs one call where a wrong verdict costs somebody a reconnection.
+ *
+ * Returns the renewed credential, or null when there was nothing to renew with
+ * (no refresh token, or no adapter here). Throws an authentication error when
+ * the platform refused the refresh token, and an unavailable one when it could
+ * not be asked — the same rule as every other renewal.
+ */
+export async function renewNow(
+  ctx: TenantContext,
+  socialAccountId: string,
+): Promise<DecryptedCredential | null> {
+  const platform = await platformOf(ctx, socialAccountId);
+  if (!platform) return null;
+
+  const renewal = await renewInTransaction(ctx, socialAccountId, platform, { force: true });
+  if (!renewal || renewal.attempt.kind === 'UNCHANGED') return null;
+
+  return settleRenewal(platform, { ...renewal.current, expiresAt: new Date(0) }, renewal.attempt);
+}
+
+interface Renewal {
+  current: DecryptedCredential;
+  attempt: RefreshAttempt;
+}
+
+async function platformOf(ctx: TenantContext, socialAccountId: string): Promise<Platform | null> {
+  const account = await withTenant(ctx, (db) =>
+    db.socialAccount.findFirst({ where: { id: socialAccountId }, select: { platform: true } }),
+  );
+  return account && tryGetProvider(account.platform) ? account.platform : null;
+}
+
+/**
+ * The renewal itself: lock the row, re-read it, ask the adapter, store what
+ * comes back. Null when there is no adapter for the platform in this process.
+ */
+async function renewInTransaction(
+  ctx: TenantContext,
+  socialAccountId: string,
+  platform: Platform,
+  options: { force: boolean },
+): Promise<Renewal | null> {
+  const aad = { organizationId: ctx.organizationId, socialAccountId };
+  const provider = tryGetProvider(platform);
+  if (!provider) return null;
+
+  return withTenant(
+    ctx,
+    async (db) => {
+      await db.$queryRaw`SELECT 1 FROM "SocialCredential" WHERE "socialAccountId" = ${socialAccountId}::uuid FOR UPDATE`;
+
+      const row = await db.socialCredential.findFirst({ where: { socialAccountId } });
+      if (!row) throw new NotFoundError('Credential');
+      const current = openCredential(row, aad);
+
+      const offered = options.force ? asDueForRenewal(current) : current;
+      if (!offered) return { current, attempt: { kind: 'UNCHANGED' } };
+
+      const attempt = await attemptRefresh(provider, offered);
+
+      if (attempt.kind === 'REFRESHED') {
+        const sealed = sealColumns(attempt.issued, aad);
+        await db.socialCredential.update({ where: { id: row.id }, data: sealed });
+        logger.info('credential renewed before use', {
+          socialAccountId,
+          organizationId: ctx.organizationId,
+          platform,
+          forced: options.force,
+        });
+        return {
+          current,
+          attempt: {
+            ...attempt,
+            credential: { ...attempt.credential, keyVersion: sealed.keyVersion },
+          },
+        };
+      }
+
+      if (attempt.kind === 'RECONNECT') {
+        logger.warn('the platform refused to renew a credential', {
+          socialAccountId,
+          organizationId: ctx.organizationId,
+          platform,
+          reason: attempt.reason,
+        });
+      } else if (attempt.kind === 'FAILED') {
+        logError('credential renewal failed', attempt.error, {
+          socialAccountId,
+          organizationId: ctx.organizationId,
+          platform,
+        });
+      }
+
+      return { current, attempt };
+    },
+    // The renewal is a network call inside the transaction, and must finish
+    // well inside this: a renewal the platform accepted but this transaction
+    // then rolled back has spent a rotating refresh token for nothing.
+    { timeoutMs: 45_000 },
+  );
 }
 
 /** A credential sealed into the row's columns, as the web app stores one. */
