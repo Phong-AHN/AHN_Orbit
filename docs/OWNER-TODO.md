@@ -953,7 +953,10 @@ bình thường.
 (chính mục này) — Vercel build không chạy. File nằm trong repo không có nghĩa là
 nó đã được áp dụng.
 
-**Hiện không còn migration nào chờ** (kiểm tra 2026-10-30 bằng `prisma migrate status`).
+**Đang chờ (09/11/2026):** `20261105010000_lift_plan_limits_for_internal_use` (**D-113**,
+mở giới hạn cho mọi tổ chức đang có) và `20261109000000_plan_requests` (**D-116**, bảng yêu
+cầu nâng gói). `pnpm db:migrate:deploy` chạy **cả hai cùng lúc**, theo thứ tự. Phải chạy
+trước khi push commit nâng gói.
 Copilot đang cho chạy cả tier Free để test; **trước khi cho khách thật dùng phải bật billing
 Gemini và đặt `GEMINI_TIER=paid`**. AI agent chỉ bật cho org có trong `AGENT_ENABLED_ORGS`.
 
