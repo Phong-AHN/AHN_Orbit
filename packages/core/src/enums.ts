@@ -151,6 +151,10 @@ export type ActorType = (typeof ACTOR_TYPES)[number];
 export const SUBSCRIPTION_STATUSES = ['TRIALING', 'ACTIVE', 'PAST_DUE', 'CANCELED'] as const;
 export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 
+/** Where a request to change plan stands (D-116). */
+export const PLAN_REQUEST_STATUSES = ['PENDING', 'APPROVED', 'DECLINED', 'WITHDRAWN'] as const;
+export type PlanRequestStatus = (typeof PLAN_REQUEST_STATUSES)[number];
+
 export const POST_SOURCES = ['MANUAL', 'AI_IDEA', 'REPURPOSE'] as const;
 export type PostSource = (typeof POST_SOURCES)[number];
 

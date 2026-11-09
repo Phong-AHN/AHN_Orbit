@@ -375,5 +375,6 @@ export const PLATFORM_ADMIN_GRANTS: readonly Permission[] = [
   'org:suspend',
   'admin:view_jobs',
   'admin:retry_job',
+  'admin:change_plan',
   'admin:view_system_logs',
 ];

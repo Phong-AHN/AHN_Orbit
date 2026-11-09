@@ -272,6 +272,13 @@ cost visibility.
 `currentPeriodEnd`, `seats`, `limits` (jsonb: workspaces, socialAccounts, aiCreditsPerMonth,
 storageBytes), `canceledAt`.
 
+**`PlanRequest`** (**D-116**) — `id`, `organizationId`, `fromPlan`, `plan`, `note`, `status`
+(`PENDING | APPROVED | DECLINED | WITHDRAWN`), `requestedById`, `decidedById`, `decidedAt`,
+`decisionReason`. An organization asking to change plan, and the answer. At most one `PENDING` row
+per organization (partial unique index); a decided row must carry `decidedAt` (check constraint).
+Approving writes the plan's limits to `Subscription`; this table only records the asking and the
+answer.
+
 **`Invitation`** — `id`, `organizationId`, `email`, `role`, `workspaceIds` (uuid[]),
 `tokenHash` **unique**, `expiresAt`, `acceptedAt`, `invitedById`.
 *Notes:* only the **hash** of the invite token is stored; the token itself exists only in the email.

@@ -1590,6 +1590,35 @@ chọn giùm.
 
 ---
 
+## Nâng gói thủ công (**D-116**, 09/11/2026)
+
+- [ ] **Chạy migration** `20261109000000_plan_requests` lên production
+      (`pnpm db:migrate:deploy`) **trước khi push** commit này. Migration chỉ
+      thêm một bảng và một enum. Chưa chạy thì trang Settings → Plan và
+      `/admin/plans` báo lỗi; các trang khác vẫn chạy bình thường.
+- [ ] **Điền gói thật** vào `apps/web/src/features/billing/plans.ts`: tên, mô
+      tả, giới hạn và giá (`price`, hiện là `null` nên trang ghi "Price to be
+      announced"). Sửa một chỗ đó là đủ. Tổ chức đã được duyệt lên một gói vẫn
+      giữ giới hạn cũ cho tới khi được duyệt lại, vì giới hạn lưu trên từng tổ
+      chức.
+
+**Luồng nâng gói:**
+1. Owner vào **Settings → Plan**, chọn gói, bấm **Request**, có thể để lại ghi
+   chú (người liên hệ, cách thanh toán). Admin của tổ chức xem được trang này
+   nhưng không gửi yêu cầu được.
+2. Tài khoản platform admin thấy số yêu cầu đang chờ ở mục **Plan requests**
+   trong `/admin`. Liên hệ khách và nhận thanh toán (chuyển khoản).
+3. Nhập lý do (vd. số hoá đơn), bấm **Approve**. Gói và giới hạn đổi ngay;
+   audit log của tổ chức đó ghi tên admin và lý do. **Decline** thì gói giữ
+   nguyên và khách thấy lý do trên trang Plan.
+
+Chưa có: email báo cho admin khi có yêu cầu mới (hiện chỉ có con số trên menu
+`/admin`), thông báo trong app cho khách khi được duyệt, thanh toán tự động.
+Tổ chức không có giới hạn (D-113) không gửi được yêu cầu, vì duyệt sẽ *thêm*
+giới hạn cho họ.
+
+---
+
 ## Bluesky (added 2026-11-05, **D-112**)
 
 ### 🔴 Blocking

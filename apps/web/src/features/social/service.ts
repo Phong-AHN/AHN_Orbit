@@ -539,7 +539,7 @@ export async function connectAccounts(
       const adding = staged.filter((s) => s.status === 'DISABLED').length;
       if (live + adding > limit) {
         throw new PlanLimitExceededError('Social account limit reached', {
-          userMessage: `Your plan includes ${limit} connected accounts. Upgrade to connect more.`,
+          userMessage: `Your plan includes ${limit} connected accounts. Upgrade in Settings → Plan to connect more.`,
           context: { limit, live, adding },
         });
       }

@@ -44,6 +44,7 @@ const PAIRS: ReadonlyArray<[string, readonly string[]]> = [
   ['NotificationChannel', core.NOTIFICATION_CHANNELS],
   ['ActorType', core.ACTOR_TYPES],
   ['SubscriptionStatus', core.SUBSCRIPTION_STATUSES],
+  ['PlanRequestStatus', core.PLAN_REQUEST_STATUSES],
   ['SocialCommentOrigin', core.SOCIAL_COMMENT_ORIGINS],
   ['SocialCommentState', core.SOCIAL_COMMENT_STATES],
   ['SocialConversationState', core.SOCIAL_CONVERSATION_STATES],

@@ -150,9 +150,10 @@ thống** — xem cuối tài liệu.
 | AI lập kế hoạch nội dung, repurpose | P2 | ✅ | `features/ideas/`, `ai/repurpose` |
 | AI dựa trên hiệu suất | P2 | ❌ | |
 | Schema subscription + kiểm tra hạn mức plan | P0 | ✅ | Thực thi ở **4 chiều**: workspace/member (`tenancy`), social account (`social`), dung lượng (`media`), AI credit (`ai`) |
-| Stripe checkout + portal | P1 | ❌ | Chỉ có cột `stripeCustomerId` và biến môi trường |
+| Nâng gói (thủ công) | P1 | ✅ | **D-116**: Owner gửi yêu cầu ở Settings → Plan, admin duyệt ở `/admin/plans`. Các gói trả phí là bản mẫu, chưa có giá |
+| Stripe checkout + portal | P1 | ❌ | Chỉ có cột `stripeCustomerId` và biến môi trường. Stripe có thể không nhận doanh nghiệp đăng ký ở Việt Nam |
 | Admin: org, user, job, health | P0 | ✅ | 5 trang + 8 route |
-| Admin: system log, subscription | P1 | ❌ | Permission `admin:view_system_logs` đã có, chưa có màn hình |
+| Admin: system log, subscription | P1 | 🟡 | Duyệt yêu cầu đổi gói đã có (`/admin/plans`, **D-116**). System log: permission `admin:view_system_logs` đã có, chưa có màn hình |
 | Đóng vai người dùng (impersonation) | P2 | ❌ | Permission đã có, cố tình chưa cài |
 
 ## 8. Chất lượng nền tảng (SRS §29–§33, §41)

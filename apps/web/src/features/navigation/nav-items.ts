@@ -85,7 +85,11 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   },
   {
     label: 'Settings',
-    items: [{ label: 'Team', path: '/settings/members', permission: 'member:list' }],
+    items: [
+      { label: 'Team', path: '/settings/members', permission: 'member:list' },
+      // Owners and Admins; only the Owner can ask for another plan (D-116).
+      { label: 'Plan', path: '/settings/plan', permission: 'billing:read' },
+    ],
   },
 ];
 
@@ -134,6 +138,8 @@ export const ADMIN_NAV: readonly NavGroup[] = [
     label: 'Tenants',
     items: [
       { label: 'Organizations', path: '/organizations' },
+      // Organizations asking to change plan (D-116); counted in the rail.
+      { label: 'Plan requests', path: '/plans' },
       { label: 'Users', path: '/users' },
       { label: 'Connections', path: '/accounts' },
     ],

@@ -379,6 +379,16 @@ describe('platform administrators', () => {
     const admin = ctx({ organizationRole: 'CONTENT_CREATOR', isPlatformAdmin: true });
     expect(can(admin, 'admin:view_jobs')).toBe(true);
     expect(can(admin, 'admin:retry_job')).toBe(true);
+    expect(can(admin, 'admin:change_plan')).toBe(true);
+  });
+
+  it('keep plan changes to themselves: an Owner may ask for a plan, never grant one', () => {
+    const owner = ctx({ organizationRole: 'OWNER' });
+    expect(can(owner, 'billing:manage')).toBe(true);
+    expect(decide(owner, 'admin:change_plan')).toEqual({
+      allowed: false,
+      reason: 'NOT_PLATFORM_ADMIN',
+    });
   });
 
   it('are not tenant superusers — no content access comes with the flag', () => {

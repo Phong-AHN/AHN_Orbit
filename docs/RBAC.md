@@ -235,6 +235,7 @@ object key — a leaked URL grants a 15-minute window on one object, never a lis
 | `billing:read` | 👁 status | ✅ | 👁 | ❌ | ❌ | ❌ | ❌ |
 | `billing:manage` | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `admin:view_jobs` / `admin:retry_job` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `admin:change_plan` (D-116) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `admin:view_system_logs` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `admin:impersonate` | 🟡 ⁷ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 

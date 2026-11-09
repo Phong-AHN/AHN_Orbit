@@ -9,6 +9,7 @@ import { platformDb, withTenant, type TenantDb } from '@orbit/db';
 import { assertCan } from '@orbit/rbac';
 import { audit, type AuditInput } from '@/server/audit';
 import { uniqueSlug } from '@/server/slug';
+import { TRIAL_LIMITS, type PlanLimits } from '@/features/billing/plans';
 import type { CreateBrandInput, CreateOrganizationInput, CreateWorkspaceInput } from './contracts';
 
 /**
@@ -22,34 +23,17 @@ import type { CreateBrandInput, CreateOrganizationInput, CreateWorkspaceInput } 
  */
 
 /**
- * Plan limits, stored as jsonb. Declared as an index-signature type so it
- * satisfies Prisma's `InputJsonValue` while staying readable at the call site.
- */
-interface PlanLimits {
-  workspaces?: number;
-  socialAccounts?: number;
-  aiCreditsPerMonth?: number;
-  storageBytes?: number;
-  [key: string]: number | undefined;
-}
-
-/**
- * What a trial gets.
+ * What a trial gets: the trial entry of the plan catalogue (D-116).
  *
  * `aiCreditsPerMonth` is **one credit per AI request**, not per token (T4.3).
  * A per-request count is the one a person can reason about — "fifty
  * suggestions this month" — and it does not change meaning when the model does.
  *
- * Note this constant only governs organizations created *after* it changes:
- * an existing subscription carries its own `limits` on the row, so lowering
- * this does not take credits away from anybody already on a trial.
+ * Note this only governs organizations created *after* it changes: an existing
+ * subscription carries its own `limits` on the row, so lowering it does not take
+ * credits away from anybody already on a trial.
  */
-const DEFAULT_TRIAL_LIMITS: PlanLimits = {
-  workspaces: 3,
-  socialAccounts: 5,
-  aiCreditsPerMonth: 50,
-  storageBytes: 5 * 1024 ** 3,
-};
+const DEFAULT_TRIAL_LIMITS: PlanLimits = TRIAL_LIMITS;
 
 async function planLimits(db: TenantDb): Promise<PlanLimits> {
   const subscription = await db.subscription.findFirst({ select: { limits: true } });
@@ -260,7 +244,7 @@ export async function createWorkspace(
       const existing = await db.workspace.count({ where: { deletedAt: null } });
       if (existing >= limits.workspaces) {
         throw new PlanLimitExceededError('Workspace limit reached', {
-          userMessage: `Your plan includes ${limits.workspaces} client workspaces. Upgrade to add more.`,
+          userMessage: `Your plan includes ${limits.workspaces} client workspaces. Upgrade in Settings → Plan to add more.`,
           context: { limit: limits.workspaces, existing },
         });
       }

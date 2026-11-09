@@ -128,6 +128,25 @@ const PATHS: Record<string, Partial<Record<'get' | 'post' | 'patch' | 'delete', 
       surface: 'portal',
     },
   },
+  '/api/v1/orgs/{orgSlug}/billing/subscription': {
+    get: {
+      summary: 'Plan, limits, usage, and any plan change waiting (D-116).',
+      permission: 'billing:read',
+      surface: 'agency',
+    },
+  },
+  '/api/v1/orgs/{orgSlug}/billing/plan-request': {
+    post: {
+      summary: 'Ask for another plan. Applied by a platform administrator (D-116).',
+      permission: 'billing:manage',
+      surface: 'agency',
+    },
+    delete: {
+      summary: 'Withdraw the plan change that is waiting.',
+      permission: 'billing:manage',
+      surface: 'agency',
+    },
+  },
   '/api/v1/portal/posts/{postId}/decide': {
     post: {
       summary: 'Approve or request changes.',
@@ -151,6 +170,14 @@ const PATHS: Record<string, Partial<Record<'get' | 'post' | 'patch' | 'delete', 
     post: {
       summary: 'Re-enqueue. Requires a reason; audited into the tenant. Refuses publish (D-045).',
       permission: 'admin:retry_job',
+      surface: 'admin',
+    },
+  },
+  '/api/v1/admin/plan-requests/{requestId}/decision': {
+    post: {
+      summary:
+        'Approve or decline a plan change. Applies the plan asked for; reason required, audited into the tenant (D-116).',
+      permission: 'admin:change_plan',
       surface: 'admin',
     },
   },

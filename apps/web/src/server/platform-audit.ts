@@ -1,5 +1,5 @@
 import { InternalError, ValidationError, isUuid } from '@orbit/core';
-import { platformDb } from '@orbit/db';
+import { platformDb, type Prisma } from '@orbit/db';
 import { logger, redact } from '@orbit/observability';
 import type { AuthenticatedUser } from '@orbit/auth';
 
@@ -82,9 +82,15 @@ export function assertReason(reason: string | undefined): string {
   return trimmed;
 }
 
+/**
+ * `db` is for an admin action that changes a tenant row as well (approving a
+ * plan, D-116): passing the transaction it runs in commits the audit row with
+ * the change, or neither. Still only `AuditLog` is written from here.
+ */
 export async function platformAudit(
   admin: AuthenticatedUser,
   input: PlatformAuditInput,
+  db: Prisma.TransactionClient | typeof platformDb = platformDb,
 ): Promise<void> {
   const reason = assertReason(input.reason);
 
@@ -94,7 +100,7 @@ export async function platformAudit(
     });
   }
 
-  await platformDb.auditLog.create({
+  await db.auditLog.create({
     data: {
       organizationId: input.organizationId,
       // The person, not "the platform". An action nobody's name is on is one

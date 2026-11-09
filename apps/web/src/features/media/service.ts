@@ -187,7 +187,8 @@ export async function presignMediaUpload(ctx: TenantContext, input: PresignInput
       const consumed = used._sum.sizeBytes ?? 0;
       if (consumed + input.declaredSizeBytes > limits.storageBytes) {
         throw new PlanLimitExceededError('Storage limit reached', {
-          userMessage: 'Your plan’s storage is full. Remove some files or upgrade.',
+          userMessage:
+            'Your plan’s storage is full. Remove some files, or upgrade in Settings → Plan.',
           context: { consumed, limit: limits.storageBytes },
         });
       }

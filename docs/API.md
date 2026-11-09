@@ -394,12 +394,15 @@ projection before it is returned.
 
 | Method | Path | Permission |
 |---|---|---|
-| `GET` | `/orgs/{orgId}/billing/subscription` | `billing:read` |
+| `GET` | `/orgs/{orgId}/billing/subscription` | `billing:read` ✅ Plan, limits, usage, the request waiting and the latest answer (**D-116**) |
+| `POST` | `/orgs/{orgId}/billing/plan-request` | `billing:manage` ✅ Body `{ plan, note? }`. Records a request; changes nothing until an administrator approves (**D-116**) |
+| `DELETE` | `/orgs/{orgId}/billing/plan-request` | `billing:manage` ✅ Withdraw the request waiting |
 | `POST` | `/orgs/{orgId}/billing/checkout-session` | `billing:manage` — P1 |
 | `POST` | `/webhooks/stripe` | signature-verified |
 | `GET` | `/admin/organizations` · `/admin/users` | `admin:view_system_logs` |
 | `GET` | `/admin/jobs` · `/admin/jobs/{id}` | `admin:view_jobs` |
 | `POST` | `/admin/jobs/{id}/retry` · `/admin/jobs/{id}/discard` | `admin:retry_job` — body `{ reason }`, mandatory |
+| `POST` | `/admin/plan-requests/{id}/decision` | `admin:change_plan` — body `{ decision: APPROVE \| DECLINE, reason }`. Applies the plan that was asked for, with its catalogue limits; audited into the tenant in the same transaction (**D-116**) |
 | `GET` | `/admin/health` | `admin:view_jobs` |
 | `GET` | `/admin/social-accounts?status=NEEDS_RECONNECT` | `admin:view_system_logs` |
 

@@ -82,9 +82,30 @@ describe('shellGroups', () => {
       '/admin',
       '/admin/jobs',
       '/admin/organizations',
+      '/admin/plans',
       '/admin/users',
       '/admin/accounts',
     ]);
+  });
+
+  it('counts waiting plan requests on the admin rail, and shows no badge at zero', () => {
+    const items = (counts: Record<string, number>) =>
+      shellGroups('/admin', ADMIN_NAV, undefined, counts).flatMap((group) => group.items);
+
+    expect(items({ '/plans': 2 }).find((item) => item.href === '/admin/plans')?.count).toBe(2);
+    expect(items({ '/plans': 0 }).find((item) => item.href === '/admin/plans')).not.toHaveProperty(
+      'count',
+    );
+  });
+
+  it('shows Plan to whoever may read billing, and not otherwise (D-116)', () => {
+    const labelsFor = (permission: string) =>
+      shellGroups('/orgs/ahn', NAV_GROUPS, (held) => held === permission).flatMap((group) =>
+        group.items.map((item) => item.label),
+      );
+
+    expect(labelsFor('billing:read')).toContain('Plan');
+    expect(labelsFor('post:read')).not.toContain('Plan');
   });
 });
 

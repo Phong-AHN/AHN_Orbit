@@ -198,6 +198,14 @@ enum SubscriptionStatus {
   CANCELED
 }
 
+/// Where an organization's request to change plan stands (D-116).
+enum PlanRequestStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  WITHDRAWN
+}
+
 /// Who wrote an audience comment: the public, or us replying as the brand.
 enum SocialCommentOrigin {
   AUDIENCE
@@ -310,6 +318,8 @@ model User {
   aiUsage                 AIUsage[]
   updatedBrandVoices      BrandVoice[]
   generatedIdeas          ContentIdea[]
+  requestedPlanChanges    PlanRequest[]            @relation("PlanRequestRequester")
+  decidedPlanChanges      PlanRequest[]            @relation("PlanRequestDecider")
 
   @@index([email])
   @@index([isPlatformAdmin])
@@ -366,6 +376,7 @@ model Organization {
   invitations             Invitation[]
   reports                 Report[]
   subscription            Subscription?
+  planRequests            PlanRequest[]
 
   @@index([slug])
   @@index([deletedAt])
@@ -1273,6 +1284,37 @@ model Subscription {
   updatedAt            DateTime           @updatedAt @db.Timestamptz(3)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+/// An organization asking to change plan, and what a platform administrator
+/// decided (D-116). Plans change by hand for now: the owner asks here, AHN
+/// arranges payment, and an administrator approves, which applies the plan's
+/// limits to the `Subscription` row. At most one request per organization is
+/// PENDING at a time (a partial unique index in the migration).
+model PlanRequest {
+  id             String            @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  organizationId String            @db.Uuid
+  /// The plan the organization was on when it asked.
+  fromPlan       String
+  /// The plan it asked for: an id from the catalogue in the web app.
+  plan           String
+  note           String?
+  status         PlanRequestStatus @default(PENDING)
+  requestedById  String?           @db.Uuid
+  /// Who approved, declined or withdrew it.
+  decidedById    String?           @db.Uuid
+  decidedAt      DateTime?         @db.Timestamptz(3)
+  decisionReason String?
+  createdAt      DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime          @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedBy  User?        @relation("PlanRequestRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+  decidedBy    User?        @relation("PlanRequestDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, createdAt])
+  @@index([status, createdAt])
 }
 
 /// Only the *hash* of the invite token is stored — the token itself exists

@@ -133,6 +133,8 @@ export const PERMISSIONS = [
   // ── Platform administration ───────────────────────────────────────────────
   'admin:view_jobs',
   'admin:retry_job',
+  /** Approve or decline an organization's request to change plan (D-116). */
+  'admin:change_plan',
   'admin:view_system_logs',
   'admin:impersonate',
 ] as const;
@@ -154,6 +156,7 @@ export const PLATFORM_PERMISSIONS = [
   'org:suspend',
   'admin:view_jobs',
   'admin:retry_job',
+  'admin:change_plan',
   'admin:view_system_logs',
   'admin:impersonate',
 ] as const satisfies readonly Permission[];

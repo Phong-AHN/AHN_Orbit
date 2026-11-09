@@ -4645,6 +4645,67 @@ false disconnections came from the renewal path.
 
 - **Date:** 2026-11-09 · **Status:** IMPLEMENTED (no migration)
 
+## D-116 — Plans change by hand, from a placeholder catalogue
+
+The owner asked for an "upgrade account" feature. The product has enforced plan
+limits since T1.4 (clients, connected accounts, AI requests, storage) and every
+refusal says "Upgrade to …", but nothing let anybody upgrade: `Subscription`
+carried only `trial`, and Stripe checkout was P1 and unbuilt. Asked how payment
+should work, the owner chose a **manual** upgrade, and asked for the plans to be
+a mock for now, with contents and prices to follow.
+
+### What was built
+
+- **A plan catalogue in one file**, `apps/web/src/features/billing/plans.ts`:
+  Trial, Starter, Growth and Agency, with limits that are placeholders and no
+  prices. The trial entry is now the single source of a new organization's
+  limits (it replaces `DEFAULT_TRIAL_LIMITS`, with the same values). The page,
+  the request contract and an approval all read the catalogue, so the real one
+  is an edit to that file.
+- **Settings → Plan** (`billing:read`: Owner and Admin) shows the plan, usage
+  against each limit counted the way each check counts it, and the catalogue.
+  The Owner (`billing:manage`) can ask for a plan, with a note for AHN, and
+  withdraw the request.
+- **`PlanRequest`**, one row per request, `PENDING` until answered. A partial
+  unique index allows one waiting request per organization; RLS as on every
+  tenant table.
+- **`/admin/plans`** lists waiting requests, oldest first, with the limits now
+  and after approval, and a count on the admin rail. Approving needs a new
+  platform permission, `admin:change_plan`, and a reason. In one transaction it
+  claims the request (conditionally on `PENDING`), writes the plan, its limits
+  and `status = ACTIVE` to `Subscription`, and writes the audit row into the
+  organization's own log with the previous limits in `before`.
+
+### Why it is shaped this way
+
+- **The administrator approves what was asked, nothing else.** The decision
+  body is `{ decision, reason }`; a body naming a plan, limits or a status is
+  refused. The plan comes from the stored request and the limits from the
+  catalogue, so a support action cannot grant something nobody asked for, and
+  the customer's request is the record of what they agreed to.
+- **An organization with no limits cannot ask.** D-113 lifted the limits of
+  every organization that existed then; approving a plan would *add* caps to
+  them. The service refuses, and the page says why.
+- **Asking changes nothing.** The plan moves only on approval, after AHN has
+  arranged payment, so there is no state in which a plan is granted and unpaid
+  by the product's own doing.
+- **Stripe was not the default** because it may not onboard a business
+  registered in Vietnam; a Vietnamese gateway (PayOS, VNPay) or Stripe through
+  an entity elsewhere is a later decision. The `stripe*` columns stay unused.
+
+### Not done
+
+- Email to platform administrators on a new request, and an in-app
+  notification to the Owner on an answer. Today the admin rail count and the
+  plan page carry it.
+- Prices, real plan contents, automatic payment, renewal or expiry
+  (`currentPeriodEnd` is not set), and seats (`Subscription.seats` is still not
+  enforced).
+- A way for an administrator to change a plan without a request.
+
+- **Date:** 2026-11-09 · **Status:** IMPLEMENTED (migration
+  `20261109000000_plan_requests`, not yet run on production)
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`
