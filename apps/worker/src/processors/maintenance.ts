@@ -132,15 +132,43 @@ async function reconcileStuckJobs(): Promise<void> {
  * T1.6 writes discovered Pages as `DISABLED` rows so credentials survive
  * between the token exchange and the user's choice of which to connect. An
  * abandoned flow leaves encrypted credentials sitting there, so they are swept.
+ *
+ * Aged by `updatedAt`, not `connectedAt`: staging a disconnected account
+ * revives its old row, whose `connectedAt` is months old, and judging it by
+ * that swept it while the person was still choosing.
+ *
+ * A row with history — published variants or analytics — is returned to the
+ * disconnected state rather than deleted, the same rule as
+ * `discardStagedAccounts` on the web side: deleting it would cascade through
+ * the posts that went out on it.
  */
 async function cleanupStagedAccounts(): Promise<void> {
   const cutoff = new Date(clock.now().getTime() - STAGED_ACCOUNT_TTL_MS);
+  const abandoned = { status: 'DISABLED' as const, updatedAt: { lt: cutoff } };
 
   const { count } = await platformDb.socialAccount.deleteMany({
-    where: { status: 'DISABLED', connectedAt: { lt: cutoff }, variants: { none: {} } },
+    where: { ...abandoned, variants: { none: {} }, snapshots: { none: {} } },
   });
 
-  if (count > 0) {
-    logger.info('swept abandoned staged accounts', { count });
+  const withHistory = await platformDb.socialAccount.findMany({
+    where: abandoned,
+    select: { id: true },
+    take: 500,
+  });
+  const ids = withHistory.map((row) => row.id);
+  if (ids.length > 0) {
+    // Status first, guarded, so a row somebody connects in this instant keeps
+    // its credential: only rows this sweep actually returned lose theirs.
+    await platformDb.socialAccount.updateMany({
+      where: { id: { in: ids }, status: 'DISABLED' },
+      data: { status: 'REVOKED', deletedAt: clock.now() },
+    });
+    await platformDb.socialCredential.deleteMany({
+      where: { socialAccountId: { in: ids }, socialAccount: { status: 'REVOKED' } },
+    });
+  }
+
+  if (count > 0 || ids.length > 0) {
+    logger.info('swept abandoned staged accounts', { count, keptForHistory: ids.length });
   }
 }

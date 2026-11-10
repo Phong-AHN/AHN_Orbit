@@ -4706,6 +4706,58 @@ a mock for now, with contents and prices to follow.
 - **Date:** 2026-11-09 · **Status:** IMPLEMENTED (migration
   `20261109000000_plan_requests`, not yet run on production)
 
+## D-117 — A post keeps the account it went out on
+
+The owner reported that after an account was disconnected, a post already
+published to it lost the account's name and the post list showed "No accounts
+selected".
+
+### What was wrong
+
+Disconnecting soft-deletes the account (`REVOKED`, `deletedAt`), so the
+published variant keeps its reference. Two things then lost it:
+
+1. **Connecting the same platform again deleted the old row.** One Page is one
+   row (`@@unique([organizationId, platform, externalId])`), so staging revives
+   the disconnected row as `DISABLED` to offer it again. When it was not picked,
+   `discardStagedAccounts` hard-deleted every unpicked `DISABLED` row.
+   `PostVariant → SocialAccount` is `onDelete: Cascade`, so the variant went
+   with it, along with its analytics and comments. The post had no variants
+   left, which is exactly what "No accounts selected" means.
+2. **The composer only listed live accounts.** A disconnected account dropped
+   out of "Publish to", so even with the variant intact, a published post read
+   as though it had been sent nowhere. Saving any change to a draft in that
+   state failed, because the save sent back an id that was no longer live.
+
+### What changed
+
+- **A row with history is put back, never deleted.** An unpicked staged row
+  with variants or analytics snapshots returns to the disconnected state:
+  `REVOKED`, soft-deleted, credential removed. Only a row nothing points at is
+  deleted. This applies in `discardStagedAccounts` (web) and in the worker's
+  sweep of abandoned staged rows.
+- **The worker ages staged rows by `updatedAt`, not `connectedAt`.** A revived
+  row's `connectedAt` is from its first connection, so the sweep judged it
+  abandoned while the person was still choosing.
+- **The composer lists the post's own disconnected accounts**, ticked, with a
+  "Disconnected" badge. One can be removed from a post still being edited, but
+  never added back.
+- **`syncVariants` checks only the accounts being added.** An account the post
+  already targets is kept even if it has since been disconnected.
+
+### Not changed, on purpose
+
+- The foreign key stays `Cascade`. `Restrict` would make the guarantee hold in
+  the database too, but it is a production migration, so it is left as a
+  separate decision.
+- Variants already lost to the cascade cannot be recovered by the app; only a
+  database backup has them.
+- Staging still moves an account that is **already live** to the brand being
+  connected, and refreshes its credential, even when it is not picked. That is
+  a separate finding, not addressed here.
+
+- **Date:** 2026-11-10 · **Status:** IMPLEMENTED (no migration)
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

@@ -641,6 +641,65 @@ describe('variant isolation', () => {
     expect(after.variants).toHaveLength(1);
     expect(after.variants[0]?.socialAccountId).toBe(ACCOUNT_A2);
   });
+
+  /**
+   * The composer keeps a disconnected account ticked on the post that targets
+   * it, so saving the selection sends its id back. That must not fail; but the
+   * account still cannot be put on a post that did not already have it.
+   */
+  it('keeps an account the post already targets after it is disconnected', async () => {
+    const post = await createPost(
+      ownerA,
+      {
+        workspaceId: WS_A,
+        brandId: BRAND_A,
+        body: 'Went out before the disconnect',
+        hashtags: [],
+        mentions: [],
+        media: [],
+        socialAccountIds: [ACCOUNT_A],
+      },
+      fingerprint,
+    );
+    const other = await createPost(
+      ownerA,
+      {
+        workspaceId: WS_A,
+        brandId: BRAND_A,
+        body: 'Never targeted it',
+        hashtags: [],
+        mentions: [],
+        media: [],
+        socialAccountIds: [ACCOUNT_A2],
+      },
+      fingerprint,
+    );
+
+    await platformDb.socialAccount.update({
+      where: { id: ACCOUNT_A },
+      data: { status: 'REVOKED', deletedAt: new Date() },
+    });
+    try {
+      await updatePost(ownerA, post.id, { socialAccountIds: [ACCOUNT_A, ACCOUNT_A2] }, fingerprint);
+      const after = await getPost(ownerA, post.id);
+      expect(after.variants.map((v) => v.socialAccountId).sort()).toEqual(
+        [ACCOUNT_A, ACCOUNT_A2].sort(),
+      );
+      // Still named on the post, which is the point.
+      expect(
+        after.variants.find((v) => v.socialAccountId === ACCOUNT_A)?.socialAccount.displayName,
+      ).toBe('Page A');
+
+      await expect(
+        updatePost(ownerA, other.id, { socialAccountIds: [ACCOUNT_A, ACCOUNT_A2] }, fingerprint),
+      ).rejects.toBeInstanceOf(NotFoundError);
+    } finally {
+      await platformDb.socialAccount.update({
+        where: { id: ACCOUNT_A },
+        data: { status: 'ACTIVE', deletedAt: null },
+      });
+    }
+  });
 });
 
 // ── State machine ───────────────────────────────────────────────────────────

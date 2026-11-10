@@ -158,6 +158,11 @@ async function replaceMedia(
  * Adding an account creates a variant; removing one deletes it. A variant whose
  * account has already published is never removed — the record of what went out
  * has to survive.
+ *
+ * Only an account being **added** has to be live on this brand. One the post
+ * already targets is kept as it is, even if it has since been disconnected:
+ * the composer still lists it, ticked, and saving some other change must not
+ * fail on an account nobody touched.
  */
 async function syncVariants(
   db: TenantDb,
@@ -166,19 +171,6 @@ async function syncVariants(
   brandId: string,
   socialAccountIds: readonly string[],
 ): Promise<void> {
-  const accounts = await db.socialAccount.findMany({
-    where: { id: { in: [...socialAccountIds] }, brandId, deletedAt: null },
-    select: { id: true, platform: true },
-  });
-
-  if (accounts.length !== socialAccountIds.length) {
-    // Either an id from another tenant, or one belonging to a different brand.
-    throw new NotFoundError('Social account', {
-      userMessage: "One of the selected accounts isn't available for this brand.",
-      context: { requested: socialAccountIds.length, found: accounts.length },
-    });
-  }
-
   const existing = await db.postVariant.findMany({
     where: { postId },
     select: { id: true, socialAccountId: true, status: true },
@@ -186,6 +178,24 @@ async function syncVariants(
 
   const wanted = new Set(socialAccountIds);
   const have = new Map(existing.map((v) => [v.socialAccountId, v]));
+  const adding = [...wanted].filter((id) => !have.has(id));
+
+  const accounts =
+    adding.length === 0
+      ? []
+      : await db.socialAccount.findMany({
+          where: { id: { in: adding }, brandId, deletedAt: null },
+          select: { id: true, platform: true },
+        });
+
+  if (accounts.length !== adding.length) {
+    // An id from another tenant, one belonging to a different brand, or one
+    // that has been disconnected.
+    throw new NotFoundError('Social account', {
+      userMessage: "One of the selected accounts isn't available for this brand.",
+      context: { requested: adding.length, found: accounts.length },
+    });
+  }
 
   const removable = existing.filter(
     (v) => !wanted.has(v.socialAccountId) && v.status !== 'PUBLISHED',

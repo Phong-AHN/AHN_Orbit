@@ -333,6 +333,23 @@ Cách đọc:
 - Meta từ chối video của `instagram_business_basic`: chưa quay đủ luồng đăng nhập, cấp quyền và hiển thị profile. Đã soạn kịch bản quay lại và ghi chú cho người duyệt.
 - Dựng timeline này (`c967632`). Từ đây file được ghi tiếp sau mỗi việc.
 
+### 10/11
+
+- **Yêu cầu:** sau khi đăng, nếu tài khoản bị ngắt kết nối thì bài vẫn phải giữ tên tài khoản đã đăng, không được mất hẳn và hiện "No accounts selected".
+- **Nguyên nhân:**
+  - Ngắt kết nối chỉ xóa mềm tài khoản. Nhưng khi kết nối lại cùng nền tảng, tài khoản cũ được đưa vào danh sách chờ chọn. Nếu không tick lại, nó bị **xóa hẳn**.
+  - Khóa ngoại `Cascade` xóa theo các bản đăng (PostVariant) của bài đã đăng, kèm số liệu và bình luận.
+  - Ngoài ra, ô "Publish to" của bài viết chỉ liệt kê tài khoản còn kết nối.
+- **Đã sửa** (D-117):
+  - Tài khoản có lịch sử (bài đăng, số liệu) không bao giờ bị xóa hẳn. Nếu không được chọn lại, nó trở về trạng thái đã ngắt kết nối. Áp dụng cho cả web lẫn tác vụ dọn dẹp của worker.
+  - Worker xét "bỏ dở" theo `updatedAt`, không theo `connectedAt` nữa.
+  - Trang bài viết hiện tài khoản đã ngắt kết nối, vẫn được tick, kèm nhãn "Disconnected". Bỏ chọn được, nhưng không chọn lại được.
+  - Lưu lựa chọn tài khoản không còn lỗi vì một tài khoản bài đang nhắm tới đã bị ngắt kết nối.
+- **Không cần migration.** Commit có đổi `apps/worker/`, nên Railway sẽ deploy lại worker khi push.
+- **Kiểm tra:** typecheck, lint, 1678 unit test, build web đều đạt. Đã viết 2 test integration mới nhưng chưa chạy local (`.env` trỏ production).
+- Những bài **đã mất** bản đăng trước bản sửa này không khôi phục được từ app, chỉ còn trong backup database.
+- **Phát hiện thêm, chưa sửa:** chạy luồng kết nối cho brand khác sẽ chuyển một tài khoản **đang hoạt động** sang brand đó, kể cả khi không chọn nó.
+
 ---
 
 ## Nền tảng mạng xã hội — ngày tích hợp
@@ -363,10 +380,10 @@ Cách đọc:
 
 ---
 
-## Việc còn mở (tính đến 9/11)
+## Việc còn mở (tính đến 10/11)
 
 1. **Xác nhận migration production.** Code D-116 đã push lúc 13:20 ngày 9/11. Nếu `pnpm db:migrate:deploy` chưa chạy thì Settings → Plan và `/admin/plans` sẽ báo lỗi. Lệnh này chạy cả D-113 (mở giới hạn gói) và D-116 (bảng yêu cầu nâng gói).
-2. **Push** commit timeline này.
+2. **Push** các commit timeline và D-117.
 3. **Meta App Review:** quay lại video `instagram_business_basic` và nộp lại.
 4. Hồ sơ xác minh Google/YouTube và TikTok audit đang chờ.
 5. Railway:
@@ -375,3 +392,6 @@ Cách đọc:
    - bỏ `railway.json` trước 2026-12-01.
 6. Đổi mật khẩu Redis Cloud cũ đã dán vào chat (19/10, 27/10), nếu instance đó còn chạy.
 7. Các quyết định còn chờ trong kế hoạch AI trả lời bình luận (§11, D-115). Bảng giá và nội dung gói thật cho D-116.
+8. D-117, còn chờ quyết định:
+   - có đổi khóa ngoại `PostVariant → SocialAccount` sang `Restrict` không (cần migration);
+   - có sửa việc luồng kết nối chuyển tài khoản đang hoạt động sang brand khác không.

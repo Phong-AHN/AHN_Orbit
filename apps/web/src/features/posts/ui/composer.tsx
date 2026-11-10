@@ -55,6 +55,12 @@ export interface ComposerAccount {
   handle: string | null;
   platform: string;
   status: string;
+  /**
+   * False for an account the post already targets that has since been
+   * disconnected. It is shown so the post still says where it went, but it
+   * cannot be chosen again.
+   */
+  connected: boolean;
 }
 
 export interface ComposerProps {
@@ -627,16 +633,15 @@ function AccountPicker({
           </Button>
         ) : null}
       </CardHeader>
-      <CardBody>
-        {accounts.length === 0 ? (
-          <p className="text-sm text-ink-muted">
-            This brand has no connected accounts yet. Connect one before the post can go anywhere.
-          </p>
-        ) : (
+      <CardBody className="space-y-3">
+        {accounts.length > 0 ? (
           <ul className="grid gap-2 sm:grid-cols-2">
             {accounts.map((account) => {
               const checked = selectedIds.includes(account.id);
-              const needsReconnect = account.status !== 'ACTIVE';
+              const needsReconnect = account.connected && account.status !== 'ACTIVE';
+              // A disconnected account can be taken off a post still being
+              // edited, but never put back on: there is nothing to publish with.
+              const locked = disabled || (!account.connected && !checked);
 
               return (
                 <li key={account.id}>
@@ -644,14 +649,14 @@ function AccountPicker({
                     className={cn(
                       'flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5',
                       checked ? 'border-accent bg-accent-soft' : 'border-line bg-surface',
-                      disabled && 'cursor-not-allowed opacity-60',
+                      locked && 'cursor-not-allowed opacity-60',
                     )}
                   >
                     <input
                       type="checkbox"
                       className="mt-0.5 size-4 accent-accent"
                       checked={checked}
-                      disabled={disabled}
+                      disabled={locked}
                       onChange={() => {
                         onToggle(account.id);
                       }}
@@ -669,13 +674,24 @@ function AccountPicker({
                           Needs reconnecting
                         </Badge>
                       ) : null}
+                      {!account.connected ? (
+                        <Badge tone="neutral" className="mt-1.5">
+                          Disconnected
+                        </Badge>
+                      ) : null}
                     </span>
                   </label>
                 </li>
               );
             })}
           </ul>
-        )}
+        ) : null}
+
+        {accounts.every((account) => !account.connected) ? (
+          <p className="text-sm text-ink-muted">
+            This brand has no connected accounts yet. Connect one before the post can go anywhere.
+          </p>
+        ) : null}
       </CardBody>
     </Card>
   );

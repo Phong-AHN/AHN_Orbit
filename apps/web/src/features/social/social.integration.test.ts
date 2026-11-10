@@ -855,6 +855,78 @@ describe('discarding staged accounts', () => {
     expect(await platformDb.socialCredential.count({ where: { organizationId: ORG_A } })).toBe(0);
   });
 
+  /**
+   * The bug this guards: a published post lost the account it went out on and
+   * showed "No accounts selected". Disconnect an account, connect the same
+   * platform again, and do not pick it: the discard deleted the revived row,
+   * and the cascade took the post's variant with it.
+   */
+  it('puts back an account with published history instead of deleting it', async () => {
+    await stageDiscoveredAccounts(ctxA, {
+      platform: 'FACEBOOK',
+      workspaceId: WS_A,
+      brandId: BRAND_A,
+      discovered: [discovered('page-1')],
+    });
+    const [row] = await platformDb.socialAccount.findMany({ where: { organizationId: ORG_A } });
+    await connectAccounts(
+      ctxA,
+      { platform: 'FACEBOOK', workspaceId: WS_A, brandId: BRAND_A, socialAccountIds: [row!.id] },
+      fingerprint,
+    );
+
+    const post = await platformDb.post.create({
+      data: {
+        organizationId: ORG_A,
+        workspaceId: WS_A,
+        brandId: BRAND_A,
+        body: 'went out',
+        status: 'PUBLISHED',
+        publishedAt: new Date(),
+      },
+    });
+    const variant = await platformDb.postVariant.create({
+      data: {
+        organizationId: ORG_A,
+        postId: post.id,
+        socialAccountId: row!.id,
+        platform: 'FACEBOOK',
+        status: 'PUBLISHED',
+        publishedAt: new Date(),
+        externalPostId: 'fb-post-1',
+      },
+    });
+
+    await disconnectAccount(ctxA, row!.id, fingerprint);
+
+    // Connecting Facebook again offers the same Page; this time it is not picked.
+    await stageDiscoveredAccounts(ctxA, {
+      platform: 'FACEBOOK',
+      workspaceId: WS_A,
+      brandId: BRAND_A,
+      discovered: [discovered('page-1'), discovered('page-2')],
+    });
+    const other = await platformDb.socialAccount.findFirstOrThrow({
+      where: { organizationId: ORG_A, externalId: 'page-2' },
+    });
+    await connectAccounts(
+      ctxA,
+      { platform: 'FACEBOOK', workspaceId: WS_A, brandId: BRAND_A, socialAccountIds: [other.id] },
+      fingerprint,
+    );
+
+    // The post still knows where it went.
+    expect(await platformDb.postVariant.findUnique({ where: { id: variant.id } })).not.toBeNull();
+
+    // And the account is back to how disconnecting left it, credential gone.
+    const after = await platformDb.socialAccount.findUniqueOrThrow({ where: { id: row!.id } });
+    expect(after.status).toBe('REVOKED');
+    expect(after.deletedAt).not.toBeNull();
+    expect(await platformDb.socialCredential.count({ where: { socialAccountId: row!.id } })).toBe(
+      0,
+    );
+  });
+
   it('leaves another tenant’s staged rows alone', async () => {
     await stageDiscoveredAccounts(ctxB, {
       platform: 'FACEBOOK',

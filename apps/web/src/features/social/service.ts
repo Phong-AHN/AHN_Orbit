@@ -460,7 +460,17 @@ export async function stageDiscoveredAccounts(
   });
 }
 
-/** Discard staged rows the user did not choose, credentials included. */
+/**
+ * Discard staged rows the user did not choose, credentials included.
+ *
+ * **A row with history is put back, never deleted.** Staging revives a
+ * disconnected account (same Page, same row — the unique key allows nothing
+ * else) so it can be offered again. Deleting it when it was not picked used to
+ * cascade through `PostVariant`, so a post that had already gone out lost the
+ * record of where it went and showed "No accounts selected". Such a row goes
+ * back to the state disconnecting left it in: REVOKED, soft-deleted, no
+ * credential. Only a row nothing points at is deleted outright.
+ */
 export async function discardStagedAccounts(
   ctx: TenantContext,
   input: { platform: Platform; keepIds: readonly string[] },
@@ -472,18 +482,32 @@ export async function discardStagedAccounts(
         status: 'DISABLED',
         ...(input.keepIds.length > 0 ? { id: { notIn: [...input.keepIds] } } : {}),
       },
-      select: { id: true },
+      select: { id: true, _count: { select: { variants: true, snapshots: true } } },
     });
 
     if (stale.length === 0) return 0;
 
     const ids = stale.map((s) => s.id);
+    const kept = stale
+      .filter((s) => s._count.variants > 0 || s._count.snapshots > 0)
+      .map((s) => s.id);
+    const fresh = ids.filter((id) => !kept.includes(id));
+
     await db.socialCredential.deleteMany({ where: { socialAccountId: { in: ids } } });
-    await db.socialAccount.deleteMany({ where: { id: { in: ids } } });
+    if (kept.length > 0) {
+      await db.socialAccount.updateMany({
+        where: { id: { in: kept } },
+        data: { status: 'REVOKED', deletedAt: clock.now() },
+      });
+    }
+    if (fresh.length > 0) {
+      await db.socialAccount.deleteMany({ where: { id: { in: fresh } } });
+    }
 
     logger.info('discarded unselected staged accounts', {
       platform: input.platform,
       count: ids.length,
+      keptForHistory: kept.length,
     });
 
     return ids.length;

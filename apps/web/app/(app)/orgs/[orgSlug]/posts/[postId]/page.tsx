@@ -102,6 +102,26 @@ export default async function ComposerPage({ params }: PageProps) {
     (account) => account.status !== 'DISABLED',
   );
 
+  /**
+   * Accounts this post already targets that are no longer connected.
+   *
+   * Disconnecting soft-deletes the account, so it drops out of the list above,
+   * but the post still went out on it. Leaving it out made a published post
+   * read as though it had been sent nowhere. It is listed, ticked, and marked;
+   * it cannot be chosen again, only removed from a post still being edited.
+   */
+  const offered = new Set(accounts.map((account) => account.id));
+  const noLongerConnected = post.variants
+    .filter((variant) => !offered.has(variant.socialAccountId))
+    .map((variant) => ({
+      id: variant.socialAccountId,
+      displayName: variant.socialAccount.displayName,
+      handle: variant.socialAccount.handle,
+      platform: variant.platform,
+      status: variant.socialAccount.status,
+      connected: false,
+    }));
+
   // Capability summaries for every platform in play — the accounts on offer plus
   // any already-selected variant, so a summary is never missing for a tab.
   const capabilities: Record<string, CapabilitySummary> = {};
@@ -216,13 +236,17 @@ export default async function ComposerPage({ params }: PageProps) {
         <Composer
           orgSlug={orgSlug}
           post={serialisePost(post)}
-          accounts={accounts.map((a) => ({
-            id: a.id,
-            displayName: a.displayName,
-            handle: a.handle,
-            platform: a.platform,
-            status: a.status,
-          }))}
+          accounts={[
+            ...accounts.map((a) => ({
+              id: a.id,
+              displayName: a.displayName,
+              handle: a.handle,
+              platform: a.platform,
+              status: a.status,
+              connected: true,
+            })),
+            ...noLongerConnected,
+          ]}
           capabilities={capabilities}
           allowedTransitions={allowedTransitions(ctx, post.status, scope).filter(
             // Approving internally while the client gate applies is refused by
