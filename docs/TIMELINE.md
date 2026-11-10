@@ -349,6 +349,12 @@ Cách đọc:
 - **Kiểm tra:** typecheck, lint, 1678 unit test, build web đều đạt. Đã viết 2 test integration mới nhưng chưa chạy local (`.env` trỏ production).
 - Những bài **đã mất** bản đăng trước bản sửa này không khôi phục được từ app, chỉ còn trong backup database.
 - **Phát hiện thêm, chưa sửa:** chạy luồng kết nối cho brand khác sẽ chuyển một tài khoản **đang hoạt động** sang brand đó, kể cả khi không chọn nó.
+- Meta từ chối video của `pages_read_user_content`, cùng lý do với `instagram_business_basic`.
+  - Đọc lại tài liệu Meta (Screen Recordings, Common Mistakes, trang của quyền này). Soạn kịch bản quay lại: đăng nhập Facebook từ trạng thái đã đăng xuất → chọn Page → cấp quyền → bình luận của **người khác** hiện trong Community → số đếm trong Analytics.
+  - Bản mô tả đã nộp có 2 câu sai với code:
+    - ghi "PDF reports", trong khi hệ thống chỉ xuất CSV;
+    - ghi "xóa bình luận khi client ngắt kết nối", trong khi code không xóa.
+  - Đã sửa hai câu này trong các bản soạn sẵn ở OWNER-TODO §1b và §1e.
 
 ---
 
@@ -384,7 +390,9 @@ Cách đọc:
 
 1. **Xác nhận migration production.** Code D-116 đã push lúc 13:20 ngày 9/11. Nếu `pnpm db:migrate:deploy` chưa chạy thì Settings → Plan và `/admin/plans` sẽ báo lỗi. Lệnh này chạy cả D-113 (mở giới hạn gói) và D-116 (bảng yêu cầu nâng gói).
 2. **Push** các commit timeline và D-117.
-3. **Meta App Review:** quay lại video `instagram_business_basic` và nộp lại.
+3. **Meta App Review:**
+   - quay lại video `instagram_business_basic` và `pages_read_user_content`, rồi nộp lại;
+   - sửa các câu "PDF reports" và "xóa bình luận khi ngắt kết nối" trong những bản mô tả đã nộp.
 4. Hồ sơ xác minh Google/YouTube và TikTok audit đang chờ.
 5. Railway:
    - giữ một worker;

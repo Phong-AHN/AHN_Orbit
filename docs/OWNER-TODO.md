@@ -206,9 +206,13 @@ khi nộp — Meta bắt buộc có nó.
 > database layers. **We do not store any identifier for the person who
 > commented.** We read the author id only to tell the brand's own replies apart
 > from the audience's, and discard it in the same step; nothing downstream
-> receives it. We do not profile commenters, do not use comment content for
-> advertising or model training, and delete stored comments on request or when
-> a client disconnects their account.
+> receives it. We do not profile commenters, and do not use comment content for
+> advertising or model training. Stored comments stay with the post they were
+> made on, inside that client's workspace, and no other client can see them.
+>
+> *(Sửa 2026-11-10: bản cũ ghi "delete stored comments on request or when a
+> client disconnects their account". Code không làm vậy — ngắt kết nối chỉ xóa
+> credential và tin nhắn riêng, bình luận vẫn ở lại. Đừng nộp câu cũ.)*
 >
 > ---
 >
@@ -502,7 +506,7 @@ tiếng Anh):
 > `reach`, `views`, `likes`, `saves`, `shares`, `comments`,
 > `total_interactions`, `profile_links_taps` and `accounts_engaged`. These
 > populate the per-client analytics dashboard, the post-level detail view, and
-> the PDF reports an agency sends its client. We also read the connected
+> the CSV reports an agency exports for its client. We also read the connected
 > account's own profile metadata — username, name and profile picture — so
 > staff can see which account they are posting to.
 >
