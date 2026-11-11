@@ -11,6 +11,59 @@
 
 ## 🔴 CHẶN RA MẮT — không có thì không bán được
 
+### 0. Chuyển domain sang `www.socialsquare.site` (2026-11-11)
+
+Code không ghi cứng domain ở đâu cả. Mọi redirect URI, link xác nhận, client id
+của Bluesky và audience của MCP đều lấy từ **`APP_URL`**. Nhưng mỗi nền tảng chỉ
+chấp nhận URL đã đăng ký trước, nên **thứ tự làm quan trọng**: đăng ký URL mới ở
+mọi nơi (giữ cả URL cũ), rồi mới đổi `APP_URL`.
+
+> **Tình trạng lúc soát (2026-11-11):** `socialsquare.site` chuyển sang
+> `www.socialsquare.site`, rồi **lại bị chuyển về `www.anhoi.co`**. Lần chuyển
+> thứ hai do app làm, dựa trên `APP_URL` — nghĩa là production vẫn đang chạy với
+> `APP_URL=https://www.anhoi.co`. Đổi biến trên Vercel xong phải **redeploy** thì
+> mới có hiệu lực.
+
+**Bước 1 — Đăng ký URL mới. Giữ URL cũ cho tới khi xong bước 4.**
+
+Đổi `https://www.anhoi.co` thành `https://www.socialsquare.site` trong mọi URL dưới đây.
+
+| Nơi | Cần thêm |
+|---|---|
+| **Firebase** → Authentication → Settings → Authorized domains | `www.socialsquare.site`. **Thiếu cái này thì không ai đăng nhập được** (lỗi `auth/unauthorized-domain`) |
+| **Meta — app Facebook** | App Domains, Site URL, Privacy Policy URL, Terms URL, Data Deletion URL, Valid OAuth Redirect URIs (`/api/v1/social/oauth/facebook/callback`) |
+| **Meta — app Instagram** (Business Login) | Redirect URI `/api/v1/social/oauth/instagram/callback`, và các URL deauthorize / data deletion |
+| **Meta — app Threads** | Redirect, Uninstall và Delete callback URLs |
+| **TikTok** | Redirect URI của sản phẩm và `/review/tiktok/callback`, Website URL, Terms, Privacy |
+| **Google Cloud** (YouTube) | Authorized redirect URIs (sản phẩm và `/review/youtube/callback`), JavaScript origins; OAuth consent screen → Authorized domains: `socialsquare.site`, đã xác minh trong Search Console |
+| **LinkedIn, Pinterest, X** | Redirect / Callback URI, Website, Terms, Privacy |
+| **S3 bucket** → CORS | Nếu `AllowedOrigins` đang ghi `https://www.anhoi.co` thì thêm domain mới. Thiếu thì upload ảnh/video từ trình duyệt bị chặn |
+
+**Bước 2 — Đổi `APP_URL=https://www.socialsquare.site`** trên **cả Vercel và
+Railway**, rồi redeploy cả hai. Worker dùng biến này để dựng link và client id
+của Bluesky.
+
+**Bước 3 — Kiểm tra:**
+- Mở `https://www.socialsquare.site`: trang không còn bị chuyển về anhoi.co, và đăng nhập Google được.
+- Kết nối thử một tài khoản. Upload thử một ảnh.
+- `/review/tiktok` và `/review/youtube` mở được.
+
+**Bước 4 — Những thứ đổi theo `APP_URL`, phải làm lại:**
+- **Mọi người phải đăng nhập lại.** Cookie phiên thuộc về domain cũ.
+- **Bluesky phải kết nối lại.** Client id là URL
+  `…/oauth/bluesky/client-metadata.json`, nên đổi domain là đổi client id.
+- **Connector MCP** (Claude, ChatGPT) phải thêm lại với URL
+  `https://www.socialsquare.site/api/mcp`. Token cũ gắn với audience cũ.
+  `.mcp.json` trong repo đã đổi sẵn.
+- **Webhook của Meta** (Facebook, Instagram): đổi Callback URL sang domain mới.
+  Domain cũ vẫn nhận được webhook (API không bị chuyển hướng), nên không gấp,
+  nhưng đừng gỡ domain cũ khỏi Vercel trước khi đổi xong.
+- **Hồ sơ đang xét duyệt** (Meta, Google, TikTok): lần nộp lại dùng domain mới
+  ở mọi chỗ. Google có thể bắt xác minh lại vì domain đổi.
+
+**Bước 5 — Sau vài tuần:** gỡ URL cũ ở các nền tảng. Giữ `www.anhoi.co` trên
+Vercel để link cũ vẫn tự chuyển sang domain mới.
+
 ### 1. Meta App Review + Business Verification
 
 **Vì sao chặn:** hiện chỉ publish được lên **một Page anh đã tự xác minh**. Bất
@@ -1104,12 +1157,12 @@ Làm theo đúng thứ tự:
      `instagram_business_manage_messages`. Nếu connect dùng *Facebook Login for
      Business* (`NEXT_PUBLIC_FACEBOOK_CONFIG_ID`), thêm cả vào configuration đó.
    - **Webhook Facebook** (Facebook Login → Webhooks, đối tượng *Page*):
-     - Callback URL: `https://www.anhoi.co/api/v1/webhooks/facebook`
+     - Callback URL: `https://www.socialsquare.site/api/v1/webhooks/facebook`
      - Verify token: chuỗi ở bước 2
      - Subscribe fields: `feed`, `messages`, `message_echoes`
    - **Webhook Instagram** (Instagram → API setup with Instagram login →
      Configure webhooks):
-     - Callback URL: `https://www.anhoi.co/api/v1/webhooks/instagram`
+     - Callback URL: `https://www.socialsquare.site/api/v1/webhooks/instagram`
      - Verify token: cùng chuỗi đó
      - Fields: `comments`, `messages`
 4. **Bật cờ** `META_MESSAGING_ENABLED=true` trên **cả Vercel và Railway**, deploy.
@@ -1635,13 +1688,13 @@ giới hạn cho họ.
 - [ ] **Sinh khoá**: `node apps/web/scripts/generate-bluesky-key.mjs` → một dòng
       JWK. Đặt vào `BLUESKY_PRIVATE_KEY` trên **cả** Vercel và Railway. **Giữ
       nguyên khoá**: đổi khoá là mọi tài khoản Bluesky phải kết nối lại.
-- [ ] Worker trên Railway cần **`APP_URL=https://www.anhoi.co`** — client id của
+- [ ] Worker trên Railway cần **`APP_URL=https://www.socialsquare.site`** — client id của
       Bluesky dựng từ `APP_URL`, sai là không làm mới được token.
 
 Không có cổng developer, không có app review, không tốn phí. Bluesky nhận diện
 Social Square qua hai địa chỉ công khai (tự phục vụ khi có khoá):
-`https://www.anhoi.co/oauth/bluesky/client-metadata.json` và
-`https://www.anhoi.co/oauth/bluesky/jwks.json`.
+`https://www.socialsquare.site/oauth/bluesky/client-metadata.json` và
+`https://www.socialsquare.site/oauth/bluesky/jwks.json`.
 
 ### 🟡 Cần biết
 
@@ -1667,10 +1720,10 @@ Social Square qua hai địa chỉ công khai (tự phục vụ khi có khoá):
 - [ ] **Nạp credit** cho tài khoản developer. X API **tính tiền theo từng
       request**, không có bậc miễn phí cố định: $0.015 một bài, **$0.20 một bài
       có link**, mỗi lần đọc số liệu cũng tính tiền.
-- [ ] **Callback URI**: `https://www.anhoi.co/api/v1/social/oauth/x/callback`
-      — Website `https://www.anhoi.co`, Terms
-      `https://www.anhoi.co/terms-of-service`, Privacy
-      `https://www.anhoi.co/privacy-policy`.
+- [ ] **Callback URI**: `https://www.socialsquare.site/api/v1/social/oauth/x/callback`
+      — Website `https://www.socialsquare.site`, Terms
+      `https://www.socialsquare.site/terms-of-service`, Privacy
+      `https://www.socialsquare.site/privacy-policy`.
 - [ ] Đặt `X_CLIENT_ID` / `X_CLIENT_SECRET` trên **cả** Vercel và Railway.
 
 ### 🟡 Cần biết

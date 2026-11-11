@@ -5,7 +5,7 @@ TikTok test Login Kit + Content Posting API (Direct Post) mà không cần tài 
 Social Square.
 
 - Chỉ mở khi có `TIKTOK_REVIEW_ACCESS_CODE` (≥ 16 ký tự) và app TikTok đã cấu hình.
-- **Lối vào là trang chủ**: mục *For TikTok app reviewers* (`https://www.anhoi.co/#tiktok-review`,
+- **Lối vào là trang chủ**: mục *For TikTok app reviewers* (`https://www.socialsquare.site/#tiktok-review`,
   có link "TikTok review" trên header) có hướng dẫn 3 bước và ô nhập mã. Nhập đúng →
   cookie mở khoá có chữ ký, 30 phút → chuyển tới `/review/tiktok`. Vào thẳng
   `/review/tiktok` khi chưa nhập mã sẽ bị đưa về mục đó. Sai mã quá 10 lần / 10 phút
@@ -28,17 +28,17 @@ Code: `apps/web/app/review/tiktok/`, `apps/web/src/features/tiktok-review/`.
 ## Việc anh làm
 
 1. **TikTok Developer Portal → Login Kit → Redirect URI**: thêm
-   `https://www.anhoi.co/review/tiktok/callback` (giữ URI cũ của sản phẩm).
+   `https://www.socialsquare.site/review/tiktok/callback` (giữ URI cũ của sản phẩm).
 2. **Vercel → Environment Variables (Production)**: `TIKTOK_REVIEW_ACCESS_CODE` =
    chuỗi ngẫu nhiên ≥ 16 ký tự (ví dụ `openssl rand -base64 24`). Redeploy.
-3. Tự chạy thử từ trang chủ `https://www.anhoi.co/#tiktok-review` bằng một tài khoản TikTok.
+3. Tự chạy thử từ trang chủ `https://www.socialsquare.site/#tiktok-review` bằng một tài khoản TikTok.
    Khi app chưa được audit, TikTok chỉ cho đăng **“Only me”** (SELF_ONLY).
 4. Quay video demo (dưới), rồi dán **review notes** (dưới) khi nộp.
 5. Gỡ `TIKTOK_REVIEW_ACCESS_CODE` sau khi được duyệt — không có biến này trang trả 404.
 
 ## Kịch bản video (2–3 phút, quay toàn màn hình, thấy thanh địa chỉ)
 
-1. `https://www.anhoi.co` — trang chủ Social Square.
+1. `https://www.socialsquare.site` — trang chủ Social Square.
 2. Kéo tới mục *For TikTok app reviewers* → nhập mã → **Open the TikTok test page** →
    **Continue with TikTok** → màn hình authorize của
    TikTok, dừng 3 giây ở danh sách quyền → **Authorize**.
@@ -53,8 +53,8 @@ Code: `apps/web/app/review/tiktok/`, `apps/web/src/features/tiktok-review/`.
 
 ## Review notes (tiếng Anh — điền mã)
 
-> Test without a Social Square account: open https://www.anhoi.co and go to the
-> "For TikTok app reviewers" section (or https://www.anhoi.co/#tiktok-review).
+> Test without a Social Square account: open https://www.socialsquare.site and go to the
+> "For TikTok app reviewers" section (or https://www.socialsquare.site/#tiktok-review).
 > Access code: **[TIKTOK_REVIEW_ACCESS_CODE]**
 > 1. Enter the code and click "Open the TikTok test page", then "Continue with TikTok"
 >    and authorize with any TikTok account.

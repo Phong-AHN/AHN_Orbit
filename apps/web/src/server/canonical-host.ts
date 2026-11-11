@@ -4,7 +4,7 @@
  * Every OAuth redirect URI is built from `APP_URL`, and the cookies that carry
  * the session and the OAuth nonce belong to whichever host set them. A person
  * who opens the app on `ahn-orbit-web.vercel.app` starts a connect flow there,
- * the platform sends them back to `www.anhoi.co`, and neither cookie came
+ * the platform sends them back to `www.socialsquare.site`, and neither cookie came
  * along: every platform fails with "OAuth state verification failed".
  *
  * So pages are moved to the canonical host before anything starts. Only pages:

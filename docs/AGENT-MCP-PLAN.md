@@ -381,7 +381,7 @@ Authorization của spec MCP.
 - Opaque, 256-bit ngẫu nhiên. DB chỉ lưu SHA-256.
 - Access token sống 1 giờ. Refresh token sống 30 ngày, **xoay vòng mỗi lần dùng**. Phát hiện refresh
   token bị dùng lại thì thu hồi cả grant.
-- Audience gắn với `https://www.anhoi.co/api/mcp` (RFC 8707).
+- Audience gắn với `https://www.socialsquare.site/api/mcp` (RFC 8707).
 - Redirect URI so khớp chính xác, chỉ chấp nhận `https` hoặc loopback `http://127.0.0.1`.
 - Mã authorization dùng một lần, sống 60 giây.
 

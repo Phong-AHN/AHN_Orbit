@@ -48,7 +48,7 @@ const session = (scopes: Array<'read' | 'content' | 'workflow' | 'engagement'>) 
     organizationId: 'o1',
     delegation: { channel: 'MCP' as const, grantId: 'g1', scopes },
   },
-  origin: 'https://www.anhoi.co',
+  origin: 'https://www.socialsquare.site',
   organizationSlug: 'ahn',
 });
 
@@ -66,7 +66,7 @@ beforeEach(() => {
     id: 'a1',
     summary: 'Schedule …',
     expiresAt: '2026-10-30T10:15:00.000Z',
-    confirmUrl: 'https://www.anhoi.co/orgs/ahn/agent-actions?action=a1',
+    confirmUrl: 'https://www.socialsquare.site/orgs/ahn/agent-actions?action=a1',
   });
 });
 

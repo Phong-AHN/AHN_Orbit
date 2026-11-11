@@ -28,15 +28,15 @@ Social Square xin đúng 2 scope, lấy từ `YOUTUBE_PUBLISH_SCOPES`
    sách scope là **đúng 2 scope trên**, không có scope nào khác. Nếu có thêm
    (ví dụ `youtube`, `youtube.force-ssl`), xoá đi.
 2. **Clients → OAuth client của web → Authorized redirect URIs**: thêm
-   `https://www.anhoi.co/review/youtube/callback`
+   `https://www.socialsquare.site/review/youtube/callback`
    (giữ nguyên URI đang có của sản phẩm).
 3. **Vercel → Environment Variables (Production)**:
    - `GOOGLE_REVIEW_ACCESS_CODE` = một chuỗi ngẫu nhiên **ít nhất 16 ký tự**
      (ví dụ tạo bằng `openssl rand -base64 24`). Chuỗi này gửi cho Google.
-   - Kiểm tra `APP_URL` = `https://www.anhoi.co` (redirect URI ở bước 2 được
+   - Kiểm tra `APP_URL` = `https://www.socialsquare.site` (redirect URI ở bước 2 được
      ghép từ biến này — lệch một chữ là Google báo `redirect_uri_mismatch`).
    - Redeploy.
-4. Mở `https://www.anhoi.co/review/youtube`, tự chạy hết 4 bước một lần bằng
+4. Mở `https://www.socialsquare.site/review/youtube`, tự chạy hết 4 bước một lần bằng
    một tài khoản Google có kênh YouTube.
 
 Gỡ `GOOGLE_REVIEW_ACCESS_CODE` sau khi được duyệt: không có biến này, trang trả 404.
@@ -60,7 +60,7 @@ Code: `apps/web/app/review/youtube/`, `apps/web/src/features/google-review/`.
 
 Quay toàn màn hình, thấy rõ thanh địa chỉ. Dùng một tài khoản Google có kênh.
 
-1. **Giới thiệu (15 giây)** — `https://www.anhoi.co`:
+1. **Giới thiệu (15 giây)** — `https://www.socialsquare.site`:
    "Social Square is a social media management platform. Agencies connect their
    clients' YouTube channels to schedule and publish videos."
 2. **Luồng thật trong sản phẩm (60–90 giây)** — đăng nhập Social Square → *Accounts* →
@@ -110,7 +110,7 @@ Tải video lên YouTube ở chế độ **Unlisted**, lấy link.
 > videos, playlists or comments.
 >
 > **How to test without a Social Square account**
-> 1. Open https://www.anhoi.co/review/youtube
+> 1. Open https://www.socialsquare.site/review/youtube
 > 2. Enter the access code: **[GOOGLE_REVIEW_ACCESS_CODE]**
 > 3. Click "Connect with Google" and sign in with any Google account that has a
 >    YouTube channel. The consent screen lists both scopes. Click Allow.

@@ -356,6 +356,19 @@ Cách đọc:
     - ghi "xóa bình luận khi client ngắt kết nối", trong khi code không xóa.
   - Đã sửa hai câu này trong các bản soạn sẵn ở OWNER-TODO §1b và §1e.
 
+### 11/11
+
+- **Yêu cầu:** đổi website sang domain mới `socialsquare.site`; sửa các trang test và tài liệu theo.
+- **Kiểm tra trên production:**
+  - `socialsquare.site` chuyển sang `www.socialsquare.site`, rồi app lại chuyển về `www.anhoi.co`.
+  - Nghĩa là `APP_URL` trên Vercel vẫn là domain cũ, hoặc đã đổi nhưng chưa redeploy.
+- **Đã sửa:**
+  - Code không ghi cứng domain: các trang reviewer `/review/tiktok`, `/review/youtube` và mọi redirect URI đều lấy từ `APP_URL`.
+  - Cập nhật domain trong `.mcp.json`, test (`canonical-host`, `mcp`), comment, và tài liệu TIKTOK-REVIEW, GOOGLE-VERIFICATION, OWNER-TODO, AGENT-MCP-PLAN.
+  - Thêm test: trang mở trên domain cũ được chuyển sang domain mới.
+- **Checklist chuyển domain:** OWNER-TODO §0. Thứ tự: đăng ký URL mới ở Firebase, Meta, TikTok, Google, LinkedIn, Pinterest, X và S3 CORS → đổi `APP_URL` trên Vercel và Railway → redeploy.
+- **Sau khi đổi:** mọi người phải đăng nhập lại; Bluesky phải kết nối lại vì client id đổi; connector MCP phải thêm lại.
+
 ---
 
 ## Nền tảng mạng xã hội — ngày tích hợp
@@ -383,13 +396,15 @@ Cách đọc:
 | 21/10 | Railway hết trial → chuyển tài khoản Railway mới |
 | 29/10 | Redis chuyển sang Railway |
 | 9/11 | Còn 3 project Railway cùng deploy → nên giữ 1 |
+| 11/11 | Domain mới `www.socialsquare.site` (thay `www.anhoi.co`) |
 
 ---
 
-## Việc còn mở (tính đến 10/11)
+## Việc còn mở (tính đến 11/11)
 
+0. **Chuyển domain** theo OWNER-TODO §0. `APP_URL` trên production vẫn là `www.anhoi.co`.
 1. **Xác nhận migration production.** Code D-116 đã push lúc 13:20 ngày 9/11. Nếu `pnpm db:migrate:deploy` chưa chạy thì Settings → Plan và `/admin/plans` sẽ báo lỗi. Lệnh này chạy cả D-113 (mở giới hạn gói) và D-116 (bảng yêu cầu nâng gói).
-2. **Push** các commit timeline và D-117.
+2. **Push** các commit timeline, D-117 và đổi domain.
 3. **Meta App Review:**
    - quay lại video `instagram_business_basic` và `pages_read_user_content`, rồi nộp lại;
    - sửa các câu "PDF reports" và "xóa bình luận khi ngắt kết nối" trong những bản mô tả đã nộp.
