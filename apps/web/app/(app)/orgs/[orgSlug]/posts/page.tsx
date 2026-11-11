@@ -3,7 +3,7 @@ import { accessibleWorkspaceIds, isUserPrincipal, PLATFORMS, POST_STATUSES } fro
 import { CLIENT_VISIBLE_STATUSES } from '@orbit/rbac';
 import Link from 'next/link';
 import { Empty, PageHeader, PermissionDenied, buttonClassName } from '@orbit/ui';
-import { pageCan, requirePageContext } from '@/server/page-context';
+import { pageCan, pageCanSomewhere, requirePageContext } from '@/server/page-context';
 import { listPostFilterOptions, listPosts } from '@/features/posts/service';
 import {
   isFiltered,
@@ -13,6 +13,7 @@ import {
 } from '@/features/posts/list-query';
 import { PostCard } from '@/features/posts/ui/post-card';
 import { PostListFilters } from '@/features/posts/ui/post-list-filters';
+import { PostSelection, SelectableRow } from '@/features/posts/ui/post-selection';
 import { STATUS_LABEL } from '@/features/posts/ui/status';
 import { platformName } from '@/features/publishing/ui/links';
 
@@ -72,6 +73,21 @@ export default async function PostsPage({ params, searchParams }: PageProps) {
   const clients = [
     ...new Map(brands.map((brand) => [brand.workspace.id, brand.workspace.name])).entries(),
   ].map(([value, label]) => ({ value, label }));
+
+  /**
+   * The actions offered for a selection: those this viewer holds anywhere.
+   * Each post is checked again on its own when one is used, so offering an
+   * action is never what allows it. A Client acts from the portal, not here.
+   */
+  const bulkActions = isClient
+    ? []
+    : ([
+        pageCanSomewhere(ctx, 'post:create') ? 'duplicate' : null,
+        pageCanSomewhere(ctx, 'post:cancel_scheduled') ? 'cancel' : null,
+        pageCanSomewhere(ctx, 'post:delete') ? 'delete' : null,
+      ].filter(Boolean) as Array<'duplicate' | 'cancel' | 'delete'>);
+  const titleOf = (post: { title: string | null; body: string }) =>
+    post.title ?? (post.body.trim().slice(0, 60) || 'Untitled post');
 
   const filtered = isFiltered(list);
   const action = `/orgs/${orgSlug}/posts`;
@@ -160,13 +176,25 @@ export default async function PostsPage({ params, searchParams }: PageProps) {
               ? `Showing the first ${LIST_LIMIT} posts. Search or filter to find the rest.`
               : `${posts.length} post${posts.length === 1 ? '' : 's'}${filtered ? ' match' : ''}`}
           </p>
-          <ul className="mt-3 space-y-3">
-            {posts.map((post) => (
-              <li key={post.id}>
-                <PostCard orgSlug={orgSlug} post={post} />
-              </li>
-            ))}
-          </ul>
+          <PostSelection
+            orgSlug={orgSlug}
+            posts={posts.map((post) => ({ id: post.id, title: titleOf(post) }))}
+            actions={bulkActions}
+          >
+            <ul className="mt-3 space-y-3">
+              {posts.map((post) => (
+                <li key={post.id}>
+                  <SelectableRow
+                    postId={post.id}
+                    label={titleOf(post)}
+                    selectable={bulkActions.length > 0}
+                  >
+                    <PostCard orgSlug={orgSlug} post={post} />
+                  </SelectableRow>
+                </li>
+              ))}
+            </ul>
+          </PostSelection>
         </>
       )}
     </main>

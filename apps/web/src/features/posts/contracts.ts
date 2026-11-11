@@ -166,6 +166,25 @@ export const assignPostSchema = z.object({
   assignedToId: z.string().uuid().nullable(),
 });
 
+/** What can be done to several posts at once from the list. */
+export const BULK_POST_ACTIONS = ['delete', 'duplicate', 'cancel'] as const;
+export type BulkPostAction = (typeof BULK_POST_ACTIONS)[number];
+
+/** The most posts one request acts on: one page of the list. */
+export const BULK_POST_LIMIT = 100;
+
+export const bulkPostActionSchema = z.object({
+  action: z.enum(BULK_POST_ACTIONS),
+  postIds: z
+    .array(z.string().uuid())
+    .min(1)
+    .max(BULK_POST_LIMIT)
+    // Each id is acted on once, whatever the request repeats.
+    .transform((ids) => [...new Set(ids)]),
+});
+
+export type BulkPostActionInput = z.infer<typeof bulkPostActionSchema>;
+
 export type CreatePostInput = z.infer<typeof createPostSchema>;
 export type UpdatePostInput = z.infer<typeof updatePostSchema>;
 export type UpdateVariantInput = z.infer<typeof updateVariantSchema>;

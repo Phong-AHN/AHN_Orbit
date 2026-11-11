@@ -56,6 +56,14 @@ const PATHS: Record<string, Partial<Record<'get' | 'post' | 'patch' | 'delete', 
     get: { summary: 'List posts.', permission: 'post:read', surface: 'agency' },
     post: { summary: 'Create a post.', permission: 'post:create', surface: 'agency' },
   },
+  '/api/v1/orgs/{orgSlug}/posts/bulk': {
+    post: {
+      summary:
+        'Delete, duplicate or cancel up to 100 posts. Each post is checked on its own and answered on its own.',
+      permission: 'per post: post:delete, post:create, or the cancel transition',
+      surface: 'agency',
+    },
+  },
   '/api/v1/orgs/{orgSlug}/posts/{postId}': {
     get: { summary: 'One post with its variants.', permission: 'post:read', surface: 'agency' },
     patch: { summary: 'Edit content.', permission: 'post:update', surface: 'agency' },

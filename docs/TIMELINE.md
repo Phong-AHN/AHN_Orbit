@@ -422,6 +422,13 @@ Cách đọc:
   - **Nguyên nhân 1, đã sửa:** trang test `/review/youtube` dùng chung OAuth client với sản phẩm, và nút Disconnect của nó **thu hồi token ở Google**. Google thu hồi cả quyền của tài khoản đó với app, nên kênh cùng tài khoản Google trong sản phẩm chết theo. Giờ Disconnect chỉ bỏ phiên, giống sản phẩm.
   - **Nguyên nhân 2, việc của anh:** app Google Cloud còn ở chế độ **Testing** thì refresh token chết sau 7 ngày. Phải chuyển Publishing status sang In production.
   - Thông báo lỗi giờ giữ nguyên lời Google và nêu các nguyên nhân, để biết kênh rớt vì đâu.
+- **Yêu cầu:** xóa bài, và chọn nhiều bài để thao tác cùng lúc trong danh sách.
+  - Mỗi bài có ô chọn, kèm "Select all"; khi có bài được chọn thì hiện các nút **Duplicate**, **Cancel**, **Delete**.
+  - Xóa và Cancel có hộp xác nhận. Chỉ hiện những thao tác người xem có quyền; tài khoản client không thấy ô chọn.
+  - API mới `POST /posts/bulk`: mỗi bài được kiểm tra quyền và quy tắc như khi thao tác từng bài (bài đã đăng không xóa được, cancel đi qua state machine), và trả kết quả theo từng bài.
+  - Bài bị từ chối được liệt kê kèm lý do và vẫn được chọn sẵn; bài của tổ chức khác coi như không tồn tại.
+  - Xóa bài đang lên lịch là an toàn: worker không nhận đăng bản ghi đã xóa.
+  - Kiểm tra: typecheck, lint, 1716 unit test (7 mới) đều đạt. Chưa xem được giao diện thật.
 
 ---
 
