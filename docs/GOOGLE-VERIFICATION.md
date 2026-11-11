@@ -49,8 +49,8 @@ Không cần tài khoản Social Square. Được bảo vệ bằng mã truy c�
 - **Không lưu gì**: token chỉ nằm trong cookie mã hoá, 30 phút, không ghi
   database, không thuộc tenant nào.
 - 4 bước: nhập mã → màn hình đồng ý của Google → xem kênh và video gần đây
-  (`youtube.readonly`) → upload một video (`youtube.upload`) → Disconnect (thu hồi
-  quyền với Google).
+  (`youtube.readonly`) → upload một video (`youtube.upload`) → Disconnect (bỏ
+  phiên; **không** thu hồi ở Google — xem D-120).
 - File video tối đa 4 MB (giới hạn của Vercel). Mặc định **Private**. Bắt buộc
   chọn "made for kids" — giống sản phẩm, Social Square không bao giờ tự chọn thay.
 
@@ -119,7 +119,8 @@ Tải video lên YouTube ở chế độ **Unlisted**, lấy link.
 > 5. "Step 3": choose any short video under 4 MB, keep the title, choose
 >    "Made for children: No", click "Upload to YouTube". The video is uploaded
 >    as Private to that channel (`youtube.upload`), and a link to it is shown.
-> 6. "Step 4": "Disconnect and revoke access" revokes the grant with Google.
+> 6. "Step 4": "Disconnect" discards the session. Access to the Google account itself
+>    is removed from Google Account → Third-party connections, as in the product.
 >
 > The test page requests exactly the same scopes as the production app, stores no
 > tokens or data (the token is held only in an encrypted, 30-minute session

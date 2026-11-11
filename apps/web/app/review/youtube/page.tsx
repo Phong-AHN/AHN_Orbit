@@ -92,8 +92,8 @@ export default async function YouTubeReviewPage({ searchParams }: PageProps) {
           Social Square is a social media management platform. Agencies use it to schedule and
           publish content to their clients’ channels. This page lets the Google review team exercise
           exactly the YouTube integration our customers use, without creating a Social Square
-          account. It requests the same two scopes as the product, stores nothing, and revokes
-          access when you press Disconnect.
+          account. It requests the same two scopes as the product and stores nothing: the token
+          lives only in this browser session, and Disconnect discards it.
         </p>
       </header>
 
@@ -127,7 +127,17 @@ export default async function YouTubeReviewPage({ searchParams }: PageProps) {
           role="status"
           className="mb-6 rounded-md border border-line bg-surface-sunken px-4 py-3 text-sm text-ink"
         >
-          Disconnected. Access was revoked with Google and nothing was kept.
+          Disconnected. The session was discarded and nothing was kept. To remove Social
+          Square&rsquo;s access from your Google account as well, use{' '}
+          <a
+            className="text-accent underline"
+            href="https://myaccount.google.com/permissions"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Google Account → Third-party connections
+          </a>
+          .
         </p>
       ) : null}
 
@@ -282,13 +292,17 @@ export default async function YouTubeReviewPage({ searchParams }: PageProps) {
             </Section>
 
             <Section title="Step 4 — Disconnect">
-              <P>Revokes Orbit’s access with Google, as Disconnect does in the product.</P>
+              <P>
+                Discards the session, as Disconnect does in the product. Access to the Google
+                account itself is removed from Google Account → Third-party connections, which lists
+                Social Square.
+              </P>
               <form method="post" action="/review/youtube/disconnect">
                 <button
                   type="submit"
                   className="rounded-md border border-line px-4 py-2 text-sm font-medium text-ink"
                 >
-                  Disconnect and revoke access
+                  Disconnect
                 </button>
               </form>
             </Section>

@@ -280,6 +280,29 @@ describe('credentials', () => {
     expect(outcome.status).toBe('REQUIRES_RECONNECT');
   });
 
+  /**
+   * Every dead refresh token reads `invalid_grant`. The reason has to keep
+   * Google's words and name the causes, or a channel that drops weekly (an app
+   * still in Testing) looks the same as one whose owner removed access.
+   */
+  it('says what Google said, and names the Testing-mode cause', async () => {
+    api.on(/oauth2.*\/token/, {
+      status: 400,
+      body: { error: 'invalid_grant', error_description: 'Token has been expired or revoked.' },
+    });
+
+    const outcome = await provider(api).refreshCredential({
+      ...credential,
+      expiresAt: new Date(Date.now() - 60_000),
+    } as never);
+
+    expect(outcome).toMatchObject({ status: 'REQUIRES_RECONNECT' });
+    const reason = (outcome as { reason: string }).reason;
+    expect(reason).toContain('Token has been expired or revoked.');
+    expect(reason).toMatch(/Testing mode/);
+    expect(reason).not.toContain('Google OAuth refused');
+  });
+
   it('does not blame the channel when Google refuses our client', async () => {
     api.on(/oauth2.*\/token/, {
       status: 401,

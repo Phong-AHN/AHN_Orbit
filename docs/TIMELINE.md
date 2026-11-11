@@ -417,6 +417,11 @@ Cách đọc:
   - đã thêm, sửa tên nút cho đúng ("Disconnect and revoke access") và rút gọn còn 979 ký tự kể cả mã truy cập;
   - lưu ở TIKTOK-REVIEW.md, mã truy cập để dạng placeholder.
 - Soạn lý do nộp lại TikTok (dưới 120 ký tự): "Moved to socialsquare.site, icon matches the site favicon, and a test page lets reviewers try every requested scope."
+- **YouTube bị ngắt kết nối:** không đọc được log worker (không có quyền vào Railway; Vercel chỉ giữ log 1 giờ), nên tìm nguyên nhân trong code (D-120).
+  - Từ D-114, kênh chỉ bị coi là hỏng khi Google từ chối chính refresh token (`invalid_grant`).
+  - **Nguyên nhân 1, đã sửa:** trang test `/review/youtube` dùng chung OAuth client với sản phẩm, và nút Disconnect của nó **thu hồi token ở Google**. Google thu hồi cả quyền của tài khoản đó với app, nên kênh cùng tài khoản Google trong sản phẩm chết theo. Giờ Disconnect chỉ bỏ phiên, giống sản phẩm.
+  - **Nguyên nhân 2, việc của anh:** app Google Cloud còn ở chế độ **Testing** thì refresh token chết sau 7 ngày. Phải chuyển Publishing status sang In production.
+  - Thông báo lỗi giờ giữ nguyên lời Google và nêu các nguyên nhân, để biết kênh rớt vì đâu.
 
 ---
 

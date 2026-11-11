@@ -304,10 +304,7 @@ export class YouTubeProvider implements SocialProvider {
     } catch (error) {
       const code = (error as { code?: string }).code;
       if (code === 'PROVIDER_AUTHENTICATION_ERROR' || code === 'PROVIDER_PERMISSION_ERROR') {
-        return {
-          status: 'REQUIRES_RECONNECT',
-          reason: 'Google rejected the refresh token. The channel needs to be reconnected.',
-        };
+        return { status: 'REQUIRES_RECONNECT', reason: refreshRefusedReason(error) };
       }
       throw error;
     }
@@ -748,6 +745,25 @@ export class YouTubeProvider implements SocialProvider {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Why a channel needs reconnecting, in words that point at the cause.
+ *
+ * Google answers every dead refresh token with the same `invalid_grant`, and
+ * the old message — "Google rejected the refresh token" — was true of all of
+ * them and useful for none. The ways it happens here are few and distinct, so
+ * the message keeps Google's own description and names them: the Cloud app
+ * still in Testing (every refresh token dies seven days after consent, so a
+ * channel drops on a weekly rhythm), access removed from the Google account or
+ * revoked from another place sharing the OAuth client, or a password change.
+ */
+export function refreshRefusedReason(error: unknown): string {
+  const detail = (error as { message?: string }).message?.replace(/^Google OAuth refused:\s*/, '');
+  return [
+    `Google would not renew this channel's access${detail ? ` (${detail})` : ''}. Reconnect the channel.`,
+    'If it keeps happening about a week after connecting, the Google Cloud app is still in Testing mode; otherwise access was removed from the Google account, or its password changed.',
+  ].join(' ');
+}
 
 function readSettings(draft: VariantDraft): YouTubeSettings {
   const raw = draft.providerOptions ?? {};

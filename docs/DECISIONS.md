@@ -4853,6 +4853,37 @@ returned, is mapped next to the documented `invalid_param`.
 
 - **Date:** 2026-11-11 · **Status:** IMPLEMENTED (no migration)
 
+## D-120 — Why YouTube channels drop, and the review page that dropped them
+
+The owner reported YouTube channels disconnecting. The worker's logs could not
+be read from here (Railway access was not available, and Vercel keeps an hour),
+so the causes were found in the code and the configuration notes. Since D-114
+the worker renews and probes again before believing a broken verdict, so a
+channel is marked for reconnection only when Google refuses the refresh token
+itself (`invalid_grant`). Three things make Google do that here:
+
+1. **The YouTube review page revoked the shared grant.** `/review/youtube` uses
+   the product's OAuth client, and its Disconnect called
+   `oauth2.googleapis.com/revoke`. Google revokes the whole grant between that
+   Google account and the client. Testing the page with a Google account whose
+   channel was also connected in Social Square, then pressing Disconnect, killed
+   that channel's refresh token. The product's adapter never revokes, for this
+   reason. The page now discards its session the same way and links to the
+   Google account's third-party connections for anyone who wants the grant gone.
+2. **The Google Cloud app in Testing mode.** Google cancels every refresh token
+   seven days after consent, so channels drop on a weekly rhythm. This is
+   configuration (OWNER-TODO: Publishing status = In production), not code.
+3. Access removed from the Google account, or a password change. These are real
+   and expected.
+
+**The message now tells them apart.** It used to read "Google rejected the
+refresh token" for every case. It now carries Google's description and names
+the causes, so a channel that drops a week after connecting points at Testing
+mode.
+
+- **Date:** 2026-11-11 · **Status:** IMPLEMENTED (no migration); Testing mode
+  is the owner's to change
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

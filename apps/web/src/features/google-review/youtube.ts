@@ -148,12 +148,3 @@ export async function uploadVideo(
     throw new Error(`YouTube did not accept the upload (${uploaded.status})`);
   return { videoId: body.id };
 }
-
-/** Give the token back. Best effort: an expired token is already worthless. */
-export async function revokeToken(accessToken: string): Promise<void> {
-  await fetch('https://oauth2.googleapis.com/revoke', {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ token: accessToken }).toString(),
-  }).catch(() => undefined);
-}
