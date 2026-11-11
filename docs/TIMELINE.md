@@ -412,6 +412,10 @@ Cách đọc:
   - Code dựng đúng `https://www.socialsquare.site/review/tiktok/callback`, nhưng URI này **chưa đăng ký** trong TikTok Developer Portal.
   - `client_key` bắt đầu bằng `sbaw`, tức là app **Sandbox**, nên phải thêm URI ở phần Sandbox.
   - Không cần sửa code. Việc của anh: OWNER-TODO §0, bước 1.
+- Soát lại bản ghi chú nộp TikTok:
+  - thiếu giải thích scope `video.upload`, dù trang test có xin và có bước "Send to my TikTok inbox";
+  - đã thêm, sửa tên nút cho đúng ("Disconnect and revoke access") và rút gọn còn 979 ký tự kể cả mã truy cập;
+  - lưu ở TIKTOK-REVIEW.md, mã truy cập để dạng placeholder.
 
 ---
 

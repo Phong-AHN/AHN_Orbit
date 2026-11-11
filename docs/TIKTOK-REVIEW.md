@@ -66,6 +66,27 @@ Code: `apps/web/app/review/tiktok/`, `apps/web/src/features/tiktok-review/`.
 > 5. Step 5 lists recent videos with view counts (video.list).
 > 6. "Disconnect and revoke access" revokes the token. Nothing is stored.
 
+### Bản gọn cho ô mô tả sản phẩm và scope (dưới 1000 ký tự kể cả mã, 2026-11-11)
+
+Bản anh soạn lúc đầu thiếu `video.upload`. Trang test có xin scope này, và
+TikTok duyệt từng scope, nên scope nào không được giải thích dễ bị trả về.
+
+> Social Square is a social media management platform where businesses and agencies manage TikTok alongside their other accounts.
+> - Login Kit signs the user in securely; user.info.basic and user.info.profile show which account is connected (avatar, name, username).
+> - video.publish: Social Square reads the creator's privacy and interaction options, the user picks them (no defaults), can disclose commercial content, agrees to the Music Usage Confirmation and confirms.
+> - video.upload: sends a video to the creator's TikTok inbox to finish and post in the TikTok app.
+> - video.list: recent videos and views, for reporting.
+>
+> How to test (no account needed):
+> 1. Open https://www.socialsquare.site/#tiktok-review
+> 2. Enter access code [TIKTOK_REVIEW_ACCESS_CODE] and click "Open the TikTok test page"
+> 3. Click "Continue with TikTok" and authorize
+> 4. Post a short MP4 under 4 MB as "Only me", click "Send to my TikTok inbox", view recent videos, then "Disconnect and revoke access"
+
+**Trước khi nộp:** đăng ký `https://www.socialsquare.site/review/tiktok/callback`
+trong Login Kit (cả Sandbox lẫn Production). Thiếu bước này thì người duyệt sẽ
+gặp đúng lỗi `redirect_uri` như hôm 11/11.
+
 ## Sản phẩm (không phải trang test) — đã bổ sung 2026-11-11 (D-119)
 
 Phần **TikTok settings** trong trình soạn bài đã có:
