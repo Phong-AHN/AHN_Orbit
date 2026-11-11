@@ -21,6 +21,12 @@ import type { NotificationType } from '@orbit/notifications';
 import { audit, type AuditInput } from '@/server/audit';
 import { openGateFor, voidOpenGates } from '@/features/approvals/records';
 import type { CreatePostInput, UpdatePostInput, UpdateVariantInput } from './contracts';
+import {
+  postListOrder,
+  postListWhere,
+  type PostListParams,
+  type PostListScope,
+} from './list-query';
 import { validatePost } from './validation';
 import { assertNoBlockingTasks } from '../tasks/service';
 
@@ -352,31 +358,27 @@ export async function getPost(ctx: TenantContext, postId: string) {
   });
 }
 
+/**
+ * The post list, searched, filtered and sorted (`list-query.ts`).
+ *
+ * The scope — which workspaces and, for a Client, which statuses — comes from
+ * the caller's grant and is ANDed with whatever the request asked for, so a
+ * filter can only narrow what the viewer may already see.
+ */
 export async function listPosts(
   ctx: TenantContext,
-  filter: {
-    workspaceId?: string;
-    brandId?: string;
-    status?: PostStatus;
-    accessibleWorkspaces?: 'ALL' | readonly string[];
-    visibleStatuses?: readonly PostStatus[];
-    limit?: number;
-  } = {},
+  filter: Partial<PostListParams> & PostListScope & { limit?: number } = {},
 ) {
+  const { sort = 'upcoming', limit, accessibleWorkspaces, visibleStatuses, ...params } = filter;
+
   return withTenant(ctx, (db) =>
     db.post.findMany({
-      where: {
-        deletedAt: null,
-        ...(filter.workspaceId ? { workspaceId: filter.workspaceId } : {}),
-        ...(filter.brandId ? { brandId: filter.brandId } : {}),
-        ...(filter.status ? { status: filter.status } : {}),
+      where: postListWhere(params, {
+        ...(accessibleWorkspaces ? { accessibleWorkspaces } : {}),
         // A Client only ever sees content that has reached them; the caller
         // supplies the permitted set from the RBAC grant.
-        ...(filter.visibleStatuses ? { status: { in: [...filter.visibleStatuses] } } : {}),
-        ...(filter.accessibleWorkspaces && filter.accessibleWorkspaces !== 'ALL'
-          ? { workspaceId: { in: [...filter.accessibleWorkspaces] } }
-          : {}),
-      },
+        ...(visibleStatuses ? { visibleStatuses } : {}),
+      }),
       select: {
         ...POST_SELECT,
         variants: {
@@ -384,8 +386,26 @@ export async function listPosts(
           select: { id: true, platform: true, status: true, socialAccountId: true },
         },
       },
-      orderBy: [{ scheduledFor: 'asc' }, { createdAt: 'desc' }],
-      take: Math.min(filter.limit ?? 50, 200),
+      orderBy: postListOrder(sort),
+      take: Math.min(limit ?? 50, 200),
+    }),
+  );
+}
+
+/** Clients and brands the viewer can filter the list by. */
+export async function listPostFilterOptions(
+  ctx: TenantContext,
+  accessible: 'ALL' | readonly string[],
+) {
+  return withTenant(ctx, (db) =>
+    db.brand.findMany({
+      where: {
+        deletedAt: null,
+        workspace: { deletedAt: null },
+        ...(accessible === 'ALL' ? {} : { workspaceId: { in: [...accessible] } }),
+      },
+      select: { id: true, name: true, workspace: { select: { id: true, name: true } } },
+      orderBy: [{ workspace: { name: 'asc' } }, { name: 'asc' }],
     }),
   );
 }

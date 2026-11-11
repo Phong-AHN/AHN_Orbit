@@ -391,6 +391,17 @@ Cách đọc:
     - chặn trước hai tổ hợp TikTok không cho phép;
     - lỗi TikTok chưa có câu giải thích riêng giờ hiện nguyên văn mã và lý do của TikTok.
   - Kiểm tra: typecheck, lint, 1690 unit test (6 mới) đều đạt. **Chưa xác nhận trên production**: nếu vẫn lỗi, thông báo mới sẽ ghi rõ TikTok nói gì.
+- **Yêu cầu:** thêm tìm kiếm, lọc và sắp xếp cho danh sách bài viết.
+  - **Tìm** theo tiêu đề và nội dung, không phân biệt hoa thường.
+  - **Lọc** theo trạng thái, nền tảng, client và brand. Client chỉ thấy các trạng thái được phép xem; danh sách brand thu hẹp theo client đã chọn.
+  - **Sắp xếp:** lịch đăng gần nhất (mặc định như cũ), mới nhất, cũ nhất, sửa gần đây, đăng gần đây.
+  - Mỗi cách lọc có URL riêng, gửi được cho đồng nghiệp. API `GET /posts` nhận cùng các tham số.
+  - Có dòng đếm kết quả, trạng thái "No posts match" kèm nút xóa lọc, và một trang hiện tối đa 100 bài.
+  - **Sửa 2 lỗi có sẵn:**
+    - người chỉ có quyền một số client chọn lọc một client vẫn thấy tất cả, vì điều kiện quyền ghi đè lên bộ lọc;
+    - tài khoản client lọc theo trạng thái thì bị bỏ qua.
+    - Ngoài ra, id client/brand sai định dạng trên URL trước đây làm trang lỗi; giờ bị bỏ qua.
+  - Kiểm tra: typecheck, lint, 1705 unit test (15 mới), build web đều đạt. Chưa xem được giao diện thật.
 
 ---
 

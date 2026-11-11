@@ -1,24 +1,16 @@
-import {
-  accessibleWorkspaceIds,
-  isUserPrincipal,
-  POST_STATUSES,
-  type PostStatus,
-} from '@orbit/core';
+import { accessibleWorkspaceIds, isUserPrincipal } from '@orbit/core';
 import { CLIENT_VISIBLE_STATUSES } from '@orbit/rbac';
 import { jsonOk } from '@/server/api-response';
 import { readJsonBody, withAuth } from '@/server/with-auth';
 import { requestFingerprint } from '@/server/audit';
 import { createPostSchema, PROTECTED_POST_FIELDS } from '@/features/posts/contracts';
+import { readPostListParams } from '@/features/posts/list-query';
 import { createPost, listPosts } from '@/features/posts/service';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type Params = { orgSlug: string };
-
-function isPostStatus(value: string | null): value is PostStatus {
-  return value !== null && (POST_STATUSES as readonly string[]).includes(value);
-}
 
 export const GET = withAuth<Params>(
   {
@@ -27,9 +19,7 @@ export const GET = withAuth<Params>(
     // about; without it the policy engine denies with MISSING_SCOPE_INFORMATION
     // and the list below narrows to the accessible set anyway.
     resource: ({ request }) => {
-      const url = new URL(request.url);
-      const workspaceId = url.searchParams.get('workspaceId');
-      const brandId = url.searchParams.get('brandId');
+      const { workspaceId, brandId } = readPostListParams(new URL(request.url).searchParams);
       return {
         ...(workspaceId ? { workspaceId } : {}),
         ...(brandId ? { brandId } : {}),
@@ -38,10 +28,9 @@ export const GET = withAuth<Params>(
     name: 'GET /api/v1/orgs/{orgSlug}/posts',
   },
   async ({ request, ctx }) => {
-    const url = new URL(request.url);
-    const status = url.searchParams.get('status');
-    const workspaceId = url.searchParams.get('workspaceId');
-    const brandId = url.searchParams.get('brandId');
+    // Search, filter and sort: `q`, `status`, `platform`, `workspaceId`,
+    // `brandId`, `sort` — read exactly as the post list page reads them.
+    const params = readPostListParams(new URL(request.url).searchParams);
 
     // A Client only ever sees content that has reached them. The permitted set
     // comes from the RBAC matrix, not from anything the request supplied.
@@ -49,9 +38,7 @@ export const GET = withAuth<Params>(
 
     return jsonOk({
       posts: await listPosts(ctx, {
-        ...(workspaceId ? { workspaceId } : {}),
-        ...(brandId ? { brandId } : {}),
-        ...(isPostStatus(status) ? { status } : {}),
+        ...params,
         ...(isClient ? { visibleStatuses: CLIENT_VISIBLE_STATUSES } : {}),
         accessibleWorkspaces: accessibleWorkspaceIds(ctx),
       }),

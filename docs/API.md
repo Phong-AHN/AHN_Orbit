@@ -162,7 +162,7 @@ of clients, accounts or posts (**D-042**).
 
 | Method | Path | Permission | Notes |
 |---|---|---|---|
-| `GET` | `/orgs/{orgId}/posts` | `post:read` | The calendar/list workhorse; all §12 filters |
+| `GET` | `/orgs/{orgId}/posts` | `post:read` | The calendar/list workhorse. `q` (title and text, 100 chars), `status`, `platform`, `workspaceId`, `brandId`, `sort` = `upcoming` (default) \| `newest` \| `oldest` \| `updated` \| `published`. Unknown values are ignored; filters only narrow the caller's access |
 | `POST` | `/orgs/{orgId}/posts` | `post:create` | Creates post + variants in one transaction |
 | `GET` `PATCH` `DELETE` | `/orgs/{orgId}/posts/{id}` | `post:read` / `:update` / `:delete` | `PATCH` rejects edits at/after `APPROVED` (409) |
 | `POST` | `/orgs/{orgId}/posts/{id}/duplicate` | `post:create` | |
