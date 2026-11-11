@@ -35,7 +35,13 @@ export interface TikTokOptions {
   disableComment?: boolean;
   disableDuet?: boolean;
   disableStitch?: boolean;
+  commercialDisclosure?: boolean;
+  brandOrganic?: boolean;
+  brandContent?: boolean;
 }
+
+const MUSIC_URL = 'https://www.tiktok.com/legal/page/global/music-usage-confirmation/en';
+const BRANDED_URL = 'https://www.tiktok.com/legal/page/global/bc-policy/en';
 
 interface CreatorOptions {
   username: string;
@@ -123,7 +129,13 @@ export function TikTokOptionsPanel({
     (value.privacyLevel ?? '') !== (saved.privacyLevel ?? '') ||
     Boolean(value.disableComment) !== Boolean(saved.disableComment) ||
     Boolean(value.disableDuet) !== Boolean(saved.disableDuet) ||
-    Boolean(value.disableStitch) !== Boolean(saved.disableStitch);
+    Boolean(value.disableStitch) !== Boolean(saved.disableStitch) ||
+    Boolean(value.commercialDisclosure) !== Boolean(saved.commercialDisclosure) ||
+    Boolean(value.brandOrganic) !== Boolean(saved.brandOrganic) ||
+    Boolean(value.brandContent) !== Boolean(saved.brandContent);
+
+  const disclose = value.commercialDisclosure === true;
+  const branded = disclose && value.brandContent === true;
 
   async function save() {
     setSaving(true);
@@ -236,7 +248,8 @@ export function TikTokOptionsPanel({
             >
               <option value="">Choose&hellip;</option>
               {creator.privacyLevels.map((level) => (
-                <option key={level} value={level}>
+                // TikTok does not allow branded content to be private.
+                <option key={level} value={level} disabled={branded && level === 'SELF_ONLY'}>
                   {PRIVACY_LABEL[level] ?? level}
                 </option>
               ))}
@@ -299,11 +312,127 @@ export function TikTokOptionsPanel({
             />
           </fieldset>
 
+          {/* Commercial content disclosure, as TikTok's posting guidelines
+              ask for it: off by default, and once on, what is promoted has to
+              be said. Sent on every direct post — TikTok requires the field. */}
+          <fieldset className="space-y-1.5">
+            <legend className="text-xs font-medium text-ink-muted">Commercial content</legend>
+            <label
+              htmlFor={`tiktok-disclose-${socialAccountId}`}
+              className="flex items-center gap-2 text-sm text-ink"
+            >
+              <input
+                id={`tiktok-disclose-${socialAccountId}`}
+                type="checkbox"
+                checked={disclose}
+                disabled={disabled || saving}
+                onChange={(event) =>
+                  onChange(
+                    event.target.checked
+                      ? { ...value, commercialDisclosure: true }
+                      : {
+                          ...value,
+                          commercialDisclosure: false,
+                          brandOrganic: false,
+                          brandContent: false,
+                        },
+                  )
+                }
+                className="size-4 rounded border-line focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+              />
+              Disclose that this post promotes a brand, product or service
+            </label>
+
+            {disclose ? (
+              <div className="space-y-1.5 pl-6">
+                <label
+                  htmlFor={`tiktok-brand-organic-${socialAccountId}`}
+                  className="flex items-start gap-2 text-sm text-ink"
+                >
+                  <input
+                    id={`tiktok-brand-organic-${socialAccountId}`}
+                    type="checkbox"
+                    checked={value.brandOrganic === true}
+                    disabled={disabled || saving}
+                    onChange={(event) => onChange({ ...value, brandOrganic: event.target.checked })}
+                    className="mt-0.5 size-4 rounded border-line"
+                  />
+                  <span>
+                    Your brand
+                    <span className="block text-xs text-ink-muted">
+                      Promoting the account&rsquo;s own business. TikTok labels it
+                      &ldquo;Promotional content&rdquo;.
+                    </span>
+                  </span>
+                </label>
+                <label
+                  htmlFor={`tiktok-brand-content-${socialAccountId}`}
+                  className="flex items-start gap-2 text-sm text-ink"
+                >
+                  <input
+                    id={`tiktok-brand-content-${socialAccountId}`}
+                    type="checkbox"
+                    checked={value.brandContent === true}
+                    disabled={disabled || saving}
+                    onChange={(event) => {
+                      const next = { ...value, brandContent: event.target.checked };
+                      // Branded content cannot be private; drop that choice.
+                      if (event.target.checked && next.privacyLevel === 'SELF_ONLY') {
+                        delete next.privacyLevel;
+                      }
+                      onChange(next);
+                    }}
+                    className="mt-0.5 size-4 rounded border-line"
+                  />
+                  <span>
+                    Branded content
+                    <span className="block text-xs text-ink-muted">
+                      Promoting another brand or a third party. TikTok labels it &ldquo;Paid
+                      partnership&rdquo;, and it cannot be posted as &ldquo;Only this
+                      account&rdquo;.
+                    </span>
+                  </span>
+                </label>
+                {value.brandOrganic !== true && value.brandContent !== true ? (
+                  <p role="alert" className="text-xs text-danger">
+                    Choose at least one, or turn disclosure off.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </fieldset>
+
           {creator.maxVideoSeconds > 0 ? (
             <p className="text-xs text-ink-muted">
               This account can post videos up to {creator.maxVideoSeconds} seconds.
             </p>
           ) : null}
+
+          <p className="text-xs text-ink-muted">
+            By publishing to TikTok, you agree to TikTok&rsquo;s{' '}
+            {branded ? (
+              <>
+                <a
+                  className="text-accent underline"
+                  href={BRANDED_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Branded Content Policy
+                </a>{' '}
+                and{' '}
+              </>
+            ) : null}
+            <a
+              className="text-accent underline"
+              href={MUSIC_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Music Usage Confirmation
+            </a>
+            .
+          </p>
         </>
       ) : null}
 

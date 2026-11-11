@@ -382,6 +382,15 @@ Cách đọc:
   - script `move-bucket.ts` (`check`, `cors`, `copy`, `compare`).
   - Kiểm tra: typecheck, lint, 1684 unit test đều đạt. Chưa chạy được với bucket thật, vì bucket chưa tạo.
   - Các bước chuyển: OWNER-TODO §0b. **Push code trước rồi mới đổi biến**, nếu không worker cũ sẽ không khởi động được.
+- **Lỗi:** đăng TikTok báo "The platform rejected this post".
+  - Không đọc được log production: connector Social Square mất kết nối, Railway CLI không trả kết quả.
+  - Tìm ra bằng cách so sánh request: trang review (chạy được) gửi `brand_content_toggle` và `brand_organic_toggle`, sản phẩm thì không. Tài liệu TikTok ghi `brand_content_toggle` là **bắt buộc** khi Direct Post, nên TikTok trả `invalid_param`.
+  - **Đã sửa** (D-119):
+    - luôn gửi hai trường này, mặc định `false`;
+    - thêm phần khai báo nội dung thương mại và dòng Music Usage Confirmation vào cài đặt TikTok trong trình soạn bài;
+    - chặn trước hai tổ hợp TikTok không cho phép;
+    - lỗi TikTok chưa có câu giải thích riêng giờ hiện nguyên văn mã và lý do của TikTok.
+  - Kiểm tra: typecheck, lint, 1690 unit test (6 mới) đều đạt. **Chưa xác nhận trên production**: nếu vẫn lỗi, thông báo mới sẽ ghi rõ TikTok nói gì.
 
 ---
 

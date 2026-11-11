@@ -592,6 +592,20 @@ describe('error handling', () => {
     expect(messages[0]).toBe(messages[1]);
   });
 
+  /**
+   * `invalid_param` is TikTok's catch-all, and its own documentation says the
+   * detail is in the message. Hiding it left "the platform rejected this post"
+   * as all anyone could see for a missing request field.
+   */
+  it('says what TikTok objected to when it is not one we have explained', async () => {
+    const local = happyApi().fail(/video\/init/, 'invalid_param', 400);
+
+    await expect(provider(local).publish(publishContext())).rejects.toMatchObject({
+      code: 'PROVIDER_VALIDATION_ERROR',
+      userMessage: 'TikTok rejected this post (invalid_param): invalid_param happened',
+    });
+  });
+
   it('treats a daily post cap as a rate limit rather than a refusal', async () => {
     const local = happyApi().fail(/video\/init/, 'spam_risk_too_many_posts', 403);
 
@@ -619,6 +633,78 @@ describe('publishing a video', () => {
       'PUBLIC_TO_EVERYONE',
     );
     expect((body['source_info'] as Record<string, unknown>)['source']).toBe('FILE_UPLOAD');
+  });
+
+  /**
+   * `brand_content_toggle` is required on a direct post. Without it TikTok
+   * answers `invalid_param`, which is what every product post was hitting.
+   * Not disclosing is a real answer, and it is sent as `false`.
+   */
+  it('always sends the commercial disclosure, false when nothing is promoted', async () => {
+    await provider(api).publish(publishContext());
+
+    const postInfo = api.bodyOf(/video\/init/)['post_info'] as Record<string, unknown>;
+    expect(postInfo['brand_content_toggle']).toBe(false);
+    expect(postInfo['brand_organic_toggle']).toBe(false);
+  });
+
+  it('sends what the disclosure says is promoted', async () => {
+    await provider(api).publish(
+      publishContext({
+        draft: {
+          body: 'Our new menu',
+          providerOptions: {
+            postMode: 'DIRECT_POST',
+            privacyLevel: 'PUBLIC_TO_EVERYONE',
+            commercialDisclosure: true,
+            brandOrganic: true,
+          },
+        },
+      }),
+    );
+
+    const postInfo = api.bodyOf(/video\/init/)['post_info'] as Record<string, unknown>;
+    expect(postInfo['brand_organic_toggle']).toBe(true);
+    expect(postInfo['brand_content_toggle']).toBe(false);
+  });
+
+  it('refuses disclosure with nothing chosen, before asking TikTok', async () => {
+    const local = happyApi();
+    await expect(
+      provider(local).publish(
+        publishContext({
+          draft: {
+            body: 'Our new menu',
+            providerOptions: {
+              postMode: 'DIRECT_POST',
+              privacyLevel: 'PUBLIC_TO_EVERYONE',
+              commercialDisclosure: true,
+            },
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ userMessage: expect.stringMatching(/your brand/i) as unknown });
+    expect(local.called(/video\/init/)).toBe(0);
+  });
+
+  it('refuses branded content posted privately, as TikTok does', async () => {
+    const local = happyApi();
+    await expect(
+      provider(local).publish(
+        publishContext({
+          draft: {
+            body: 'Sponsored',
+            providerOptions: {
+              postMode: 'DIRECT_POST',
+              privacyLevel: 'SELF_ONLY',
+              commercialDisclosure: true,
+              brandContent: true,
+            },
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ userMessage: expect.stringMatching(/branded content/i) as unknown });
+    expect(local.called(/video\/init/)).toBe(0);
   });
 
   /**

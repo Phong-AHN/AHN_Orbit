@@ -58,6 +58,10 @@ const platformOptions = z
     disableComment: z.boolean().optional(),
     disableDuet: z.boolean().optional(),
     disableStitch: z.boolean().optional(),
+    /** TikTok's commercial content disclosure, and what is being promoted. */
+    commercialDisclosure: z.boolean().optional(),
+    brandOrganic: z.boolean().optional(),
+    brandContent: z.boolean().optional(),
 
     // ── YouTube ────────────────────────────────────────────────────────────
     /**

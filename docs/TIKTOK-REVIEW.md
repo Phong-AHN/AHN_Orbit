@@ -66,8 +66,15 @@ Code: `apps/web/app/review/tiktok/`, `apps/web/src/features/tiktok-review/`.
 > 5. Step 5 lists recent videos with view counts (video.list).
 > 6. "Disconnect and revoke access" revokes the token. Nothing is stored.
 
-## Còn thiếu trong sản phẩm (không phải trang test)
+## Sản phẩm (không phải trang test) — đã bổ sung 2026-11-11 (D-119)
 
-Composer của sản phẩm chưa có **commercial content disclosure** và **dòng đồng ý
-Music Usage Confirmation** cạnh nút đăng. TikTok kiểm tra các yêu cầu này cả ở
-sản phẩm khi audit — nên bổ sung trước khi mở Direct Post công khai.
+Phần **TikTok settings** trong trình soạn bài đã có:
+- **Commercial content disclosure**: tắt sẵn; bật lên thì phải chọn "Your brand",
+  "Branded content", hoặc cả hai. Branded content không đăng được ở chế độ "Only
+  this account".
+- Dòng **Music Usage Confirmation** (thêm Branded Content Policy khi có branded
+  content).
+
+Mỗi bài Direct Post giờ **luôn gửi** `brand_content_toggle` và
+`brand_organic_toggle`. Trước đó sản phẩm không gửi, nên TikTok trả
+`invalid_param` và bài báo "The platform rejected this post".

@@ -4802,6 +4802,42 @@ place. The project is on the Hobby plan.
 - **Date:** 2026-11-11 · **Status:** IMPLEMENTED in code; the switch is the
   owner's (OWNER-TODO §0b)
 
+## D-119 — A TikTok direct post always says whether it is commercial
+
+The owner reported TikTok posts failing with "The platform rejected this post".
+Production logs could not be read from the development machine, so the cause
+was found by comparing requests. The TikTok review page, which works, sends
+`brand_content_toggle` and `brand_organic_toggle`; the product's adapter sent
+neither. TikTok's Direct Post reference marks `brand_content_toggle`
+**required** for video and photo, and `brand_organic_toggle` for photo. A
+missing required field is `invalid_param`, and that code had no explanation of
+its own, so it surfaced as the generic sentence.
+
+### What changed
+
+- **Both fields are sent on every direct post**, `false` unless the post
+  discloses commercial content. Not disclosing is a real answer.
+- **The composer asks, as TikTok's posting guidelines require.** Commercial
+  content disclosure is off by default. When it is on, "Your brand", "Branded
+  content", or both must be chosen. Branded content cannot be "Only this
+  account". The Music Usage Confirmation line (and the Branded Content Policy,
+  for branded content) is shown. The adapter refuses both broken combinations
+  by name before calling TikTok.
+- **A TikTok refusal we have not explained shows TikTok's own words**, named as
+  TikTok's: "TikTok rejected this post (invalid_param): …". `invalid_param` is
+  TikTok's catch-all, and its documentation says the detail is in the message.
+  Hiding the message is what made a missing field read as a problem with the
+  post's content. This is the same call D-085 made for X.
+
+### Not verified
+
+The cause comes from TikTok's documentation and the difference from the review
+page. It has not been seen in a production log: the worker's logs were not
+readable from here. If posts still fail after this deploys, the new message
+names TikTok's code and reason.
+
+- **Date:** 2026-11-11 · **Status:** IMPLEMENTED (no migration)
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

@@ -120,6 +120,20 @@ describe('TikTok', () => {
       }),
     ).toEqual([]);
   });
+
+  /** Disclosure switched on asks what is promoted, as TikTok's guidelines do. */
+  it('asks what is promoted once disclosure is on', () => {
+    const ask = (options: Record<string, unknown>) =>
+      missingPlatformSettings({
+        platform: 'TIKTOK',
+        options: { privacyLevel: 'PUBLIC_TO_EVERYONE', ...options },
+        media: noMedia,
+      }).map((m) => m.id);
+
+    expect(ask({ commercialDisclosure: true })).toEqual(['commercialDisclosure']);
+    expect(ask({ commercialDisclosure: true, brandOrganic: true })).toEqual([]);
+    expect(ask({ commercialDisclosure: false })).toEqual([]);
+  });
 });
 
 describe('Pinterest', () => {

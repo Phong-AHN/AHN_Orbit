@@ -129,6 +129,35 @@ export interface TikTokPostSettings {
   disableComment?: boolean | undefined;
   disableDuet?: boolean | undefined;
   disableStitch?: boolean | undefined;
+  /**
+   * Commercial content disclosure, as TikTok's posting guidelines describe it:
+   * off by default; when on, "your brand" (`brandOrganic`), "branded content"
+   * (`brandContent`), or both must be chosen.
+   */
+  commercialDisclosure?: boolean | undefined;
+  brandOrganic?: boolean | undefined;
+  brandContent?: boolean | undefined;
+}
+
+/**
+ * The two disclosure fields a direct post sends, always.
+ *
+ * `brand_content_toggle` is marked **required** in TikTok's Direct Post
+ * reference, for video and photo alike, and `brand_organic_toggle` is for
+ * photos. A request without them is refused with `invalid_param`, which is how
+ * every product TikTok post came to read "the platform rejected this post"
+ * while the review page, which sends them, went through. `false` is a real
+ * answer: nothing is being promoted.
+ */
+function disclosureFields(settings: TikTokPostSettings): {
+  brand_content_toggle: boolean;
+  brand_organic_toggle: boolean;
+} {
+  const on = settings.commercialDisclosure === true;
+  return {
+    brand_content_toggle: on && settings.brandContent === true,
+    brand_organic_toggle: on && settings.brandOrganic === true,
+  };
 }
 
 export interface TikTokCreatorInfo {
@@ -727,6 +756,7 @@ export class TikTokProvider implements SocialProvider {
                 disable_comment: settings.disableComment ?? false,
                 disable_duet: settings.disableDuet ?? false,
                 disable_stitch: settings.disableStitch ?? false,
+                ...disclosureFields(settings),
               },
             }
           : {}),
@@ -771,6 +801,8 @@ export class TikTokProvider implements SocialProvider {
           privacy_level: settings.privacyLevel,
           disable_comment: settings.disableComment ?? false,
           auto_add_music: true,
+          // "Only works for post_mode = DIRECT POST" in TikTok's reference.
+          ...(settings.postMode === 'DIRECT_POST' ? disclosureFields(settings) : {}),
         },
         source_info: {
           source: 'PULL_FROM_URL',
@@ -1119,6 +1151,11 @@ function readSettings(draft: VariantDraft): TikTokPostSettings {
       : {}),
     ...(typeof raw['disableDuet'] === 'boolean' ? { disableDuet: raw['disableDuet'] } : {}),
     ...(typeof raw['disableStitch'] === 'boolean' ? { disableStitch: raw['disableStitch'] } : {}),
+    ...(typeof raw['commercialDisclosure'] === 'boolean'
+      ? { commercialDisclosure: raw['commercialDisclosure'] }
+      : {}),
+    ...(typeof raw['brandOrganic'] === 'boolean' ? { brandOrganic: raw['brandOrganic'] } : {}),
+    ...(typeof raw['brandContent'] === 'boolean' ? { brandContent: raw['brandContent'] } : {}),
   };
 }
 
@@ -1173,6 +1210,31 @@ function assertSettingsMatchCreator(
       kind: 'VALIDATION',
       message: 'The creator has stitch turned off; the post cannot enable it',
       userMessage: 'This account has stitch turned off on TikTok.',
+    });
+  }
+
+  // TikTok's posting guidelines: disclosure on means saying what is promoted,
+  // and branded content cannot be posted privately. Both are refused here by
+  // name rather than left to a bare `invalid_param`.
+  if (settings.commercialDisclosure && !settings.brandOrganic && !settings.brandContent) {
+    throw toAppError('TIKTOK', {
+      kind: 'VALIDATION',
+      message: 'Commercial disclosure is on but neither "your brand" nor "branded content" is set',
+      userMessage:
+        'This TikTok post discloses commercial content without saying what kind. Choose "Your brand", "Branded content", or both — or turn disclosure off.',
+    });
+  }
+
+  if (
+    settings.commercialDisclosure &&
+    settings.brandContent &&
+    settings.privacyLevel === 'SELF_ONLY'
+  ) {
+    throw toAppError('TIKTOK', {
+      kind: 'VALIDATION',
+      message: 'Branded content cannot be posted with privacy_level SELF_ONLY',
+      userMessage:
+        'TikTok does not allow branded content to be posted as "Only this account". Choose another audience.',
     });
   }
 

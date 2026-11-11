@@ -133,9 +133,10 @@ export function isTikTokFailure(body: TikTokErrorBody, httpStatus: number): bool
 /**
  * Turn a TikTok error body into a taxonomy error.
  *
- * `error.message` is developer-facing and may name internal fields, so it never
- * becomes a user message on its own — the only user-facing text that comes from
- * TikTok is the client-standing copy above, which we wrote.
+ * `error.message` is developer-facing and names request fields. Where we have
+ * written an explanation — client standing, a known failure reason — that is
+ * what the user sees. Where we have not, TikTok's own message is shown, named
+ * as TikTok's, rather than a generic sentence that hides it.
  */
 export function normalizeTikTokError(
   body: TikTokErrorBody,
@@ -166,6 +167,23 @@ export function normalizeTikTokError(
    */
   const explained = code ? FAIL_REASONS[code]?.userMessage : undefined;
 
+  /**
+   * Never "the platform rejected this post" for a refusal TikTok explained.
+   *
+   * `invalid_param` is TikTok's catch-all, and its documentation says outright
+   * "check error message for details". Hiding that message left the generic
+   * copy as the only thing anyone could see, which is how a missing required
+   * field (`brand_content_toggle`) passed for a problem with the post's
+   * content. The message names a request field, which tells an agency
+   * operator more than nothing does — the same call made for X (D-085).
+   */
+  const told =
+    !standing && !explained && (kind === 'VALIDATION' || kind === 'MEDIA')
+      ? `TikTok rejected this post${code ? ` (${code})` : ''}${
+          error.message ? `: ${error.message.slice(0, 200)}` : '.'
+        }`
+      : undefined;
+
   return toAppError('TIKTOK', {
     kind,
     message: error.message ?? `TikTok error ${code ?? 'unknown'} (HTTP ${httpStatus})`,
@@ -174,7 +192,7 @@ export function normalizeTikTokError(
     ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
     // Client standing wins: it names who can act, which is more useful than
     // what went wrong.
-    ...((standing ?? explained) ? { userMessage: standing ?? explained } : {}),
+    ...((standing ?? explained ?? told) ? { userMessage: standing ?? explained ?? told } : {}),
     meta: {
       // TikTok's own support reference. Not sensitive, and the first thing they
       // ask for.

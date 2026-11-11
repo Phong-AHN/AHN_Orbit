@@ -91,6 +91,15 @@ export function missingPlatformSettings(input: {
     if (mode !== 'MEDIA_UPLOAD' && typeof options['privacyLevel'] !== 'string') {
       missing.push({ id: 'privacyLevel', label: 'who can see this video' });
     }
+    // Disclosure switched on is a question asked and not yet answered.
+    if (
+      mode !== 'MEDIA_UPLOAD' &&
+      options['commercialDisclosure'] === true &&
+      options['brandOrganic'] !== true &&
+      options['brandContent'] !== true
+    ) {
+      missing.push({ id: 'commercialDisclosure', label: 'what the disclosed content promotes' });
+    }
   }
 
   if (platform === 'YOUTUBE') {
