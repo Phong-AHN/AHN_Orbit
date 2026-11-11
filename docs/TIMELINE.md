@@ -402,6 +402,11 @@ Cách đọc:
     - tài khoản client lọc theo trạng thái thì bị bỏ qua.
     - Ngoài ra, id client/brand sai định dạng trên URL trước đây làm trang lỗi; giờ bị bỏ qua.
   - Kiểm tra: typecheck, lint, 1705 unit test (15 mới), build web đều đạt. Chưa xem được giao diện thật.
+- **TikTok lần 2:** sau khi push, thông báo lỗi mới hiện đúng lý do: "TikTok rejected this post (invalid_params): The chunk size is invalid". Phần khai báo thương mại đã qua; lỗi giờ nằm ở bước upload video.
+  - Nguyên nhân: tài liệu TikTok ghi chunk "5–64 MB" mà không nói MB nào. Code hiểu là MiB, nên gửi nguyên file tới 64 MiB và chia chunk 67.108.864 byte cho file lớn hơn — vượt 64 MB nếu TikTok tính MB thập phân.
+  - **Đã sửa** (bổ sung D-119): chia chunk 10.000.000 byte theo đúng ví dụ của TikTok; file dưới 20 MB gửi nguyên; chunk cuối 10–20 MB. Worker giờ giữ tối đa khoảng 20 MB trong RAM thay vì tới 128 MB. Thêm mã `invalid_params`.
+  - Kiểm tra: typecheck, lint, 1708 unit test đều đạt.
+  - **Commit chỉ đổi `packages/`, nên Railway sẽ không tự deploy worker.** Sau khi push phải bấm Deploy Latest Commit.
 
 ---
 

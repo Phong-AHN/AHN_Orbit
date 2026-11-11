@@ -1122,10 +1122,40 @@ describe('chunk planning', () => {
   });
 
   /**
+   * TikTok refused a publish with "The chunk size is invalid" (2026-11-11)
+   * when chunks were 67,108,864 bytes: 64 MiB, over 64 MB read as decimal.
+   * Every chunk now sits inside 5–64 MB however a megabyte is counted.
+   */
+  it('keeps every chunk inside 5–64 MB, decimal or binary', () => {
+    for (const size of [
+      20_000_000,
+      64_000_001,
+      64 * 1024 * 1024 + 1,
+      100_000_000,
+      999_999_999,
+      2_000_000_000,
+    ]) {
+      const plan = planChunks(size);
+      const lastChunkBytes = size - plan.chunkSize * (plan.totalChunks - 1);
+
+      expect(plan.chunkSize).toBeGreaterThanOrEqual(5 * 1024 * 1024);
+      expect(plan.chunkSize).toBeLessThanOrEqual(64_000_000);
+      expect(lastChunkBytes).toBeLessThanOrEqual(128_000_000);
+      expect(plan.chunkSize).not.toBe(64 * 1024 * 1024);
+    }
+  });
+
+  /** A file under two chunks' worth goes whole: one chunk, inside the rule. */
+  it('sends a file under 20 MB whole', () => {
+    expect(planChunks(19_999_999)).toEqual({ chunkSize: 19_999_999, totalChunks: 1 });
+    expect(planChunks(20_000_000)).toEqual({ chunkSize: 10_000_000, totalChunks: 2 });
+  });
+
+  /**
    * The chunk count is bounded by the file-size ceiling rather than by any
-   * logic here: 4 GB at 64 MB chunks is 64 requests, comfortably inside
-   * TikTok's limit of 1000. A file large enough to break that is refused by
-   * the capability descriptor long before it reaches this function.
+   * logic here: 4 GB at 10 MB chunks is 429 requests, inside TikTok's limit of
+   * 1000. A file large enough to break that is refused by the capability
+   * descriptor long before it reaches this function.
    */
   it('stays well within the 1000-chunk ceiling at the largest allowed file', () => {
     const plan = planChunks(4 * 1024 * 1024 * 1024);
@@ -1147,6 +1177,15 @@ describe('chunk planning', () => {
 
     const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
     expect(total).toBe(1_000_000);
+  });
+
+  it('declares and sends the same chunks for a file that is split', async () => {
+    await provider(api).publish(publishContext({ media: [video(25_000_000)] }));
+
+    const source = api.bodyOf(/video\/init/)['source_info'] as Record<string, unknown>;
+    expect(source['chunk_size']).toBe(10_000_000);
+    expect(source['total_chunk_count']).toBe(2);
+    expect(chunks.map((chunk) => chunk.byteLength)).toEqual([10_000_000, 15_000_000]);
   });
 });
 

@@ -1319,22 +1319,28 @@ function isVideoId(value: string): boolean {
  * `total_chunk_count` is the size divided by the chunk size **rounded down**,
  * and the final chunk swallows the remainder rather than being a short one. A
  * file under 5 MB cannot be chunked at all and goes as a single piece.
+ *
+ * Sized to TikTok's own worked example, 10,000,000-byte chunks. The previous
+ * plan sent anything up to 64 MiB whole and split larger files into
+ * 67,108,864-byte chunks — over 64 MB if TikTok means decimal megabytes, and it
+ * refused with "The chunk size is invalid". Now every chunk is 10–20 MB, inside
+ * the rule under either reading, and the worker holds at most one of them in
+ * memory rather than up to 128 MB.
  */
 export function planChunks(sizeBytes: number): { chunkSize: number; totalChunks: number } {
-  // Anything up to the 64 MB chunk ceiling goes as one piece — a file under
-  // 5 MB *must*, and one between 5 and 64 MB legally may. Reporting a
-  // `chunk_size` larger than the file is the bug this replaces: TikTok would
-  // have been told 64 MB chunks for a 50 MB video, and its own arithmetic
-  // (size ÷ chunk_size, rounded down) makes that zero chunks.
-  if (sizeBytes <= TIKTOK_CHUNK.maxBytes) {
+  const chunkSize = TIKTOK_CHUNK.uploadBytes;
+
+  // Under two chunks' worth goes as one piece — a file under 5 MB *must*, and
+  // one up to 20 MB is a single chunk inside the 5–64 MB rule. Reporting a
+  // `chunk_size` larger than the file would make TikTok's own arithmetic
+  // (size ÷ chunk_size, rounded down) come to zero chunks.
+  if (sizeBytes < chunkSize * 2) {
     return { chunkSize: sizeBytes, totalChunks: 1 };
   }
 
-  const chunkSize = TIKTOK_CHUNK.maxBytes;
-
   // Rounded down, per TikTok's rule, which is what leaves the remainder to the
-  // final chunk. That chunk is therefore between one and two chunk-sizes —
-  // at most 128 MB, which is exactly the ceiling TikTok documents for it.
+  // final chunk. That chunk is therefore between one and two chunk-sizes:
+  // 10–20 MB, far inside the 128 MB TikTok allows it.
   const totalChunks = Math.floor(sizeBytes / chunkSize);
 
   return { chunkSize, totalChunks };

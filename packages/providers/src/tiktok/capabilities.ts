@@ -158,12 +158,23 @@ export const TIKTOK_PRIVACY_LEVELS = [
 
 export type TikTokPrivacyLevel = (typeof TIKTOK_PRIVACY_LEVELS)[number];
 
-/** Chunk rules for FILE_UPLOAD, verified in the Media Transfer Guide. */
+/**
+ * Chunk rules for FILE_UPLOAD, from the Media Transfer Guide: every chunk
+ * 5–64 MB, the final one up to 128 MB, at most 1000 of them.
+ *
+ * **Decimal megabytes.** The guide never says which "MB" it means. These used
+ * to be read as binary (64 MiB = 67,108,864 bytes), and TikTok refused a
+ * publish with "The chunk size is invalid" (2026-11-11). Decimal is inside the
+ * limit under either reading, and so is `uploadBytes`, which is TikTok's own
+ * worked example (10,000,000 bytes) and is what is actually sent.
+ */
 export const TIKTOK_CHUNK = {
-  minBytes: 5 * 1024 * 1024,
-  maxBytes: 64 * 1024 * 1024,
+  minBytes: 5_000_000,
+  maxBytes: 64_000_000,
+  /** The chunk size used for any file large enough to be split. */
+  uploadBytes: 10_000_000,
   /** The final chunk absorbs trailing bytes and may reach this. */
-  finalMaxBytes: 128 * 1024 * 1024,
+  finalMaxBytes: 128_000_000,
   maxCount: 1000,
 } as const;
 

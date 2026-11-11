@@ -4836,6 +4836,21 @@ page. It has not been seen in a production log: the worker's logs were not
 readable from here. If posts still fail after this deploys, the new message
 names TikTok's code and reason.
 
+### Then: the chunk size (same day)
+
+With the disclosure sent, the next attempt was refused, and the new message
+said why: "TikTok rejected this post (invalid_params): The chunk size is
+invalid". The Media Transfer Guide says chunks are 5–64 MB without saying
+which megabyte. The plan read it as binary, and sent files up to 64 MiB whole
+and larger ones in 67,108,864-byte chunks. Both are over 64 MB if TikTok means
+decimal.
+
+Chunks are now TikTok's own worked example: 10,000,000 bytes. A file under 20 MB
+goes whole, and the final chunk of a larger one is 10–20 MB. That is inside the
+rule under either reading, and the worker holds at most about 20 MB of a video
+in memory instead of up to 128 MB. `invalid_params`, the spelling production
+returned, is mapped next to the documented `invalid_param`.
+
 - **Date:** 2026-11-11 · **Status:** IMPLEMENTED (no migration)
 
 ## Known residual gaps

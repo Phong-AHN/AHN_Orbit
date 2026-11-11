@@ -81,6 +81,9 @@ export const tiktokErrorMap = new ProviderErrorMap({
 
   // ── Validation ────────────────────────────────────────────────────────────
   invalid_param: 'VALIDATION',
+  // The spelling production actually returned (2026-11-11), next to the one
+  // the documentation lists.
+  invalid_params: 'VALIDATION',
   // The privacy level was not among the creator's own options. TikTok flags
   // repeated occurrences as a product-guidance violation.
   privacy_level_option_mismatch: 'VALIDATION',
