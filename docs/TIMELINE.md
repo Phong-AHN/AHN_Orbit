@@ -407,6 +407,11 @@ Cách đọc:
   - **Đã sửa** (bổ sung D-119): chia chunk 10.000.000 byte theo đúng ví dụ của TikTok; file dưới 20 MB gửi nguyên; chunk cuối 10–20 MB. Worker giờ giữ tối đa khoảng 20 MB trong RAM thay vì tới 128 MB. Thêm mã `invalid_params`.
   - Kiểm tra: typecheck, lint, 1708 unit test đều đạt.
   - **Commit chỉ đổi `packages/`, nên Railway sẽ không tự deploy worker.** Sau khi push phải bấm Deploy Latest Commit.
+- **Domain đã chuyển:** `APP_URL` trên production giờ là `www.socialsquare.site`; `www.anhoi.co` tự chuyển sang domain mới.
+- **Trang test TikTok** báo lỗi `redirect_uri` khi kết nối.
+  - Code dựng đúng `https://www.socialsquare.site/review/tiktok/callback`, nhưng URI này **chưa đăng ký** trong TikTok Developer Portal.
+  - `client_key` bắt đầu bằng `sbaw`, tức là app **Sandbox**, nên phải thêm URI ở phần Sandbox.
+  - Không cần sửa code. Việc của anh: OWNER-TODO §0, bước 1.
 
 ---
 
@@ -443,7 +448,7 @@ Cách đọc:
 ## Việc còn mở (tính đến 11/11)
 
 0. **Hạ tầng (11/11):**
-   - chuyển domain theo OWNER-TODO §0 — `APP_URL` trên production vẫn là `www.anhoi.co`;
+   - chuyển domain theo OWNER-TODO §0 — `APP_URL` đã đổi (11/11); còn phải đăng ký URL mới ở Firebase, Meta, TikTok (cả Sandbox), Google, LinkedIn, Pinterest, X và kết nối lại Bluesky;
    - chuyển media sang Railway Bucket theo OWNER-TODO §0b: tạo bucket → push → `cors`, `check` → `copy` → đổi biến → `copy` lần nữa.
 1. **Xác nhận migration production.** Code D-116 đã push lúc 13:20 ngày 9/11. Nếu `pnpm db:migrate:deploy` chưa chạy thì Settings → Plan và `/admin/plans` sẽ báo lỗi. Lệnh này chạy cả D-113 (mở giới hạn gói) và D-116 (bảng yêu cầu nâng gói).
 2. **Push** các commit timeline, D-117 và đổi domain.
