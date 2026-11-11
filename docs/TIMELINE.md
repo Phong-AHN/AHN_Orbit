@@ -368,6 +368,12 @@ Cách đọc:
   - Thêm test: trang mở trên domain cũ được chuyển sang domain mới.
 - **Checklist chuyển domain:** OWNER-TODO §0. Thứ tự: đăng ký URL mới ở Firebase, Meta, TikTok, Google, LinkedIn, Pinterest, X và S3 CORS → đổi `APP_URL` trên Vercel và Railway → redeploy.
 - **Sau khi đổi:** mọi người phải đăng nhập lại; Bluesky phải kết nối lại vì client id đổi; connector MCP phải thêm lại.
+- **Hỏi:** chuyển S3 từ AWS sang Railway Bucket được không? → **Được**, kèm điều kiện:
+  - Railway Bucket tương thích S3, có presigned URL và CORS. Lưu trữ $0.015/GB-tháng, egress miễn phí.
+  - Nhưng không có backup tự động, và bị khóa truy cập khi hết trial hoặc vượt hard limit.
+  - Code phải sửa trước: production đang cấm `S3_ENDPOINT`; AWS SDK 3.1108 mặc định gắn checksum, dễ làm hỏng presigned PUT trên hệ S3-compatible.
+  - Tài liệu Railway không xác nhận Range GET và DeleteObjects (app dùng cả hai), phải test trước khi chuyển.
+  - Khuyên: làm sau khi xong đổi domain, và khi tài khoản Railway đã lên gói trả phí. Đang chờ anh quyết.
 
 ---
 
