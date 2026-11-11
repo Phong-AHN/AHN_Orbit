@@ -416,6 +416,7 @@ Cách đọc:
   - thiếu giải thích scope `video.upload`, dù trang test có xin và có bước "Send to my TikTok inbox";
   - đã thêm, sửa tên nút cho đúng ("Disconnect and revoke access") và rút gọn còn 979 ký tự kể cả mã truy cập;
   - lưu ở TIKTOK-REVIEW.md, mã truy cập để dạng placeholder.
+- Soạn lý do nộp lại TikTok (dưới 120 ký tự): "Moved to socialsquare.site, icon matches the site favicon, and a test page lets reviewers try every requested scope."
 
 ---
 
