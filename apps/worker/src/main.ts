@@ -44,7 +44,12 @@ async function main(): Promise<void> {
 
   const env = serverEnv();
 
-  logger.info('worker starting', { nodeVersion: process.version });
+  logger.info('worker starting', {
+    nodeVersion: process.version,
+    // Which bucket family this worker reads media from: the host of a Railway
+    // bucket (D-118), or AWS by region. A host, never a credential.
+    storage: env.S3_ENDPOINT ? new URL(env.S3_ENDPOINT).host : `aws:${env.S3_REGION}`,
+  });
 
   // Fail at boot rather than on the first job if the database is unreachable.
   await platformDb.$queryRaw`SELECT 1`;

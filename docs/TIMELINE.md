@@ -374,6 +374,14 @@ Cách đọc:
   - Code phải sửa trước: production đang cấm `S3_ENDPOINT`; AWS SDK 3.1108 mặc định gắn checksum, dễ làm hỏng presigned PUT trên hệ S3-compatible.
   - Tài liệu Railway không xác nhận Range GET và DeleteObjects (app dùng cả hai), phải test trước khi chuyển.
   - Khuyên: làm sau khi xong đổi domain, và khi tài khoản Railway đã lên gói trả phí. Đang chờ anh quyết.
+- **Quyết định:** Railway đang ở gói Hobby; chuyển bucket về project `disciplined-warmth`, nơi đã có worker và Redis. **Đã sửa code** (D-118):
+  - production nhận `S3_ENDPOINT` của bucket bên ngoài, vẫn chặn endpoint local;
+  - ngoài AWS, SDK chỉ gửi checksum khi bắt buộc;
+  - sửa lỗi `S3_FORCE_PATH_STYLE=false` bị đọc thành `true`;
+  - worker ghi host storage vào log lúc khởi động;
+  - script `move-bucket.ts` (`check`, `cors`, `copy`, `compare`).
+  - Kiểm tra: typecheck, lint, 1684 unit test đều đạt. Chưa chạy được với bucket thật, vì bucket chưa tạo.
+  - Các bước chuyển: OWNER-TODO §0b. **Push code trước rồi mới đổi biến**, nếu không worker cũ sẽ không khởi động được.
 
 ---
 
@@ -403,12 +411,15 @@ Cách đọc:
 | 29/10 | Redis chuyển sang Railway |
 | 9/11 | Còn 3 project Railway cùng deploy → nên giữ 1 |
 | 11/11 | Domain mới `www.socialsquare.site` (thay `www.anhoi.co`) |
+| 11/11 | Code sẵn sàng chuyển media từ AWS S3 sang Railway Bucket (D-118), chờ tạo bucket |
 
 ---
 
 ## Việc còn mở (tính đến 11/11)
 
-0. **Chuyển domain** theo OWNER-TODO §0. `APP_URL` trên production vẫn là `www.anhoi.co`.
+0. **Hạ tầng (11/11):**
+   - chuyển domain theo OWNER-TODO §0 — `APP_URL` trên production vẫn là `www.anhoi.co`;
+   - chuyển media sang Railway Bucket theo OWNER-TODO §0b: tạo bucket → push → `cors`, `check` → `copy` → đổi biến → `copy` lần nữa.
 1. **Xác nhận migration production.** Code D-116 đã push lúc 13:20 ngày 9/11. Nếu `pnpm db:migrate:deploy` chưa chạy thì Settings → Plan và `/admin/plans` sẽ báo lỗi. Lệnh này chạy cả D-113 (mở giới hạn gói) và D-116 (bảng yêu cầu nâng gói).
 2. **Push** các commit timeline, D-117 và đổi domain.
 3. **Meta App Review:**

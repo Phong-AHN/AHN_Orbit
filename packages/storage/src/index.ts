@@ -32,6 +32,8 @@ export {
   type PresignUploadInput,
 } from './s3.js';
 
+export { s3ClientConfig, type StorageConnection } from './client-config.js';
+
 export {
   verifyUploadedObject,
   MediaRejected,

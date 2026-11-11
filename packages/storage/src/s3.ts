@@ -9,13 +9,14 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { serverEnv } from '@orbit/config';
 import { InternalError, NotFoundError } from '@orbit/core';
+import { s3ClientConfig } from './client-config.js';
 
 /**
  * S3-compatible object storage (SRS §17, §51).
  *
- * Talks the S3 API, so AWS S3 in deployed environments and MinIO locally are
- * the same code path — which is what lets the media pipeline be tested against
- * real object storage rather than a stub.
+ * Talks the S3 API, so a Railway bucket in production (D-118), AWS S3 before
+ * it, and MinIO locally are the same code path — which is what lets the media
+ * pipeline be tested against real object storage rather than a stub.
  *
  * Two rules:
  *   • the bucket blocks all public access; every read is a short-lived signed
@@ -30,17 +31,16 @@ export function s3(): S3Client {
   if (client) return client;
 
   const env = serverEnv();
-  client = new S3Client({
-    region: env.S3_REGION,
-    credentials: {
+  client = new S3Client(
+    s3ClientConfig({
+      region: env.S3_REGION,
       accessKeyId: env.S3_ACCESS_KEY_ID,
       secretAccessKey: env.S3_SECRET_ACCESS_KEY,
-    },
-    // Set only for local S3-compatible storage; env validation forbids it in
-    // production.
-    ...(env.S3_ENDPOINT ? { endpoint: env.S3_ENDPOINT } : {}),
-    forcePathStyle: env.S3_FORCE_PATH_STYLE,
-  });
+      // A Railway bucket in production (D-118), MinIO locally, unset for AWS.
+      endpoint: env.S3_ENDPOINT,
+      forcePathStyle: env.S3_FORCE_PATH_STYLE,
+    }),
+  );
 
   return client;
 }

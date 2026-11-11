@@ -122,8 +122,13 @@ export const serverEnvSchema = z.object({
   S3_BUCKET: z.string().min(1),
   S3_ACCESS_KEY_ID: z.string().min(1),
   S3_SECRET_ACCESS_KEY: z.string().min(1),
+  /** A Railway bucket in production (D-118), MinIO locally, unset for AWS. */
   S3_ENDPOINT: optionalUrl,
-  S3_FORCE_PATH_STYLE: z.coerce.boolean().default(false),
+  /**
+   * A `flag`, not `z.coerce.boolean()`: coercion turned the string "false"
+   * into `true`, so writing `S3_FORCE_PATH_STYLE=false` switched it on.
+   */
+  S3_FORCE_PATH_STYLE: flag,
   S3_PUBLIC_BASE_URL: optionalUrl,
 
   // ── Encryption (SRS §6) ───────────────────────────────────────────────────
@@ -503,6 +508,36 @@ function isWorkerRole(source: NodeJS.ProcessEnv): boolean {
 }
 
 /**
+ * Whether an S3 endpoint is the local emulator rather than a hosted bucket.
+ *
+ * Production used to refuse any `S3_ENDPOINT`, because the only one in use was
+ * MinIO and pointing production at it would be a silent disaster. Storage now
+ * lives in a Railway bucket reached by endpoint (D-118), so the rule is about
+ * what the endpoint is: plain http, or a host that only exists on a developer's
+ * machine or in a compose network.
+ */
+function isLocalStorageEndpoint(endpoint: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return true;
+  }
+  const host = url.hostname.toLowerCase();
+  return (
+    url.protocol !== 'https:' ||
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '[::1]' ||
+    host === '0.0.0.0' ||
+    host === 'minio' ||
+    host === 'host.docker.internal' ||
+    host.endsWith('.local') ||
+    host.endsWith('.localhost')
+  );
+}
+
+/**
  * Why a `.env` sitting right there did not help.
  *
  * `next build` sets `NODE_ENV=production`, and `loadRootEnv` deliberately reads
@@ -563,9 +598,10 @@ export function parseServerEnv(source?: NodeJS.ProcessEnv): ServerEnv {
     if (missing.length > 0) {
       throw new EnvValidationError(missing.map((k) => `${k}: required when APP_ENV=production`));
     }
-    if (env.S3_ENDPOINT) {
+    // A hosted S3-compatible bucket is allowed (D-118); local storage is not.
+    if (env.S3_ENDPOINT && isLocalStorageEndpoint(env.S3_ENDPOINT)) {
       throw new EnvValidationError([
-        'S3_ENDPOINT: must be unset in production — it exists only for local S3-compatible storage',
+        'S3_ENDPOINT: points at local storage — in production it must be the https endpoint of a hosted bucket, or unset for AWS',
       ]);
     }
   }
@@ -634,6 +670,7 @@ export function describeEnv(env: ServerEnv = serverEnv()): Record<string, string
     hasGemini: Boolean(env.GEMINI_API_KEY),
     hasStripe: Boolean(env.STRIPE_SECRET_KEY),
     hasSentry: Boolean(env.SENTRY_DSN),
-    usesLocalStorageEmulator: Boolean(env.S3_ENDPOINT),
+    usesLocalStorageEmulator: Boolean(env.S3_ENDPOINT && isLocalStorageEndpoint(env.S3_ENDPOINT)),
+    usesS3CompatibleStorage: Boolean(env.S3_ENDPOINT && !isLocalStorageEndpoint(env.S3_ENDPOINT)),
   };
 }

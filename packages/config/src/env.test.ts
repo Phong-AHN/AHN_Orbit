@@ -97,24 +97,52 @@ describe('parseServerEnv', () => {
     ]);
   });
 
-  it('refuses an S3 endpoint override in production', () => {
-    expect(() =>
-      parseServerEnv({
-        ...valid,
-        APP_ENV: 'production',
-        APP_URL: 'https://orbit.example.com',
-        FIREBASE_PROJECT_ID: 'p',
-        FIREBASE_CLIENT_EMAIL: 'a@b.com',
-        FIREBASE_PRIVATE_KEY: 'k',
-        NEXT_PUBLIC_FIREBASE_API_KEY: 'web-key',
-        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: 'p.firebaseapp.com',
-        NEXT_PUBLIC_FIREBASE_APP_ID: '1:1:web:1',
-        FACEBOOK_APP_ID: 'id',
-        FACEBOOK_APP_SECRET: 'secret',
-        SENTRY_DSN: 'https://sentry.example.com/1',
-        S3_ENDPOINT: 'http://localhost:9000',
-      }),
-    ).toThrow(/must be unset in production/);
+  describe('S3 endpoint in production (D-118)', () => {
+    const production = {
+      ...valid,
+      APP_ENV: 'production',
+      APP_URL: 'https://orbit.example.com',
+      FIREBASE_PROJECT_ID: 'p',
+      FIREBASE_CLIENT_EMAIL: 'a@b.com',
+      FIREBASE_PRIVATE_KEY: 'k',
+      NEXT_PUBLIC_FIREBASE_API_KEY: 'web-key',
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: 'p.firebaseapp.com',
+      NEXT_PUBLIC_FIREBASE_APP_ID: '1:1:web:1',
+      FACEBOOK_APP_ID: 'id',
+      FACEBOOK_APP_SECRET: 'secret',
+      SENTRY_DSN: 'https://sentry.example.com/1',
+    } satisfies NodeJS.ProcessEnv;
+
+    it('refuses local storage', () => {
+      for (const endpoint of [
+        'http://localhost:9000',
+        'https://localhost:9000',
+        'http://minio:9000',
+        'http://storage.example.com',
+      ]) {
+        expect(() => parseServerEnv({ ...production, S3_ENDPOINT: endpoint }), endpoint).toThrow(
+          /points at local storage/,
+        );
+      }
+    });
+
+    it('accepts a hosted S3-compatible bucket', () => {
+      const env = parseServerEnv({ ...production, S3_ENDPOINT: 'https://t3.storageapi.dev' });
+      expect(env.S3_ENDPOINT).toBe('https://t3.storageapi.dev');
+      expect(describeEnv(env).usesS3CompatibleStorage).toBe(true);
+      expect(describeEnv(env).usesLocalStorageEmulator).toBe(false);
+    });
+  });
+
+  /** `z.coerce.boolean()` read the string "false" as true. */
+  it('reads S3_FORCE_PATH_STYLE=false as false', () => {
+    expect(parseServerEnv({ ...valid, S3_FORCE_PATH_STYLE: 'false' }).S3_FORCE_PATH_STYLE).toBe(
+      false,
+    );
+    expect(parseServerEnv({ ...valid, S3_FORCE_PATH_STYLE: 'TRUE' }).S3_FORCE_PATH_STYLE).toBe(
+      true,
+    );
+    expect(parseServerEnv({ ...valid }).S3_FORCE_PATH_STYLE).toBe(false);
   });
 
   /**

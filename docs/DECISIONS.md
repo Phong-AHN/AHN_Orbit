@@ -4758,6 +4758,50 @@ published variant keeps its reference. Two things then lost it:
 
 - **Date:** 2026-11-10 · **Status:** IMPLEMENTED (no migration)
 
+## D-118 — Media moves to a Railway bucket
+
+The owner asked to move object storage from AWS S3 into the Railway project
+that already runs the worker and Redis, so the infrastructure is managed in one
+place. The project is on the Hobby plan.
+
+### What changed
+
+- **Production accepts `S3_ENDPOINT`.** It used to refuse any endpoint, because
+  the only one in use was the local MinIO. The rule now refuses a *local*
+  endpoint — plain http, `localhost`, `minio`, `*.local` — and accepts the https
+  endpoint of a hosted bucket.
+- **Off AWS, the SDK sends checksums only when required.** Since SDK 3.729 the
+  client attaches a CRC32 checksum to uploads and presigned PUT URLs by default.
+  Not every S3-compatible service accepts that, and a browser upload failing on
+  it reports a signature error that names nothing useful. AWS keeps the default.
+  The settings live in `s3ClientConfig`, shared by the app and the migration
+  script.
+- **`S3_FORCE_PATH_STYLE` is a `flag`.** `z.coerce.boolean()` read the string
+  `"false"` as `true`.
+- **`packages/storage/scripts/move-bucket.ts`**:
+  - `check` exercises a bucket the way the app does: a presigned PUT sent like a
+    browser upload, HEAD, a ranged GET, a presigned GET, a server-side PUT and a
+    batch delete. The Railway docs do not name ranged GET or batch delete, so
+    they are proven here before anything switches.
+  - `cors` sets the bucket's allowed origins.
+  - `copy` and `compare` move the objects under the same keys. The database
+    stores keys, not URLs, so nothing in it changes.
+- The worker logs which storage host it uses at boot.
+
+### Trade-offs, accepted
+
+- Railway buckets have no automatic backups and no versioning. The AWS bucket
+  is kept for some weeks after the switch as the fallback.
+- Bucket access is suspended if the workspace exceeds its hard usage limit, and
+  publishing stops with it. The limit has to be set with that in mind.
+- Storage is cheaper ($0.015 against about $0.023 per GB-month), and egress,
+  which every publish to Meta, Threads and Pinterest incurs, is free.
+- TikTok photo posts still need a verified media domain. Neither AWS's nor
+  Railway's host can be verified, so this is unchanged.
+
+- **Date:** 2026-11-11 · **Status:** IMPLEMENTED in code; the switch is the
+  owner's (OWNER-TODO §0b)
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

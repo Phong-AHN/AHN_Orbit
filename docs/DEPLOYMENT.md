@@ -68,6 +68,7 @@ Required everywhere:
 | `DATABASE_URL` | Pooled. `DIRECT_URL` for migrations if using PgBouncer |
 | `REDIS_URL` | TLS. BullMQ needs `maxRetriesPerRequest: null` — already set |
 | `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Bucket blocks all public access |
+| `S3_ENDPOINT`, `S3_REGION`, `S3_FORCE_PATH_STYLE` | Railway bucket (**D-118**): the values on its Credentials tab — `ENDPOINT`, `REGION` (`auto`), and `true` only if the tab says path-style. Unset `S3_ENDPOINT` means AWS. Production refuses a local (`http`, `localhost`, `minio`) endpoint |
 | `CREDENTIAL_ENCRYPTION_KEY` | base64, 32 bytes. **Losing this loses every connection** |
 | `STATE_SIGNING_SECRET` | base64, 32 bytes. OAuth CSRF |
 
@@ -75,7 +76,8 @@ Worker only: `ORBIT_ROLE=worker` — `assertWorkerProcess()` refuses to consume 
 what catches the deployment mistake of running the wrong bundle (**D-022**).
 
 Optional: `FACEBOOK_APP_ID`/`FACEBOOK_APP_SECRET` (absent ⇒ the mock provider, which the registry
-refuses in production), `SENTRY_DSN`, `WORKER_HEALTH_PORT` (3100), `S3_ENDPOINT` for MinIO.
+refuses in production), `SENTRY_DSN`, `WORKER_HEALTH_PORT` (3100). Moving storage between
+buckets: `packages/storage/scripts/move-bucket.ts` (`check`, `cors`, `copy`, `compare`).
 
 Worker memory (2026-10-27, after the worker ran out of memory on Railway): YouTube now uploads in
 8 MiB chunks and TikTok already did, so neither holds a video in memory.

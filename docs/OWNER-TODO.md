@@ -37,7 +37,7 @@ mọi nơi (giữ cả URL cũ), rồi mới đổi `APP_URL`.
 | **TikTok** | Redirect URI của sản phẩm và `/review/tiktok/callback`, Website URL, Terms, Privacy |
 | **Google Cloud** (YouTube) | Authorized redirect URIs (sản phẩm và `/review/youtube/callback`), JavaScript origins; OAuth consent screen → Authorized domains: `socialsquare.site`, đã xác minh trong Search Console |
 | **LinkedIn, Pinterest, X** | Redirect / Callback URI, Website, Terms, Privacy |
-| **S3 bucket** → CORS | Nếu `AllowedOrigins` đang ghi `https://www.anhoi.co` thì thêm domain mới. Thiếu thì upload ảnh/video từ trình duyệt bị chặn |
+| **Bucket** → CORS | Bucket phải cho phép domain mới, thiếu thì upload ảnh/video từ trình duyệt bị chặn. Với Railway bucket (§0b): chạy lệnh `cors` với cả hai domain |
 
 **Bước 2 — Đổi `APP_URL=https://www.socialsquare.site`** trên **cả Vercel và
 Railway**, rồi redeploy cả hai. Worker dùng biến này để dựng link và client id
@@ -63,6 +63,70 @@ của Bluesky.
 
 **Bước 5 — Sau vài tuần:** gỡ URL cũ ở các nền tảng. Giữ `www.anhoi.co` trên
 Vercel để link cũ vẫn tự chuyển sang domain mới.
+
+### 0b. Chuyển media từ AWS S3 sang Railway Bucket (**D-118**, 2026-11-11)
+
+Code đã sẵn sàng: production nhận `S3_ENDPOINT` của bucket bên ngoài, và có
+script `packages/storage/scripts/move-bucket.ts` để kiểm tra bucket mới và
+chép dữ liệu sang. Database chỉ lưu key của object, nên chép đúng key là đủ,
+không phải sửa dữ liệu nào.
+
+**Thứ tự quan trọng — push code trước, đổi biến sau.** Bản worker cũ vẫn từ chối
+`S3_ENDPOINT` trên production, nên nếu đổi biến trước khi worker chạy bản mới thì
+worker **không khởi động được**. Commit này có sửa `apps/worker/`, nên Railway sẽ
+tự deploy lại khi push.
+
+1. **Tạo bucket:** Railway → project `disciplined-warmth` → **+ New → Bucket**.
+   Chọn region gần Supabase (Singapore nếu có); không đổi được sau khi tạo. Mở
+   tab **Credentials**, ghi lại `BUCKET`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`,
+   `REGION`, `ENDPOINT`, và xem bucket dùng virtual-hosted hay path-style.
+2. **Push code** (`git push`), đợi Vercel và worker Railway deploy xong.
+3. **Cài CORS và kiểm tra bucket** — chạy trên máy anh, PowerShell, ở thư mục repo:
+   ```powershell
+   pnpm --filter @orbit/storage build
+   $env:TARGET_S3_BUCKET = '<BUCKET>'
+   $env:TARGET_S3_REGION = '<REGION>'
+   $env:TARGET_S3_ENDPOINT = '<ENDPOINT>'
+   $env:TARGET_S3_ACCESS_KEY_ID = '<ACCESS_KEY_ID>'
+   $env:TARGET_S3_SECRET_ACCESS_KEY = '<SECRET_ACCESS_KEY>'
+   # Cả hai domain, vì APP_URL chưa chuyển hẳn sang socialsquare.site (§0)
+   $env:CORS_ORIGINS = 'https://www.socialsquare.site,https://www.anhoi.co'
+   node --experimental-strip-types packages/storage/scripts/move-bucket.ts cors
+   node --experimental-strip-types packages/storage/scripts/move-bucket.ts check
+   ```
+   Nếu bucket dùng path-style, thêm `$env:TARGET_S3_FORCE_PATH_STYLE = 'true'`.
+   `check` phải ra **All checks passed**. Có dòng ✗ thì dừng lại, gửi em kết quả.
+4. **Chép dữ liệu:** đặt thêm `SOURCE_S3_*` bằng giá trị AWS hiện tại (lấy từ
+   Vercel), rồi:
+   ```powershell
+   node --experimental-strip-types packages/storage/scripts/move-bucket.ts copy
+   node --experimental-strip-types packages/storage/scripts/move-bucket.ts compare
+   ```
+   AWS tính phí egress khi tải ra: 100 GB đầu mỗi tháng miễn phí, sau đó khoảng
+   $0.09/GB.
+5. **Đổi biến** trên **Vercel** (dán giá trị) và **service worker trên Railway**
+   (dùng reference tới bucket, ví dụ `${{Bucket.ENDPOINT}}`, theo tên bucket anh
+   đặt). Redeploy cả hai.
+
+   | Biến | Giá trị |
+   |---|---|
+   | `S3_ENDPOINT` | `ENDPOINT` |
+   | `S3_REGION` | `REGION` |
+   | `S3_BUCKET` | `BUCKET` — **không phải** `RAILWAY_BUCKET_NAME` |
+   | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | hai key của bucket |
+   | `S3_FORCE_PATH_STYLE` | `true` chỉ khi tab Credentials nói path-style |
+
+6. **Chép lần nữa** (`copy`, rồi `compare`) để lấy các file upload trong lúc đổi.
+7. **Kiểm tra:**
+   - `/api/health/deep` → `storage` ok;
+   - log worker lúc khởi động ghi `storage` là host của Railway, không phải `aws:…`;
+   - upload một ảnh, mở preview, đăng thử một bài Instagram, tải một report.
+8. **Giữ bucket AWS 2–4 tuần** làm bản dự phòng rồi mới xóa. Railway Bucket
+   **không có backup tự động**.
+
+**Cần biết:** Railway Bucket bị khóa (không đọc, không upload được) nếu vượt hard
+usage limit của workspace. Đặt limit đủ rộng, vì khi bucket bị khóa thì việc đăng
+bài cũng dừng.
 
 ### 1. Meta App Review + Business Verification
 
