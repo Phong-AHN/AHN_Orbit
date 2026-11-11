@@ -429,6 +429,8 @@ Cách đọc:
   - Bài bị từ chối được liệt kê kèm lý do và vẫn được chọn sẵn; bài của tổ chức khác coi như không tồn tại.
   - Xóa bài đang lên lịch là an toàn: worker không nhận đăng bản ghi đã xóa.
   - Kiểm tra: typecheck, lint, 1716 unit test (7 mới) đều đạt. Chưa xem được giao diện thật.
+- Soạn lại kịch bản quay và bản mô tả cho `pages_read_user_content`, dùng domain mới, và lưu vào file mới [META-APP-REVIEW.md](META-APP-REVIEW.md) để các lần nộp sau dùng chung.
+  - Nhắc trước khi quay: domain mới phải được đăng ký ở Meta và Firebase, nếu không cả người duyệt cũng không đăng nhập được.
 
 ---
 
