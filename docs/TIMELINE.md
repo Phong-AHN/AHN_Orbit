@@ -468,6 +468,8 @@ Cách đọc:
   - Viết mô tả `instagram_business_basic` (trước đây chỉ có trong chat). Sửa mô tả `content_publish` (câu "không gì lên trước khi client duyệt", "audit log client xem được"), `manage_comments` (cụm audit log) và `manage_insights` (sai tên quyền, câu "client xem trong portal").
 - **Use case nhắn tin của Meta — nộp quyền nào:** soát theo code D-107. Nộp `pages_messaging`, `pages_manage_metadata` (Messenger) và `instagram_business_manage_messages` (Instagram, use case riêng). Human Agent để đợt sau. Không nộp Business Asset User Profile Access, `instagram_manage_messages` và các quyền quảng cáo/marketing. Bảng đầy đủ ở OWNER-TODO §7.
   - Chưa nộp được ngay: tin nhắn đang tắt (`META_MESSAGING_ENABLED`), nên `pages_messaging` và `pages_manage_metadata` chưa có lệnh gọi API nào.
+- **Mô tả `instagram_business_manage_messages`** (lưu ở META-APP-REVIEW.md): hộp thư cho người thật trả lời, chỉ trả lời trong 24 giờ, không nhắn trước; nói rõ AI Assistant tùy chọn và dữ liệu gửi sang Gemini; cách lưu và xóa tin nhắn theo trang Privacy Policy.
+  - Câu "dùng gói Gemini trả phí" chỉ đúng sau khi chuyển gói; nếu chưa thì bỏ đoạn AI và không bật AI cho Instagram.
 
 ---
 

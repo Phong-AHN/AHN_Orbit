@@ -376,3 +376,38 @@ và nói client xem số liệu trong portal (portal không có trang số liệ
 > 3. "Posts" → "New post": write a caption, attach an image, select the Instagram account, then "Publish now". On the post's page, "View on Instagram" opens it (instagram_business_content_publish).
 > 4. Comment on that post from another Instagram account. In Social Square open "Community" → "Check now" → open the post; the comment appears. Click "Reply", type a reply and click "Post reply"; it appears under the comment on Instagram (instagram_business_manage_comments).
 > 5. "Analytics" → choose the account under "Account": the "Pages and profiles" card shows account insights, and the posts below show their own. Instagram can take up to a day to report figures for a new post (instagram_business_manage_insights).
+
+---
+
+## `instagram_business_manage_messages`
+
+Nộp ở **use case Instagram** (đăng nhập bằng Instagram), không phải use case
+Messenger. Chỉ nộp được sau khi bật tin nhắn (OWNER-TODO §7, bước 2–7).
+
+**Trước khi dán:** câu cuối đoạn "Optional assistant" (*"We use Gemini's paid
+tier…"*) chỉ đúng khi đã bật billing ở Google AI Studio và đặt `GEMINI_TIER=paid`
+(OWNER-TODO §7b). Còn ở gói miễn phí thì có hai cách:
+- chuyển sang gói trả phí trước khi nộp; hoặc
+- xóa cả đoạn "Optional assistant" và **không bật** AI Assistant cho brand nào có
+  Instagram, tới khi chuyển gói.
+
+**Video Meta đòi:** luồng đăng nhập Instagram và cấp quyền; **Social Square gửi
+tin trả lời**; hộp thư Instagram (web hoặc điện thoại) hiện tin đó. Không nhận ảnh
+chụp màn hình. Kèm lệnh cURL tạo bằng API Integration Helper (dashboard →
+Instagram).
+
+### Ô mô tả
+
+> Social Square is a social media management platform used by agencies to run the social accounts of their client businesses. Each client is an isolated workspace, and agency staff are given access per client.
+>
+> We request instagram_business_manage_messages to give an agency one inbox for the Instagram Direct conversations of client accounts that the client has connected to Social Square through Business Login for Instagram.
+>
+> How the permission is used. When someone messages a connected account, Instagram notifies us by webhook and the conversation appears in Social Square's inbox; we also read the account's recent conversations to catch up on anything a webhook missed. A staff member reads the conversation, can assign it to a colleague or mark it handled, and replies. The reply is sent as the brand and appears in the person's Instagram inbox like any reply written in the Instagram app. We only answer: replies go only into conversations the person started and only within Instagram's 24-hour messaging window. Social Square never messages anyone first and sends no broadcast or marketing messages.
+>
+> Optional assistant. An agency can turn on an AI assistant for a brand. By default it only drafts a reply, which staff edit and send themselves. Where the agency allows it, it may also answer when no staff member is available, using only information the brand has written down, and every message it sends ends with a line saying it is an automatic reply. It never handles complaints, refunds, payments, orders, accounts, legal or safety matters, or personal details: those, and anything it cannot answer from the brand's information, are passed to a person, and the customer is told so. Anyone can stop it by replying "stop". To write an answer, the recent messages of that one conversation are sent to Google's Gemini API, with phone numbers, card and ID numbers, codes and email addresses removed first; the person's name and identifier are not sent. We use Gemini's paid tier, under which Google does not use this content to improve its products.
+>
+> The value it adds. An agency answers customer messages for many brands. Without this, staff would have to sign into each client's Instagram account, in practice by sharing the client's password, or wait for the client to forward questions by hand. One inbox lets the right person answer quickly, and the client never shares a password: they grant access with their own Instagram login and can revoke it at any time.
+>
+> Why it is necessary. An app cannot read or answer Instagram Direct messages without this permission. Without it, our inbox could not include Instagram, where many of our clients' customers ask their questions.
+>
+> Data handling. We store the messages in both directions, links to any attachments (the files themselves are not downloaded), the name and username Instagram shows for the person, and the identifier Instagram issues for that person for that one account, which is needed to address a reply. Everything is kept in the workspace of the client who connected the account, isolated at the application and database layers, visible only to the agency staff working on that client, and never shown in the client portal. We keep it while the account stays connected and never longer than twelve months. Disconnecting the account deletes its conversations, and a message the person unsends is erased as soon as Instagram tells us. We do not use messages for advertising, profiling or training models, and we do not use the aggregated, de-identified or anonymised data allowance of this permission.
