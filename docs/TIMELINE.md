@@ -432,6 +432,18 @@ Cách đọc:
 - Soạn lại kịch bản quay và bản mô tả cho `pages_read_user_content`, dùng domain mới, và lưu vào file mới [META-APP-REVIEW.md](META-APP-REVIEW.md) để các lần nộp sau dùng chung.
   - Nhắc trước khi quay: domain mới phải được đăng ký ở Meta và Firebase, nếu không cả người duyệt cũng không đăng nhập được.
 
+### 12/11
+
+- **YouTube lại mất kết nối.** Không đọc được nguyên nhân thật: trình duyệt mất kết nối trước khi tôi đọc được trang Accounts, log worker ở Railway không truy cập được, và Vercel chỉ giữ log 1 giờ.
+  - Tra tài liệu Google và cách Buffer/Hootsuite xử lý: Google chỉ hủy refresh token khi app ở chế độ Testing (7 ngày), người dùng thu hồi quyền, token 6 tháng không dùng, vượt 100 token cho mỗi tài khoản, hoặc do chính sách phiên đăng nhập của Workspace. Các nền tảng khác không giữ được token đã bị hủy; họ cho người dùng tự bấm Refresh/Reconnect. Phía kỹ thuật, Social Square đã làm như họ.
+  - **Đã cải thiện:** trang Accounts giờ hiện, dưới dòng lỗi của tài khoản cần kết nối lại, ai đã đánh dấu, lúc nào và bản build worker nào (lấy từ audit log, chỉ hiện cho Owner/Admin).
+    - Nếu là worker không ghi build, tức worker cũ (trước 6/11) vẫn đang chạy, trang sẽ nói rõ.
+    - Nếu kênh YouTube rớt đúng khoảng 7 ngày sau khi kết nối, trang chỉ thẳng ra nguyên nhân: app Google còn ở chế độ Testing.
+  - Kiểm tra: typecheck, lint, 1722 unit test (6 mới), build web đều đạt.
+- **Meta `pages_manage_posts`:** dùng chung video với `pages_read_user_content` được, nếu video quay tới cảnh bài hiện trên Page thật ("View on Facebook").
+  - Sửa bản mô tả: câu "không gì lên Page trước khi client duyệt" không đúng với workspace nội bộ (D-106); việc duyệt chỉ nhắc như tính năng đi kèm.
+  - Lưu vào META-APP-REVIEW.md.
+
 ---
 
 ## Nền tảng mạng xã hội — ngày tích hợp

@@ -92,3 +92,54 @@ nào.
 **Hai câu không được dùng nữa** (có trong bản nộp 5/11, sai với code):
 "PDF reports" (chỉ có CSV) và "delete stored comments when a client disconnects"
 (code không xóa).
+
+---
+
+## `pages_manage_posts`
+
+### Dùng chung video với `pages_read_user_content` được không?
+
+**Được**, nếu video có đủ các đoạn dưới đây. Meta duyệt theo từng quyền, nhưng
+một video gắn được cho nhiều quyền, miễn là mỗi quyền đều được thấy rõ:
+
+1. Đăng nhập Facebook từ trạng thái **đã đăng xuất**, chọn Page, màn hình cấp quyền.
+2. Soạn bài trong Social Square (**Posts → New post**), chọn Page.
+3. Đăng (**Publish now**, hoặc lên lịch rồi đợi bài lên).
+4. **Mở bài thật trên Facebook**, bằng link "View on Facebook" trong trang bài
+   viết. Ví dụ của chính Meta cho quyền này kết thúc ở đúng cảnh này: bài hiện
+   trên Page.
+
+Chú thích ở bước 3–4: *"pages_manage_posts: Social Square creates the post on the
+client's Page."* Nếu video đang có thiếu bước 4, chỉ cần quay thêm đoạn đó.
+
+**Về quy trình duyệt:** bản mô tả cũ lấy việc duyệt (nội bộ → client) làm giá
+trị chính, nhưng video không quay cảnh đó, nên dễ bị trả về với đúng lý do
+"video không khớp với mô tả". Có hai cách:
+- quay thêm vài giây: **Send for review → Approve** trước khi đăng; hoặc
+- dùng bản mô tả dưới đây, chỉ nhắc việc duyệt như một tính năng đi kèm.
+
+Bản cũ còn câu *"Nothing reaches a client's Page until it has passed the internal
+review and the client's own approval"*. Câu này không đúng mọi lúc: workspace nội
+bộ (D-106) không cần client duyệt.
+
+### Ô mô tả quyền (tiếng Anh)
+
+> Social Square is a social media management platform used by agencies to publish and manage content on behalf of their client businesses. Each client is an isolated workspace, agency staff are granted access per client, and every publish is recorded in an audit log.
+>
+> We request pages_manage_posts to publish organic posts to Facebook Pages that a client has explicitly connected to Social Square.
+>
+> How the permission is used — creating posts only. Agency staff compose a post in Social Square (text, optionally a link, a photo, several photos or a video), choose the client's Page, and publish it now or at a scheduled time. Social Square then creates the post on that Page, and shows a link to it. That is the entire use: we create organic Page posts and nothing else. We do not create ads and have no ad account.
+>
+> The value it adds. An agency manages many client brands; this puts writing, scheduling and publishing for every client's Page in one place, and a post can be routed through internal review and the client's approval before it goes out, with who approved what recorded. Without it, the agency would collect its clients' Facebook credentials and post from each Page by hand; connecting the Page through our app replaces that with a scoped authorization the client controls and can revoke at any time.
+>
+> Why it is necessary. A Page post cannot be created programmatically without this permission, so without it the product cannot publish to Facebook at all, which is its primary function.
+>
+> How we avoid posting twice. The Page feed endpoint accepts no idempotency key, so a network failure can leave us unsure whether a post was created. We never retry blindly: we check the Page's recent posts to find out, and if that is still inconclusive we stop and ask a person to check, rather than risk publishing the same content twice.
+>
+> What we do not do. This permission also allows editing and deleting Page posts, including, with pages_read_user_content, posts created by other people. We do none of those. We do not edit a post after it is published, and our app has no interface for it. We do not delete published posts: deleting a post inside Social Square is refused once it has been published, with a message that it would not remove it from Facebook. We never touch a post created by anyone other than our app. We do not use the aggregated, de-identified or anonymised analytics allowance of this permission, and we do not use client content to train models.
+
+### Ô hướng dẫn test
+
+Dùng chung các bước 1–3 của `pages_read_user_content`, thêm một bước cuối:
+
+> 4. On the post's page in Social Square, click "View on Facebook": the post is on your Page.
