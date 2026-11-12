@@ -221,6 +221,9 @@ nó chạy song song với việc phát triển, không phụ thuộc gì vào c
 
 ### 1b. Quyền bình luận Instagram — **nộp được, đã có nút Check now**
 
+> **12/11:** bản dùng để nộp lại, kịch bản quay chung bốn quyền Instagram và
+> các chỗ đã sửa nằm ở `docs/META-APP-REVIEW.md` → "Instagram: bốn quyền, một video".
+
 > **Scope cần nộp: `instagram_business_manage_comments`** — production dùng
 > Business Login (đã xác nhận, §1d). Mô tả dưới đây đã là bản cho luồng đó.
 >
@@ -366,6 +369,9 @@ khi nộp — Meta bắt buộc có nó.
 
 
 ### 1c. Quyền đăng bài Instagram — mô tả để nộp
+
+> **12/11:** bản dùng để nộp lại, kịch bản quay chung bốn quyền Instagram và
+> các chỗ đã sửa nằm ở `docs/META-APP-REVIEW.md` → "Instagram: bốn quyền, một video".
 
 > **Scope cần nộp: `instagram_business_content_publish`** — production dùng
 > Business Login (§1d). Mô tả dưới đây đã là bản cho luồng đó.
@@ -590,6 +596,9 @@ giúp em: danh sách này thuộc app nào?
 
 ### 1e. Quyền số liệu Instagram — mô tả để nộp
 
+> **12/11:** bản dùng để nộp lại, kịch bản quay chung bốn quyền Instagram và
+> các chỗ đã sửa nằm ở `docs/META-APP-REVIEW.md` → "Instagram: bốn quyền, một video".
+
 > **Tên scope tùy luồng** (§1d): `instagram_business_manage_insights` với Business
 > Login, `instagram_manage_insights` với Facebook Login. Cái thứ hai **chưa gắn
 > vào app**; cái thứ nhất thì đã có.
@@ -672,6 +681,9 @@ insights dù quyền này đã được duyệt.
 ---
 
 ### 1f. `instagram_business_basic` — mô tả để nộp
+
+> **12/11:** bản dùng để nộp lại, kịch bản quay chung bốn quyền Instagram và
+> các chỗ đã sửa nằm ở `docs/META-APP-REVIEW.md` → "Instagram: bốn quyền, một video".
 
 Quyền nền tảng, và **vẫn có ô mô tả**. Đừng viết kiểu "đây là quyền cơ bản
 bắt buộc" — Orbit dùng nó ở năm chỗ cụ thể, và kể ra thì hồ sơ mạnh hơn hẳn.

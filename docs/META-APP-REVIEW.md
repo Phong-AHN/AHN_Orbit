@@ -216,3 +216,163 @@ cần một cảnh có chú thích riêng. Thêm vào video:
 còn được gọi**, vì giá trị của chúng là một bảng chứ không phải một con số. Bản mô
 tả giờ có thể nói "totals only". Đừng dùng lại bản mô tả cũ có liệt kê hai chỉ số
 này.
+
+---
+
+## Instagram: bốn quyền, một video
+
+### Quyền nào quay được
+
+Production kết nối Instagram bằng **Business Login for Instagram** (đăng nhập bằng
+username Instagram, không cần Page; OWNER-TODO §1d). Màn hình kết nối chỉ xin nhóm
+`instagram_business_*`:
+
+| Quyền | Trong video | Nộp lại |
+|---|---|---|
+| `instagram_business_basic` | Có | **Có** |
+| `instagram_business_content_publish` | Có | **Có** |
+| `instagram_business_manage_comments` | Có | **Có** |
+| `instagram_business_manage_insights` | Có | **Có** |
+| `instagram_basic` | Không thể | **Gỡ khỏi bản nộp** |
+| `instagram_content_publish` | Không thể | **Gỡ khỏi bản nộp** |
+| `instagram_manage_comments` | Không thể | **Gỡ khỏi bản nộp** |
+
+**Vì sao gỡ ba quyền không có `business`:** chúng thuộc luồng *Facebook Login for
+Instagram* (Instagram nối qua Facebook Page). Social Square không còn mở luồng đó
+trên màn hình kết nối, nên không có màn hình cấp quyền nào hỏi `instagram_basic`
+để quay. Video nào cũng sẽ cho thấy màn hình Instagram hỏi `instagram_business_*`,
+và Meta sẽ lại trả về với đúng lý do "video không khớp".
+
+Gỡ khỏi bản nộp **không làm hỏng gì**: các quyền này vẫn ở Standard Access như hiện
+tại, và production không dùng chúng. Không cần xóa chúng khỏi app.
+
+Muốn được duyệt cả ba thì phải mở lại luồng kết nối qua Page cho Instagram và quay
+video thứ hai. Không nên: hai luồng cho một nền tảng là thứ D-105 đã bỏ.
+
+**Kiểm tra thêm khi quay video Facebook:** nếu màn hình cấp quyền Facebook liệt kê
+quyền `instagram_*`, thì configuration Facebook Login for Business đang chứa
+chúng. Gỡ khỏi configuration đó; Facebook Page không cần quyền Instagram.
+
+### Chuẩn bị riêng
+
+1. **Push và deploy.** Nút Refresh figures (D-122) cần bản web mới; worker phải
+   đang chạy.
+2. **Tài khoản Instagram để quay:** tài khoản professional (Business hoặc Creator),
+   đúng tài khoản đã từng kết nối được (đã có role tester trên app). Đổi ngôn ngữ
+   Instagram sang English.
+3. **Hôm trước:** đăng một bài ảnh lên tài khoản đó **qua Social Square**. Số liệu
+   cần thời gian mới có.
+4. **Sáng hôm quay, trước khi ngắt kết nối:** Analytics → hàng **Account** chọn
+   tài khoản Instagram → **Refresh figures** → đợi 1–2 phút. Thẻ **Pages and
+   profiles** và bài hôm qua phải có số.
+   - Nếu vẫn "Not measured yet" hoặc báo lỗi: **dừng, báo lại trước khi quay.**
+     Bộ đọc số liệu Instagram xin cả lô chỉ số trong một lệnh gọi, giống bộ đọc
+     Facebook trước D-121. Một chỉ số bị từ chối là mất cả lô.
+5. **Để màn hình đăng nhập và cấp quyền hiện lại:**
+   - Social Square → Settings → Accounts → **Disconnect** tài khoản Instagram
+     (không được còn bài đang lên lịch cho nó). Số liệu và bài cũ vẫn giữ liên
+     kết khi kết nối lại (D-117).
+   - Instagram → Settings → **Apps and websites** → gỡ Social Square nếu có.
+   - Trong profile Chrome dùng quay: **đăng nhập Social Square, đăng xuất
+     Instagram.**
+6. **Một người thật khác** cầm điện thoại, sẵn sàng bình luận (tài khoản thật,
+   Meta cấm tài khoản giả). Một ảnh JPEG tỉ lệ 1:1 hoặc 4:5.
+
+### Kịch bản (3–4 phút)
+
+| # | Thao tác | Chú thích chèn vào video | Quyền |
+|---|---|---|---|
+| 1 | Dashboard → **Clients** (thấy nhiều client) | *Social Square: agencies manage social media for their client brands. Each client is a separate workspace.* | — |
+| 2 | Clients → brand → nút **Instagram**. Dừng ở dòng "You will sign in at Instagram with the account's own username. No Facebook Page is needed." → **Continue with Instagram** | *The agency connects the client's Instagram professional account with Business Login for Instagram.* | — |
+| 3 | Trang đăng nhập Instagram: username, mật khẩu (hiện dấu chấm), **Log in** | *The account owner logs in to Instagram.* | — |
+| 4 | Màn hình cấp quyền: dừng 3–5 giây, cuộn hết, bấm **Allow** | *The owner grants instagram_business_basic, instagram_business_content_publish, instagram_business_manage_comments and instagram_business_manage_insights.* | cả bốn |
+| 5 | Về Social Square: danh sách hiện tên và username → tick → **Connect 1 account** | *instagram_business_basic: Social Square reads the account's username, name and profile picture so staff know which account they post to.* | basic |
+| 6 | Settings → Accounts: tài khoản **Active · checked …** | *instagram_business_basic: the connection is checked on a schedule and renewed before its 60-day expiry.* | basic |
+| 7 | **Posts → New post**: caption, gắn ảnh, chọn tài khoản Instagram → **Publish now** → đợi **Published** | *instagram_business_content_publish: staff write the post and publish it to the client's account.* | content_publish |
+| 8 | Trang bài: **View on Instagram ↗** → bài hiện trên Instagram | *The post is live on Instagram. Its link is read back from the account.* | content_publish, basic |
+| 9 | **Đoạn liền mạch, không cắt** (xem dưới) | *instagram_business_manage_comments: comments on posts we published arrive in one inbox, and a staff member reads and replies. Replies are written by a person, never automated.* | manage_comments |
+| 10 | **Analytics** → hàng Account chọn tài khoản Instagram → thẻ **Pages and profiles** ("As of …") → cuộn xuống bài hôm qua có số | *instagram_business_manage_insights: account and post insights for the client's analytics and CSV reports. A metric Instagram has not reported shows as not available, never as zero.* | manage_insights |
+| 11 | Cảnh kết | *We never hide, edit or delete comments, never post Stories, and read only accounts the client connected.* | — |
+
+**Đoạn bình luận (bước 9), quay liền mạch:**
+
+1. Người kia bình luận vào bài vừa đăng ở bước 7 (quay màn hình điện thoại, hoặc
+   mở Instagram trên một cửa sổ khác).
+2. Social Square → **Community** → **Check now** → mở bài: bình luận hiện kèm
+   tên người viết; ảnh đại diện của tài khoản hiện ở đầu bài.
+3. **Reply** → gõ câu trả lời → **Post reply**.
+4. Tải lại bài trên Instagram: câu trả lời nằm ngay dưới bình luận gốc.
+
+Check now chỉ bấm được 1 lần mỗi phút cho mỗi tổ chức (D-104). Đừng bấm thử ngay
+trước khi quay.
+
+**Nộp:** tải cùng một video lên cả bốn quyền. Video này thay video
+`instagram_business_basic` đã bị trả về.
+
+### `instagram_business_basic` — ô mô tả
+
+> Social Square is a social media management platform used by agencies to publish, moderate and report on content for their client businesses. Each client is an isolated workspace, and agency staff are given access per client.
+>
+> We request instagram_business_basic because every Instagram feature in our app is built on it. A client connects their own Instagram professional account through Business Login for Instagram: no Facebook Page is needed, and nobody at the agency holds the client's password. We use this permission for five things, only on accounts a client has connected:
+>
+> 1. Knowing which account was connected. After login we read the account's id, username, name and profile picture, so staff can see which client account they are posting to.
+> 2. Keeping the connection alive. Instagram user tokens expire after 60 days, and we renew them with refresh_access_token, which requires this permission. Without it every client would have to reconnect every two months.
+> 3. Connection health. We read the account's id on a schedule, so an agency sees a broken connection before a scheduled post is due rather than after it fails.
+> 4. Never posting twice. Publishing takes two calls. If the second is interrupted, we read the account's recent media (id, caption, timestamp, permalink) to find out whether the post went out before doing anything else.
+> 5. Linking to what we published. We read each published post's permalink so staff can open it on Instagram.
+>
+> What we do not do. We read only the connected account's own profile and media. We do not read other accounts, followers' data or Stories. We do not use the aggregated, de-identified or anonymised data allowance of this permission.
+
+### `instagram_business_content_publish` — ô mô tả
+
+Bản ở OWNER-TODO §1c, sửa hai chỗ sai với code: "Nothing reaches Instagram until
+it has passed the internal review and the client's own approval" (workspace nội bộ
+không cần client duyệt, D-106) và "an audit log the client can be shown" (client
+không có trang xem audit log).
+
+> Social Square is a social media management platform used by agencies to publish and manage content on behalf of their client businesses. Each client is an isolated workspace, agency staff are granted access per client, and every publish is recorded in an audit log.
+>
+> We request instagram_business_content_publish to publish organic feed content to Instagram professional accounts whose owners have connected them to Social Square through Business Login for Instagram.
+>
+> How the permission is used. Agency staff compose a post in Social Square: a caption of up to 2,200 characters with up to 30 hashtags, and a single image, a single video published as a Reel, or a carousel of 2 to 10 images. They choose the client's account and publish now or at a scheduled time. We create a media container on the account and then publish it, which is the two-step flow the API requires; Instagram fetches the media from a URL we provide. Social Square then shows a link to the published post. Everything is organic feed content. We create no ads and have no ad account.
+>
+> The value it adds. An agency manages many client brands; this puts writing, scheduling and publishing for every client's account in one place, and a post can be routed through internal review and the client's approval before it goes out, with who approved what recorded. Without it, the agency would collect its clients' Instagram passwords and post by hand. Business Login replaces that with an authorization the client grants from their own account and can revoke at any time.
+>
+> Why it is necessary. Instagram content cannot be published programmatically without this permission, so without it the product cannot publish to Instagram at all, which is its primary function.
+>
+> How we avoid posting twice. Because publishing is two calls, a network failure can leave the outcome unknown. We never retry blindly: we check the account's recent media, and if that is still inconclusive we stop and ask a person to check, rather than risk publishing the same content twice.
+>
+> What we do not do. We do not post Stories. We do not edit or delete published media, and our app has no interface for it. We do not use the aggregated, de-identified or anonymised analytics allowance of this permission, and we do not use client content to train models.
+
+### `instagram_business_manage_comments` — ô mô tả
+
+Dùng bản ở OWNER-TODO §1b, **xóa cụm** "and every action is recorded in an audit
+log the client can be shown" ở câu đầu. Ô "Test post" điền link bài đăng ở bước 7
+(để nguyên bài đó trên Instagram cho người duyệt bình luận).
+
+### `instagram_business_manage_insights` — ô mô tả
+
+Thay bản ở OWNER-TODO §1e. Bản đó ghi tên quyền cũ (`instagram_manage_insights`)
+và nói client xem số liệu trong portal (portal không có trang số liệu).
+
+> Social Square is a social media management platform used by agencies to publish and report on content for their client businesses. Each client is an isolated workspace.
+>
+> We request instagram_business_manage_insights to show each client how their Instagram professional account and the posts we published for them perform. We read insights only for accounts the client connected through Business Login for Instagram.
+>
+> How the permission is used. For each post we published we read views, reach, likes, comments, saved and shares. For the account we read reach, views, likes, saves, shares, comments, total_interactions, profile_links_taps and accounts_engaged. They appear on the Analytics page, per account and beside each post, and in the CSV reports an agency exports for its client.
+>
+> The value it adds. Reporting results is a core part of what an agency does for its clients. Without this, staff sign into each client's Instagram account and copy numbers into spreadsheets by hand.
+>
+> Why it is necessary. Instagram performance metrics are not available without this permission; they are not part of the media object.
+>
+> How we handle the data. Insights are read on a schedule, or when staff press Refresh figures, never when a page is opened. A metric Instagram has not reported is shown as not available, never as zero. We read totals only and request no demographic metrics, so nothing about an individual follower is collected.
+>
+> What we do not do. We read insights only for accounts connected to Social Square, never for other businesses' accounts. We do not use the aggregated, de-identified or anonymised data allowance of this permission to improve our app or for marketing or advertising.
+
+### Ô hướng dẫn test (tiếng Anh, chung cho bốn quyền)
+
+> 1. Go to https://www.socialsquare.site/sign-in → "Continue with Google" → sign in with [REVIEW_GMAIL] / [PASSWORD].
+> 2. Left menu "Clients" → under brand [BRAND] click "Instagram" → "Continue with Instagram". Log in with an Instagram professional account and allow access. Tick the account and click "Connect 1 account" (instagram_business_basic).
+> 3. "Posts" → "New post": write a caption, attach an image, select the Instagram account, then "Publish now". On the post's page, "View on Instagram" opens it (instagram_business_content_publish).
+> 4. Comment on that post from another Instagram account. In Social Square open "Community" → "Check now" → open the post; the comment appears. Click "Reply", type a reply and click "Post reply"; it appears under the comment on Instagram (instagram_business_manage_comments).
+> 5. "Analytics" → choose the account under "Account": the "Pages and profiles" card shows account insights, and the posts below show their own. Instagram can take up to a day to report figures for a new post (instagram_business_manage_insights).

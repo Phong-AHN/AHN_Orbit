@@ -462,6 +462,10 @@ Cách đọc:
   - Quyền: `report:generate`.
   - Meta vẫn có thể báo số liệu Page trễ tới một ngày; thông báo sau khi bấm nói rõ điều này.
   - Kiểm tra: typecheck, lint, 1730 unit test (4 mới), build đều đạt. Thay đổi chỉ ở web.
+- **Meta trả về `instagram_basic`** (video không khớp). Soạn kịch bản quay chung cho các quyền Instagram, lưu vào META-APP-REVIEW.md:
+  - Một video cho bốn quyền `instagram_business_*` (basic, content_publish, manage_comments, manage_insights): đăng nhập Instagram → cấp quyền → tài khoản hiện ra → đăng bài → trả lời bình luận (Check now) → Analytics.
+  - Khuyên **gỡ** `instagram_basic`, `instagram_content_publish`, `instagram_manage_comments` khỏi bản nộp: chúng thuộc luồng kết nối qua Facebook Page, mà màn hình kết nối không còn mở, nên không có gì để quay.
+  - Viết mô tả `instagram_business_basic` (trước đây chỉ có trong chat). Sửa mô tả `content_publish` (câu "không gì lên trước khi client duyệt", "audit log client xem được"), `manage_comments` (cụm audit log) và `manage_insights` (sai tên quyền, câu "client xem trong portal").
 
 ---
 
