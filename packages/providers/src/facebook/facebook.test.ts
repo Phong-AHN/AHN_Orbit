@@ -763,6 +763,71 @@ describe('analytics', () => {
     expect(set.availability.page_fans).toBe('DEPRECATED');
   });
 
+  /**
+   * Meta refuses a whole request when one metric name is not accepted. Asked
+   * in one call, a single refused name meant no Page figure was ever stored
+   * (D-121). Now the accepted ones keep their numbers.
+   */
+  it('asks one metric at a time when the batch is refused, keeping what is accepted', async () => {
+    const graph: FakeGraph = healthyGraph().on(/\/insights/, () => {
+      const metric = new URL(graph.calls.at(-1)!.url).searchParams.get('metric') ?? '';
+      if (metric.includes(',') || metric === 'page_follows') {
+        return {
+          status: 400,
+          body: {
+            error: { code: 100, message: '(#100) The value must be a valid insights metric' },
+          },
+        };
+      }
+      return { body: { data: [{ name: metric, period: 'day', values: [{ value: 42 }] }] } };
+    });
+
+    const set = await provider(graph).fetchAccountAnalytics({ externalId: '1' }, credential, {
+      from: new Date('2026-08-01'),
+      to: new Date('2026-08-12'),
+    });
+
+    expect(set.metrics.page_media_view).toBe(42);
+    expect(set.availability.page_media_view).toBe('AVAILABLE');
+    expect(set.availability.page_follows).toBe('UNSUPPORTED');
+    expect(set.metrics.page_follows).toBeUndefined();
+  });
+
+  /** Without `period`, Meta returns a metric once per period; the day's is the one stored. */
+  it('stores the daily value when Meta returns several periods', async () => {
+    const graph = healthyGraph().on(/\/insights/, {
+      body: {
+        data: [
+          { name: 'page_media_view', period: 'days_28', values: [{ value: 120 }] },
+          { name: 'page_media_view', period: 'day', values: [{ value: 5 }] },
+          { name: 'page_media_view', period: 'week', values: [{ value: 30 }] },
+        ],
+      },
+    });
+
+    const set = await provider(graph).fetchAccountAnalytics({ externalId: '1' }, credential, {
+      from: new Date('2026-08-01'),
+      to: new Date('2026-08-12'),
+    });
+
+    expect(set.metrics.page_media_view).toBe(5);
+  });
+
+  it('does not ask for the follower breakdowns, which are tables rather than numbers', async () => {
+    const graph = healthyGraph();
+    await provider(graph).fetchAccountAnalytics({ externalId: '1' }, credential, {
+      from: new Date('2026-08-01'),
+      to: new Date('2026-08-12'),
+    });
+
+    const requested =
+      new URL(graph.calls.find((c) => c.url.includes('/insights'))!.url).searchParams.get(
+        'metric',
+      ) ?? '';
+    expect(requested).not.toContain('page_follows_city');
+    expect(requested).not.toContain('page_follows_country');
+  });
+
   it('records the API version the numbers came from', async () => {
     const set = await provider(healthyGraph()).fetchAccountAnalytics(
       { externalId: '1' },
@@ -1046,6 +1111,18 @@ describe('post engagement', () => {
       },
     });
   }
+
+  /** A post's reading used to list every withdrawn Page metric as well (D-121). */
+  it('lists only withdrawn post metrics on a post, not Page ones', async () => {
+    const set = await provider(graphWithEngagement()).fetchPostAnalytics(ref, credential, {
+      from: new Date('2026-08-01'),
+      to: new Date('2026-08-22'),
+    });
+
+    expect(set.availability['post_impressions']).toBe('DEPRECATED');
+    expect(set.availability['page_fans']).toBeUndefined();
+    expect(set.availability['page_impressions']).toBeUndefined();
+  });
 
   it('reads reactions, comments and shares off the post', async () => {
     const set = await provider(graphWithEngagement()).fetchPostAnalytics(ref, credential, {

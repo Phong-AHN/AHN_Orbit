@@ -4884,6 +4884,43 @@ mode.
 - **Date:** 2026-11-11 · **Status:** IMPLEMENTED (no migration); Testing mode
   is the owner's to change
 
+## D-121 — Page insights that were read, and shown
+
+Preparing the `read_insights` screencast showed the Analytics page could not
+demonstrate it: its Page-level tiles were the withdrawn metrics (Page fans,
+Page impressions), all "No longer provided", and none of the current ones
+appeared. Three faults stacked up:
+
+1. **No Page metric was ever stored.** The worker asked for all the Page
+   metrics in one call, and Meta refuses a whole request when it does not accept
+   one name in it. The account read failed, and was retried and refused daily.
+2. **Nothing showed account-level figures anyway.** The Analytics page summed
+   post readings only; the daily account snapshots had an API route and no page.
+3. **The withdrawn tiles came from posts.** Every reading listed every
+   withdrawn metric as DEPRECATED, Page metrics included, so each post carried
+   six Page metrics it could never have, and the overview showed them.
+
+### What changed
+
+- A refused combined insights call is retried **one metric at a time**. A
+  metric refused on its own is recorded as unsupported; the rest keep their
+  numbers. Token and rate-limit failures are not retried that way.
+- **The daily value.** Without `period` Meta returns a metric once per period;
+  whichever came last was stored (a 28-day figure under a day's date). The
+  `day` value is now preferred, then `lifetime`.
+- **`page_follows_city` and `page_follows_country` are no longer requested.**
+  Their value is a table of places, not a number, so they were stored as
+  errors, and nothing can show a breakdown yet. The review text now says
+  "totals only".
+- Withdrawn metrics are listed only for the level asked about, and the
+  overview leaves them out: they are gone for every post, permanently.
+- The Analytics page has an **Account** filter and a **Pages and profiles**
+  section: each account's latest daily reading, with the day it is for.
+
+- **Date:** 2026-11-12 · **Status:** IMPLEMENTED (no migration). The worker
+  needs a manual deploy (only `packages/` changed for it), and Page figures
+  appear after the next daily read.
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

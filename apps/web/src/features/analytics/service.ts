@@ -61,6 +61,8 @@ export async function getAccountAnalytics(
 export interface PostAnalyticsFilter {
   workspaceId?: string;
   brandId?: string;
+  /** One connected account — a Page, a profile, a channel. */
+  socialAccountId?: string;
   /** Restricts to posts this principal authored, for the CONTENT_CREATOR grant. */
   authoredBy?: string;
   limit?: number;
@@ -91,6 +93,7 @@ export async function listPostAnalytics(
         deletedAt: null,
         status: 'PUBLISHED',
         publishedAt: { gte: range.from, lte: range.to },
+        ...(filter.socialAccountId ? { socialAccountId: filter.socialAccountId } : {}),
         // Every workspace predicate lives inside this one `post` object. Adding
         // a second `post` key alongside it would silently win over this one —
         // object spread, last key takes the field — and the scoping would
@@ -191,7 +194,9 @@ export async function getAnalyticsOverview(
     }
 
     for (const [name, state] of Object.entries(row.reading.availability)) {
-      if (state === 'AVAILABLE') continue;
+      // A withdrawn metric is gone for every post, permanently; listing it as a
+      // missing total filled the overview with metrics nobody can have (D-121).
+      if (state === 'AVAILABLE' || state === 'DEPRECATED') continue;
       // First reason wins; they are all "this number is not a number".
       unavailable[name] ??= state;
     }
@@ -203,6 +208,65 @@ export async function getAnalyticsOverview(
   for (const name of Object.keys(unavailable)) delete totals[name];
 
   return { posts: readings.length, accounts: accounts.size, totals, unavailable };
+}
+
+export interface AccountInsightsFilter {
+  workspaceId?: string;
+  socialAccountId?: string;
+}
+
+/**
+ * Each connected account with its latest account-level reading — a Facebook
+ * Page's followers and views, an Instagram profile's reach (D-121).
+ *
+ * The worker has stored these daily since Phase 3, and nothing showed them:
+ * the Analytics page summed post readings only. Bounded the same way as the
+ * post list — the tenant client, then the viewer's workspaces, then the filter
+ * — so a filter can only narrow.
+ */
+export async function listAccountInsights(ctx: TenantContext, filter: AccountInsightsFilter = {}) {
+  const accessible = accessibleWorkspaceIds(ctx);
+
+  const accounts = await withTenant(ctx, (db) =>
+    db.socialAccount.findMany({
+      where: {
+        deletedAt: null,
+        status: { not: 'DISABLED' },
+        ...(accessible === 'ALL' ? {} : { workspaceId: { in: [...accessible] } }),
+        ...(filter.workspaceId ? { workspaceId: filter.workspaceId } : {}),
+        ...(filter.socialAccountId ? { id: filter.socialAccountId } : {}),
+      },
+      select: {
+        id: true,
+        displayName: true,
+        platform: true,
+        accountType: true,
+        snapshots: {
+          select: { date: true, metrics: true, availability: true },
+          orderBy: { date: 'desc' },
+          take: 1,
+        },
+      },
+      orderBy: [{ platform: 'asc' }, { displayName: 'asc' }],
+    }),
+  );
+
+  return accounts.map((account) => {
+    const latest = account.snapshots[0];
+    return {
+      id: account.id,
+      displayName: account.displayName,
+      platform: account.platform,
+      accountType: account.accountType,
+      snapshot: latest
+        ? {
+            date: latest.date,
+            metrics: latest.metrics as Record<string, number>,
+            availability: latest.availability as Record<string, MetricAvailability>,
+          }
+        : null,
+    };
+  });
 }
 
 /** UTC midnight, matching how the worker buckets a day. */

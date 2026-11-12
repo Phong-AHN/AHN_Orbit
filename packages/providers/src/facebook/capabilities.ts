@@ -112,8 +112,9 @@ const AVAILABLE_METRICS = [
   'page_total_media_view_unique',
   'post_total_media_view_unique',
   'page_follows',
-  'page_follows_city',
-  'page_follows_country',
+  // `page_follows_city` and `page_follows_country` are not asked for (D-121):
+  // their value is a table of places, not a number, so they were stored as an
+  // error on every read, and nothing in the product can show a breakdown yet.
   'page_post_engagements',
   'post_reactions_by_type_total',
   'post_clicks',

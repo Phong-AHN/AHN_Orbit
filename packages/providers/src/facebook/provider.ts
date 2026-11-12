@@ -776,6 +776,8 @@ export class FacebookProvider implements SocialProvider {
       `/${ref.externalPostId}/insights`,
       insightNames,
       credential,
+      undefined,
+      'post',
     );
 
     const engagement = await this.fetchEngagement(ref.externalPostId, credential);
@@ -898,51 +900,89 @@ export class FacebookProvider implements SocialProvider {
     range: DateRange,
   ): Promise<MetricSet> {
     const metrics = this.capabilityCache.analytics.metrics.filter((m) => m.startsWith('page_'));
-    return this.fetchInsights(`/${account.externalId}/insights`, metrics, credential, range);
+    return this.fetchInsights(
+      `/${account.externalId}/insights`,
+      metrics,
+      credential,
+      range,
+      'page',
+    );
   }
 
+  /**
+   * Read `/insights` for a Page or a post.
+   *
+   * **One refused name must not cost the rest (D-121).** Meta answers a request
+   * naming any metric it does not accept with an error for the whole request.
+   * Page insights were asked for in one call, so a single unaccepted name meant
+   * no Page metric was ever stored, and the read was retried, and refused, every
+   * day. Now a refused combined call is retried one metric at a time; a metric
+   * still refused on its own is recorded as unsupported, and the others keep
+   * their numbers. Authentication and rate-limit failures are not retried that
+   * way: they would fail again for every metric.
+   *
+   * **The daily value, deliberately.** Without `period`, Meta returns a metric
+   * once per period it offers (day, week, 28 days). Taking whichever came last
+   * stored a 28-day figure under a day's date. The `day` value is used, then
+   * `lifetime`, then the first offered.
+   *
+   * Withdrawn metrics are reported, never requested — and only those of the
+   * level asked about, so a post's reading no longer lists Page metrics.
+   */
   private async fetchInsights(
     path: string,
     metricNames: readonly string[],
     credential: DecryptedCredential,
-    range?: DateRange,
+    range: DateRange | undefined,
+    level: 'page' | 'post',
   ): Promise<MetricSet> {
     const availability: MetricSet['availability'] = {};
 
-    // Requesting a withdrawn metric is an ERROR, not an empty result, so the
-    // whole call would fail. They are reported, never requested.
     for (const metric of this.capabilityCache.analytics.deprecatedMetrics) {
-      availability[metric] = 'DEPRECATED';
+      if (metric.startsWith('page_') === (level === 'page')) availability[metric] = 'DEPRECATED';
     }
 
-    const response = await this.client.request<{
-      data?: Array<{ name: string; values?: Array<{ value: unknown }> }>;
-    }>({
-      path,
-      params: {
-        metric: metricNames.join(','),
-        ...(range
-          ? {
-              since: Math.floor(range.from.getTime() / 1000),
-              until: Math.floor(range.to.getTime() / 1000),
-            }
-          : {}),
-      },
-      accessToken: credential.accessToken,
-    });
+    const ask = (names: readonly string[]) =>
+      this.client.request<{ data?: InsightEntry[] }>({
+        path,
+        params: {
+          metric: names.join(','),
+          ...(range
+            ? {
+                since: Math.floor(range.from.getTime() / 1000),
+                until: Math.floor(range.to.getTime() / 1000),
+              }
+            : {}),
+        },
+        accessToken: credential.accessToken,
+      });
 
-    const metrics: Record<string, number> = {};
-    for (const entry of response.data ?? []) {
-      const value = entry.values?.at(-1)?.value;
-      if (typeof value === 'number') {
-        metrics[entry.name] = value;
-        availability[entry.name] = 'AVAILABLE';
-      } else {
-        availability[entry.name] = 'ERROR';
+    let entries: InsightEntry[] = [];
+    try {
+      entries = (await ask(metricNames)).data ?? [];
+    } catch (error) {
+      if (!refusedForTheRequest(error) || metricNames.length < 2) throw error;
+      for (const name of metricNames) {
+        try {
+          entries.push(...((await ask([name])).data ?? []));
+        } catch (single) {
+          if (!refusedForTheRequest(single)) throw single;
+          availability[name] = 'UNSUPPORTED';
+        }
       }
     }
 
-    // A metric we asked for that came back at all is unsupported here.
+    const metrics: Record<string, number> = {};
+    for (const [name, value] of preferredValues(entries)) {
+      if (typeof value === 'number') {
+        metrics[name] = value;
+        availability[name] = 'AVAILABLE';
+      } else {
+        availability[name] = 'ERROR';
+      }
+    }
+
+    // A metric we asked for that did not come back at all is unsupported here.
     for (const metric of metricNames) {
       if (availability[metric] === undefined) availability[metric] = 'UNSUPPORTED';
     }
@@ -1313,4 +1353,40 @@ function messengerMessage(
 function composeMessage(draft: VariantDraft): string {
   const tags = (draft.hashtags ?? []).map((t) => (t.startsWith('#') ? t : `#${t}`));
   return tags.length > 0 ? `${draft.body}\n\n${tags.join(' ')}`.trim() : draft.body;
+}
+
+// ── Insights helpers ────────────────────────────────────────────────────────
+
+interface InsightEntry {
+  name: string;
+  period?: string;
+  values?: Array<{ value: unknown }>;
+}
+
+/** The order a metric's periods are preferred in, when Meta returns several. */
+const PERIOD_PREFERENCE = ['day', 'lifetime', 'days_28', 'week'];
+
+/**
+ * One value per metric: the latest value of its preferred period.
+ */
+export function preferredValues(entries: readonly InsightEntry[]): Map<string, unknown> {
+  const best = new Map<string, { rank: number; value: unknown }>();
+  for (const entry of entries) {
+    const rank = PERIOD_PREFERENCE.indexOf(entry.period ?? '');
+    const score = rank === -1 ? PERIOD_PREFERENCE.length : rank;
+    const current = best.get(entry.name);
+    if (!current || score < current.rank) {
+      best.set(entry.name, { rank: score, value: entry.values?.at(-1)?.value });
+    }
+  }
+  return new Map([...best].map(([name, { value }]) => [name, value]));
+}
+
+/**
+ * Whether Meta refused the request itself — an unaccepted metric name — rather
+ * than the token or the rate. Only that kind is worth asking again in parts.
+ */
+function refusedForTheRequest(error: unknown): boolean {
+  const code = (error as { code?: string }).code;
+  return code === 'PROVIDER_VALIDATION_ERROR' || code === 'VALIDATION_ERROR';
 }

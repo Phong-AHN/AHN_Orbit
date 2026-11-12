@@ -156,17 +156,23 @@ cần một cảnh có chú thích riêng. Thêm vào video:
 | Sau khi đăng nhập Facebook, Social Square hiện **danh sách Page** của người đó; tick Page của client → **Connect 1 account** | *pages_show_list: lists the Pages this person manages, so they choose which to connect. Only the chosen Page is saved.* | `pages_show_list` |
 | **Settings → Accounts**: Page hiện **Active · checked …** | *pages_read_engagement: Social Square reads the Page's own data to confirm the connection still works.* | `pages_read_engagement` |
 | Trang bài viết: **View on Facebook ↗** | *pages_read_engagement: the link to the published post is read from the Page.* | `pages_read_engagement` |
-| **Analytics**: chỉ số của Page (follows, views, engagement) và của bài (views, clicks) | *read_insights: Page and post insights for the client's analytics and reports. A metric Meta has not reported shows as not available, never as zero.* | `read_insights` |
+| **Analytics** → chọn Page ở hàng **Account** → thẻ **Pages and profiles**: Followers, Page views, Unique page views, Engagements ("As of …"); bên dưới là số liệu của bài | *read_insights: Page and post insights for the client's analytics and reports. A metric Meta has not reported shows as not available, never as zero.* | `read_insights` |
 
-**Chuẩn bị riêng cho `read_insights`:** số liệu insights của Meta có độ trễ, bài
-mới đăng có khi cả ngày chưa có số. Quay bằng một bài đã đăng qua Social Square
-**từ hôm trước**, và Page nên có chút tương tác.
+**Chuẩn bị riêng cho `read_insights` (sửa 12/11, D-121):**
+- Trước bản sửa này, trang Analytics **không hiện chỉ số cấp Page**. Worker cũng
+  chưa từng lấy được chỉ số nào: Meta từ chối cả lô vì một tên chỉ số. Phải push
+  bản sửa và **Deploy Latest Commit cho worker** trước.
+- Worker đọc số liệu Page mỗi ngày một lần (cửa sổ tính từ 00:00 UTC). Số liệu
+  có muộn nhất sau 7 giờ sáng hôm sau, giờ Việt Nam.
+- Quay bằng một bài đã đăng qua Social Square **từ hôm trước**; Page nên có chút
+  tương tác. Lọc theo đúng Page bằng hàng **Account**, để phần tổng không trộn số
+  của X, Bluesky hay TikTok.
 
 ### `pages_show_list` — ô mô tả
 
 > Social Square is a social media management platform used by agencies to publish and report on content for their client businesses. Each client is an isolated workspace.
 >
-> We request pages_show_list so the person connecting Facebook can choose which of the Pages they manage to connect to a client. After Facebook Login we call /me/accounts and show the Pages with their name and picture; the person ticks the client's Page and only the Pages they choose are saved. A Page on which they lack the role needed to publish is shown with that reason rather than hidden, so they know why it cannot be used.
+> We request pages_show_list so the person connecting Facebook can choose which of the Pages they manage to connect to a client. After Facebook Login we call /me/accounts and list the Pages by name; the person ticks the client's Page and only the Pages they choose are saved. A Page on which they lack the role needed to publish is shown with that reason rather than hidden, so they know why it cannot be used.
 >
 > Why it is necessary. The same call returns each Page's access token, and every other Page permission in this submission is used with that token. Without pages_show_list there is no Page token, and the product cannot work with Facebook at all.
 >
@@ -190,11 +196,11 @@ mới đăng có khi cả ngày chưa có số. Quay bằng một bài đã đă
 
 > Social Square is a social media management platform used by agencies to publish and report on content for their client businesses. Each client is an isolated workspace.
 >
-> We request read_insights to show each client how their Facebook Page and the posts we published for them perform. For the Page we read page_follows, page_follows_city, page_follows_country, page_post_engagements, page_media_view and page_total_media_view_unique. For each published post we read post_media_view, post_total_media_view_unique, post_reactions_by_type_total and post_clicks. These fill the client's analytics dashboard and the CSV reports an agency exports for its client.
+> We request read_insights to show each client how their Facebook Page and the posts we published for them perform. For the Page we read page_follows, page_media_view, page_total_media_view_unique and page_post_engagements, shown on the Analytics page as Followers, Page views, Unique page views and Engagements. For each published post we read post_media_view, post_total_media_view_unique, post_reactions_by_type_total and post_clicks. These fill the client's analytics dashboard and the CSV reports an agency exports for its client.
 >
 > Why it is necessary. Page and post insights are not available without this permission, and reporting results to the client is a core part of what an agency does with our product.
 >
-> How we handle the data. Insights are read on a schedule, never when a page is opened. A metric Meta has withdrawn or not reported is shown as not available, never as zero. page_follows_city and page_follows_country are aggregated counts by location as Meta returns them; we receive nothing about any individual follower.
+> How we handle the data. Insights are read on a schedule, never when a page is opened. A metric Meta has not reported is shown as not available, never as zero. We read totals only: no breakdown by location, age or gender, and nothing about any individual follower.
 >
 > What we do not do. We read insights only for Pages a client has connected — not for apps or web domains. We do not use the aggregated, de-identified or anonymised data allowance of this permission to improve our app or for marketing or advertising.
 
@@ -203,7 +209,9 @@ mới đăng có khi cả ngày chưa có số. Quay bằng một bài đã đă
 > After connecting the Page (steps 1–2 above):
 > - pages_show_list: the Page list you choose from after Facebook Login.
 > - pages_read_engagement: Settings → Accounts shows the Page as Active, with when it was last checked; on a published post, "View on Facebook" opens it.
-> - read_insights: Analytics shows Page and post insights. Meta can take up to a day to report them for a new post.
+> - read_insights: Analytics → choose the Page under "Account": the "Pages and profiles" card shows the Page's followers, views and engagements (read once a day), and the posts below show their own insights. Meta can take up to a day to report them for a new post.
 
-**Không dùng câu "we collect no audience demographic data" cho Facebook:**
-`page_follows_city` và `page_follows_country` có được gọi (OWNER-TODO §1g).
+**Ghi chú (12/11, D-121):** `page_follows_city` và `page_follows_country` **không
+còn được gọi**, vì giá trị của chúng là một bảng chứ không phải một con số. Bản mô
+tả giờ có thể nói "totals only". Đừng dùng lại bản mô tả cũ có liệt kê hai chỉ số
+này.

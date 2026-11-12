@@ -444,6 +444,18 @@ Cách đọc:
   - Sửa bản mô tả: câu "không gì lên Page trước khi client duyệt" không đúng với workspace nội bộ (D-106); việc duyệt chỉ nhắc như tính năng đi kèm.
   - Lưu vào META-APP-REVIEW.md.
 - **Meta `pages_show_list`, `pages_read_engagement`, `read_insights`:** dùng chung video Facebook, thêm 4 cảnh có chú thích riêng (danh sách Page, Accounts "Active · checked", View on Facebook, Analytics). Soạn mô tả cho từng quyền, khớp với các endpoint code thật sự gọi; lưu vào META-APP-REVIEW.md.
+- **Video `read_insights` không dùng được** (người dựng video báo lại): trang Analytics chỉ hiện chỉ số Page đã bị Meta bỏ, toàn bộ là "No longer provided". Tìm ra 3 lỗi chồng nhau (D-121):
+  - worker xin cả lô chỉ số Page trong một lệnh gọi, Meta từ chối cả lô nên **chưa ngày nào lưu được** chỉ số Page;
+  - trang Analytics không hiện số liệu cấp Page;
+  - chỉ số Page đã bị bỏ lọt vào số liệu của từng bài.
+  - **Đã sửa:**
+    - lô bị từ chối thì xin từng chỉ số một; đọc đúng giá trị theo ngày;
+    - bỏ hai chỉ số dạng bảng (city/country);
+    - trang Analytics có bộ lọc **Account** và phần **Pages and profiles**;
+    - phần tổng ẩn các chỉ số Meta đã bỏ.
+  - Sửa bản mô tả `read_insights` (chỉ còn 4 chỉ số Page, "totals only") và `pages_show_list` (bỏ "and picture", vì danh sách Page không có ảnh).
+  - Kiểm tra: typecheck, lint, 1726 unit test (4 mới), build đều đạt.
+  - **Worker phải deploy tay**; số liệu Page có sau lần đọc hằng ngày kế tiếp.
 
 ---
 

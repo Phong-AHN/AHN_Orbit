@@ -1,11 +1,18 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { accessibleWorkspaceIds, clock } from '@orbit/core';
+import { accessibleWorkspaceIds, clock, isUuid } from '@orbit/core';
+import { capabilitiesFor } from '@orbit/providers';
 import { Badge, Card, CardBody, Empty, PageHeader, PermissionDenied } from '@orbit/ui';
 import { pageCan, requirePageContext } from '@/server/page-context';
-import { getAnalyticsOverview, listPostAnalytics } from '@/features/analytics/service';
+import { ensureProvidersRegistered } from '@/server/providers';
+import {
+  getAnalyticsOverview,
+  listAccountInsights,
+  listPostAnalytics,
+} from '@/features/analytics/service';
 import { listWorkspaces } from '@/features/tenancy/service';
 import { MetricStrip, OverviewTotals } from '@/features/analytics/ui/metric-grid';
+import { AccountInsights } from '@/features/analytics/ui/account-insights';
 import { listReports } from '@/features/reports/service';
 import { ReportPanel } from '@/features/reports/ui/report-panel';
 import { safeExternalUrl } from '@/features/publishing/ui/links';
@@ -16,7 +23,7 @@ export const metadata: Metadata = { title: 'Analytics' };
 
 interface PageProps {
   params: Promise<{ orgSlug: string }>;
-  searchParams: Promise<{ workspaceId?: string; days?: string }>;
+  searchParams: Promise<{ workspaceId?: string; accountId?: string; days?: string }>;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
@@ -32,7 +39,9 @@ const WINDOWS = [7, 30, 90] as const;
  */
 export default async function AnalyticsPage({ params, searchParams }: PageProps) {
   const { orgSlug } = await params;
-  const { workspaceId, days } = await searchParams;
+  const { workspaceId, days, accountId: rawAccountId } = await searchParams;
+  // An id that is not a UUID would make the database refuse the query.
+  const accountId = rawAccountId && isUuid(rawAccountId) ? rawAccountId : undefined;
   const { ctx, organization } = await requirePageContext(orgSlug);
 
   if (!pageCan(ctx, 'analytics:read', workspaceId ? { workspaceId } : {})) {
@@ -49,20 +58,41 @@ export default async function AnalyticsPage({ params, searchParams }: PageProps)
 
   const canGenerate = pageCan(ctx, 'report:generate', workspaceId ? { workspaceId } : {});
 
-  const [overview, posts, workspaces, reports] = await Promise.all([
-    getAnalyticsOverview(ctx, range, { ...(workspaceId ? { workspaceId } : {}) }),
-    listPostAnalytics(ctx, range, { ...(workspaceId ? { workspaceId } : {}), limit: 50 }),
+  const scope = {
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(accountId ? { socialAccountId: accountId } : {}),
+  };
+
+  const [overview, posts, workspaces, reports, allAccounts] = await Promise.all([
+    getAnalyticsOverview(ctx, range, scope),
+    listPostAnalytics(ctx, range, { ...scope, limit: 50 }),
     listWorkspaces(ctx, accessibleWorkspaceIds(ctx)),
     // Fetched only when this principal may have one, so a Content Creator does
     // not learn what the agency reports to its clients.
     canGenerate ? listReports(ctx) : Promise.resolve([]),
+    listAccountInsights(ctx, { ...(workspaceId ? { workspaceId } : {}) }),
   ]);
+
+  // Only accounts whose platform reports account-level figures get a card: a
+  // TikTok profile would otherwise sit at "not measured yet" for ever.
+  ensureProvidersRegistered();
+  const measurable = allAccounts.filter((account) => {
+    try {
+      return capabilitiesFor(account.platform, account.accountType).analytics.account;
+    } catch {
+      return false;
+    }
+  });
+  const shownAccounts = accountId
+    ? measurable.filter((account) => account.id === accountId)
+    : measurable;
 
   const base = `/orgs/${orgSlug}/analytics`;
   const keep = (next: Record<string, string | undefined>) => {
     const query = new URLSearchParams();
-    const merged = { workspaceId, days: String(window), ...next };
+    const merged = { workspaceId, accountId, days: String(window), ...next };
     if (merged.workspaceId) query.set('workspaceId', merged.workspaceId);
+    if (merged.accountId) query.set('accountId', merged.accountId);
     if (merged.days && merged.days !== '30') query.set('days', merged.days);
     const s = query.toString();
     return s ? `${base}?${s}` : base;
@@ -94,7 +124,7 @@ export default async function AnalyticsPage({ params, searchParams }: PageProps)
         {workspaces.length > 1 ? (
           <div className="ml-auto flex flex-wrap gap-2">
             <Link
-              href={keep({ workspaceId: undefined })}
+              href={keep({ workspaceId: undefined, accountId: undefined })}
               className={`rounded border px-3 py-1 text-sm ${
                 workspaceId
                   ? 'border-line text-ink-secondary hover:text-ink'
@@ -106,7 +136,7 @@ export default async function AnalyticsPage({ params, searchParams }: PageProps)
             {workspaces.map((workspace) => (
               <Link
                 key={workspace.id}
-                href={keep({ workspaceId: workspace.id })}
+                href={keep({ workspaceId: workspace.id, accountId: undefined })}
                 className={`rounded border px-3 py-1 text-sm ${
                   workspaceId === workspace.id
                     ? 'border-accent bg-accent/10 text-ink'
@@ -119,6 +149,45 @@ export default async function AnalyticsPage({ params, searchParams }: PageProps)
           </div>
         ) : null}
       </div>
+
+      {allAccounts.length > 1 ? (
+        <div className="mb-6 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-ink-muted">Account</span>
+          <Link
+            href={keep({ accountId: undefined })}
+            className={`rounded border px-3 py-1 text-sm ${
+              accountId
+                ? 'border-line text-ink-secondary hover:text-ink'
+                : 'border-accent bg-accent/10 text-ink'
+            }`}
+          >
+            All accounts
+          </Link>
+          {allAccounts.map((account) => (
+            <Link
+              key={account.id}
+              href={keep({ accountId: account.id })}
+              className={`rounded border px-3 py-1 text-sm ${
+                accountId === account.id
+                  ? 'border-accent bg-accent/10 text-ink'
+                  : 'border-line text-ink-secondary hover:text-ink'
+              }`}
+            >
+              {account.displayName}
+              <span className="ml-1 text-xs text-ink-muted">{account.platform.toLowerCase()}</span>
+            </Link>
+          ))}
+        </div>
+      ) : null}
+
+      {shownAccounts.length > 0 ? (
+        <section aria-labelledby="accounts-heading" className="mb-8">
+          <h2 id="accounts-heading" className="mb-2 text-sm font-semibold text-ink">
+            Pages and profiles
+          </h2>
+          <AccountInsights accounts={shownAccounts} />
+        </section>
+      ) : null}
 
       <section aria-labelledby="totals-heading" className="mb-8">
         <h2 id="totals-heading" className="mb-2 text-sm font-semibold text-ink">
