@@ -30,6 +30,7 @@ import {
 } from '@orbit/providers';
 import { audit, type AuditInput } from '@/server/audit';
 import { ensureProvidersRegistered } from '@/server/providers';
+import { readDegradedRecord, type DegradedRecord } from './diagnosis';
 import { applyHealthVerdict } from './health';
 import { issueOAuthState, pkceVerifierFor } from './oauth-state';
 
@@ -297,6 +298,42 @@ function openStoredCredential(
 }
 
 // ── Listing ─────────────────────────────────────────────────────────────────
+
+/**
+ * The latest "marked as needing reconnection" record for each account asked
+ * about — when, what found it, the reason and the worker build (D-114).
+ *
+ * Read from the tenant's own audit log through the scoped client. The caller
+ * decides who may see it; the Accounts page shows it to those holding
+ * `audit:read`.
+ */
+export async function listLatestDegradations(
+  ctx: TenantContext,
+  accountIds: readonly string[],
+): Promise<Map<string, DegradedRecord>> {
+  if (accountIds.length === 0) return new Map();
+
+  const rows = await withTenant(ctx, (db) =>
+    db.auditLog.findMany({
+      where: {
+        action: 'social_account.health_degraded',
+        resourceType: 'SocialAccount',
+        resourceId: { in: [...accountIds] },
+      },
+      select: { resourceId: true, createdAt: true, actorType: true, after: true },
+      orderBy: { createdAt: 'desc' },
+      take: accountIds.length * 10,
+    }),
+  );
+
+  const latest = new Map<string, DegradedRecord>();
+  for (const row of rows) {
+    if (row.resourceId && !latest.has(row.resourceId)) {
+      latest.set(row.resourceId, readDegradedRecord(row));
+    }
+  }
+  return latest;
+}
 
 export async function listAccounts(
   ctx: TenantContext,

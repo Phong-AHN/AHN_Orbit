@@ -11,7 +11,8 @@ import {
   buttonClassName,
 } from '@orbit/ui';
 import { pageCan, requirePageContext } from '@/server/page-context';
-import { listAccounts } from '@/features/social/service';
+import { listAccounts, listLatestDegradations } from '@/features/social/service';
+import { diagnose } from '@/features/social/diagnosis';
 import { NeedsReconnectBanner } from '@/features/social/ui/needs-reconnect-banner';
 import { ReconnectButton } from '@/features/social/ui/reconnect-button';
 import { DisconnectButton } from '@/features/social/ui/disconnect-button';
@@ -58,6 +59,15 @@ export default async function AccountsPage({ params }: PageProps) {
   // A staged row mid-OAuth is not a connection anyone has made yet.
   const visible = accounts.filter((account) => account.status !== 'DISABLED');
   const broken = visible.filter((account) => account.status === 'NEEDS_RECONNECT');
+
+  // What marked each broken account, from the audit log (D-114). Shown to those
+  // who may read the audit log; everyone else still sees the reason itself.
+  const degradations = pageCan(ctx, 'audit:read')
+    ? await listLatestDegradations(
+        ctx,
+        broken.map((account) => account.id),
+      )
+    : new Map();
 
   const ordered = [...visible].sort((a, b) => {
     const rank = (status: SocialAccountStatus) => (status === 'NEEDS_RECONNECT' ? 0 : 1);
@@ -143,6 +153,27 @@ export default async function AccountsPage({ params }: PageProps) {
                       ) : (
                         renderHint(account.status)
                       )}
+
+                      {account.status === 'NEEDS_RECONNECT' && degradations.has(account.id)
+                        ? (() => {
+                            const found = diagnose({
+                              platform: account.platform,
+                              connectedAt: account.connectedAt,
+                              degraded: degradations.get(account.id)!,
+                              formatWhen,
+                            });
+                            return (
+                              <>
+                                <p className="mt-1 text-xs text-ink-muted">{found.trail}</p>
+                                {found.likelyCause ? (
+                                  <p className="mt-1 text-xs font-medium text-warning">
+                                    {found.likelyCause}
+                                  </p>
+                                ) : null}
+                              </>
+                            );
+                          })()
+                        : null}
                     </div>
 
                     <div className="flex shrink-0 items-start gap-1.5">
