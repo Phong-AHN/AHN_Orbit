@@ -443,6 +443,7 @@ Cách đọc:
 - **Meta `pages_manage_posts`:** dùng chung video với `pages_read_user_content` được, nếu video quay tới cảnh bài hiện trên Page thật ("View on Facebook").
   - Sửa bản mô tả: câu "không gì lên Page trước khi client duyệt" không đúng với workspace nội bộ (D-106); việc duyệt chỉ nhắc như tính năng đi kèm.
   - Lưu vào META-APP-REVIEW.md.
+- **Meta `pages_show_list`, `pages_read_engagement`, `read_insights`:** dùng chung video Facebook, thêm 4 cảnh có chú thích riêng (danh sách Page, Accounts "Active · checked", View on Facebook, Analytics). Soạn mô tả cho từng quyền, khớp với các endpoint code thật sự gọi; lưu vào META-APP-REVIEW.md.
 
 ---
 

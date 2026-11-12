@@ -143,3 +143,67 @@ bộ (D-106) không cần client duyệt.
 Dùng chung các bước 1–3 của `pages_read_user_content`, thêm một bước cuối:
 
 > 4. On the post's page in Social Square, click "View on Facebook": the post is on your Page.
+
+---
+
+## `pages_show_list`, `pages_read_engagement`, `read_insights`
+
+Cả ba là quyền Facebook, nên **dùng chung video Facebook ở trên**. Mỗi quyền chỉ
+cần một cảnh có chú thích riêng. Thêm vào video:
+
+| Ở cảnh | Chú thích | Quyền |
+|---|---|---|
+| Sau khi đăng nhập Facebook, Social Square hiện **danh sách Page** của người đó; tick Page của client → **Connect 1 account** | *pages_show_list: lists the Pages this person manages, so they choose which to connect. Only the chosen Page is saved.* | `pages_show_list` |
+| **Settings → Accounts**: Page hiện **Active · checked …** | *pages_read_engagement: Social Square reads the Page's own data to confirm the connection still works.* | `pages_read_engagement` |
+| Trang bài viết: **View on Facebook ↗** | *pages_read_engagement: the link to the published post is read from the Page.* | `pages_read_engagement` |
+| **Analytics**: chỉ số của Page (follows, views, engagement) và của bài (views, clicks) | *read_insights: Page and post insights for the client's analytics and reports. A metric Meta has not reported shows as not available, never as zero.* | `read_insights` |
+
+**Chuẩn bị riêng cho `read_insights`:** số liệu insights của Meta có độ trễ, bài
+mới đăng có khi cả ngày chưa có số. Quay bằng một bài đã đăng qua Social Square
+**từ hôm trước**, và Page nên có chút tương tác.
+
+### `pages_show_list` — ô mô tả
+
+> Social Square is a social media management platform used by agencies to publish and report on content for their client businesses. Each client is an isolated workspace.
+>
+> We request pages_show_list so the person connecting Facebook can choose which of the Pages they manage to connect to a client. After Facebook Login we call /me/accounts and show the Pages with their name and picture; the person ticks the client's Page and only the Pages they choose are saved. A Page on which they lack the role needed to publish is shown with that reason rather than hidden, so they know why it cannot be used.
+>
+> Why it is necessary. The same call returns each Page's access token, and every other Page permission in this submission is used with that token. Without pages_show_list there is no Page token, and the product cannot work with Facebook at all.
+>
+> What we do not do. We do not connect Pages the person did not choose; Pages that are not chosen are discarded together with their tokens. We do not use this permission to verify whether someone manages a Page. We do not use the aggregated, de-identified or anonymised data allowance of this permission.
+
+### `pages_read_engagement` — ô mô tả
+
+> Social Square is a social media management platform used by agencies to publish and report on content for their client businesses. Each client is an isolated workspace.
+>
+> We request pages_read_engagement to read the connected Page's own content and metadata, for three things:
+>
+> 1. Connection health. We read the Page's id with its token on a schedule, so an agency sees a broken connection before a scheduled post is due rather than after it fails.
+> 2. Never posting twice. The Page feed endpoint has no idempotency key, so if a publish is interrupted we read the Page's recent posts (id, message, created time, permalink) to find out whether it went out, before deciding anything else.
+> 3. The link to each published post, read from the post, so staff and the client can open it on Facebook. Where the reaction count is not available we also read the post's like count for the client's report.
+>
+> Why it is necessary. Without it we cannot confirm a connection works, cannot check whether an interrupted post was published — which risks posting the same content twice to a client's audience — and cannot link to what we published.
+>
+> What we do not do. This permission also allows reading followers' data — names, PSIDs and profile pictures — and Page events. We do not read either. We read only Pages a client has connected to Social Square, and we do not use the aggregated, de-identified or anonymised data allowance of this permission.
+
+### `read_insights` — ô mô tả
+
+> Social Square is a social media management platform used by agencies to publish and report on content for their client businesses. Each client is an isolated workspace.
+>
+> We request read_insights to show each client how their Facebook Page and the posts we published for them perform. For the Page we read page_follows, page_follows_city, page_follows_country, page_post_engagements, page_media_view and page_total_media_view_unique. For each published post we read post_media_view, post_total_media_view_unique, post_reactions_by_type_total and post_clicks. These fill the client's analytics dashboard and the CSV reports an agency exports for its client.
+>
+> Why it is necessary. Page and post insights are not available without this permission, and reporting results to the client is a core part of what an agency does with our product.
+>
+> How we handle the data. Insights are read on a schedule, never when a page is opened. A metric Meta has withdrawn or not reported is shown as not available, never as zero. page_follows_city and page_follows_country are aggregated counts by location as Meta returns them; we receive nothing about any individual follower.
+>
+> What we do not do. We read insights only for Pages a client has connected — not for apps or web domains. We do not use the aggregated, de-identified or anonymised data allowance of this permission to improve our app or for marketing or advertising.
+
+### Ô hướng dẫn test (thêm vào bản chung)
+
+> After connecting the Page (steps 1–2 above):
+> - pages_show_list: the Page list you choose from after Facebook Login.
+> - pages_read_engagement: Settings → Accounts shows the Page as Active, with when it was last checked; on a published post, "View on Facebook" opens it.
+> - read_insights: Analytics shows Page and post insights. Meta can take up to a day to report them for a new post.
+
+**Không dùng câu "we collect no audience demographic data" cho Facebook:**
+`page_follows_city` và `page_follows_country` có được gọi (OWNER-TODO §1g).
