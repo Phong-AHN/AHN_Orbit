@@ -470,6 +470,9 @@ Cách đọc:
   - Chưa nộp được ngay: tin nhắn đang tắt (`META_MESSAGING_ENABLED`), nên `pages_messaging` và `pages_manage_metadata` chưa có lệnh gọi API nào.
 - **Mô tả `instagram_business_manage_messages`** (lưu ở META-APP-REVIEW.md): hộp thư cho người thật trả lời, chỉ trả lời trong 24 giờ, không nhắn trước; nói rõ AI Assistant tùy chọn và dữ liệu gửi sang Gemini; cách lưu và xóa tin nhắn theo trang Privacy Policy.
   - Câu "dùng gói Gemini trả phí" chỉ đúng sau khi chuyển gói; nếu chưa thì bỏ đoạn AI và không bật AI cho Instagram.
+- **Mô tả `pages_manage_metadata` và `pages_messaging`** (lưu ở META-APP-REVIEW.md):
+  - `pages_manage_metadata`: chỉ dùng để đăng ký webhook `messages`, `message_echoes`, `feed`; không đổi cài đặt Page.
+  - `pages_messaging`: đọc hội thoại, trả lời kiểu RESPONSE trong 24 giờ, không nhắn trước, không dùng message tag; AI Assistant tùy chọn.
 
 ---
 

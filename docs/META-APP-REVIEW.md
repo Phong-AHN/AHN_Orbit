@@ -411,3 +411,53 @@ Instagram).
 > Why it is necessary. An app cannot read or answer Instagram Direct messages without this permission. Without it, our inbox could not include Instagram, where many of our clients' customers ask their questions.
 >
 > Data handling. We store the messages in both directions, links to any attachments (the files themselves are not downloaded), the name and username Instagram shows for the person, and the identifier Instagram issues for that person for that one account, which is needed to address a reply. Everything is kept in the workspace of the client who connected the account, isolated at the application and database layers, visible only to the agency staff working on that client, and never shown in the client portal. We keep it while the account stays connected and never longer than twelve months. Disconnecting the account deletes its conversations, and a message the person unsends is erased as soon as Instagram tells us. We do not use messages for advertising, profiling or training models, and we do not use the aggregated, de-identified or anonymised data allowance of this permission.
+
+---
+
+## `pages_manage_metadata`, `pages_messaging` (use case Messenger)
+
+Chỉ nộp được sau khi bật tin nhắn (OWNER-TODO §7, bước 2–7). Câu "We use Gemini's
+paid tier…" trong `pages_messaging` cũng theo đúng điều kiện ở mục
+`instagram_business_manage_messages`: chưa chuyển gói thì xóa đoạn "Optional
+assistant" và không bật AI cho brand có Facebook.
+
+**Video:** đăng nhập Facebook và cấp quyền → một người nhắn vào Page → tin hiện ở
+Social Square → **Social Square gửi trả lời** → Messenger của người đó hiện câu
+trả lời. Một video dùng cho cả hai quyền. Kèm lệnh cURL từ API Integration Helper
+(dashboard → Messenger).
+
+Chú thích cho `pages_manage_metadata` đặt ở cảnh tin hiện trong Social Square vài
+giây sau khi gửi: *"pages_manage_metadata: the Page is subscribed to our
+webhooks, so the message arrives in seconds."*
+
+### `pages_manage_metadata`
+
+> Social Square is a social media management platform used by agencies to publish, moderate and report on content for their client businesses. Each client is an isolated workspace, and agency staff are given access per client.
+>
+> We use pages_manage_metadata for one thing: subscribing a Page that a client has connected to Social Square to our app's webhooks, with POST /{page-id}/subscribed_apps. We subscribe to three fields:
+>
+> 1. messages, so a message to the Page appears in the agency's inbox within seconds instead of at our next scheduled read. Replies have to be sent within Messenger's 24-hour window, so the delay matters.
+> 2. message_echoes, so that when someone answers from Meta Business Suite or the Page's own inbox, Social Square marks the conversation handled and staff do not answer the same person twice.
+> 3. feed, so a new comment on a post that Social Square published is read right away. Feed events about other posts are ignored.
+>
+> What we do not do. The subscription is the only call we make with this permission. We do not change any Page setting. A webhook event for a Page that is no longer connected is discarded, and an event's content is removed from our intake as soon as it has been delivered to the client's workspace. We do not use the aggregated, de-identified or anonymised data allowance of this permission.
+>
+> Why it is necessary. Without the subscription Meta does not tell us that a message arrived, and the inbox would depend on repeated polling, which arrives too late for the reply window and spends API calls on Pages where nothing has happened.
+
+### `pages_messaging`
+
+> Social Square is a social media management platform used by agencies to publish, moderate and report on content for their client businesses. Each client is an isolated workspace, and agency staff are given access per client.
+>
+> We use pages_messaging for customer support: one inbox for the Messenger conversations of client Pages connected to Social Square, so agency staff can answer a Page's customers without signing into each Page separately.
+>
+> Reading. Messages arrive by webhook. We also read the Page's recent Messenger conversations (GET /{page-id}/conversations, with the participants and the latest messages) to catch up on anything a webhook missed.
+>
+> Replying. A staff member reads the conversation, can assign it to a colleague or mark it handled, and replies. The reply is sent through the Send API as the Page, with messaging_type RESPONSE, only to a person who wrote to the Page first and only within the 24-hour standard messaging window. Social Square never starts a conversation and sends no promotional, broadcast or subscription messages. We do not use message tags, and we do not use the calling features of this permission.
+>
+> Optional assistant. An agency can turn on an AI assistant for a brand. By default it only drafts a reply, which staff edit and send themselves. Where the agency allows it, it may also answer within the 24-hour window when no staff member is available, using only information the brand has written down, and every message it sends ends with a line saying it is an automatic reply. It never handles complaints, refunds, payments, orders, accounts, legal or safety matters, or personal details: those, and anything it cannot answer from the brand's information, are passed to a person, and the customer is told so. Anyone can stop it by replying "stop". To write an answer, the recent messages of that one conversation are sent to Google's Gemini API, with phone numbers, card and ID numbers, codes and email addresses removed first; the person's name and identifier are not sent. We use Gemini's paid tier, under which Google does not use this content to improve its products.
+>
+> The value it adds. An agency answers customers for many brands. Without this, staff would have to sign into each client's Page separately, or wait for the client to forward questions by hand. One inbox lets the right person answer within the window, and the client grants access with their own Facebook login and can revoke it at any time.
+>
+> Why it is necessary. An app cannot read or answer a Page's Messenger conversations without this permission.
+>
+> Data handling. We store the messages in both directions, links to any attachments (the files themselves are not downloaded), the name Messenger shows for the person, and the page-scoped ID, which is needed to address a reply and identifies nobody outside that Page. Everything is kept in the workspace of the client who connected the Page, isolated at the application and database layers, visible only to the agency staff working on that client, and never shown in the client portal. We keep it while the Page stays connected and never longer than twelve months. Disconnecting the Page deletes its conversations, and a message the person unsends is erased as soon as Meta tells us. We do not use messages for advertising, profiling or training models, and we do not use the aggregated, de-identified or anonymised data allowance of this permission.
