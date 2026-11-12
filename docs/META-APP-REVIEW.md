@@ -461,3 +461,47 @@ webhooks, so the message arrives in seconds."*
 > Why it is necessary. An app cannot read or answer a Page's Messenger conversations without this permission.
 >
 > Data handling. We store the messages in both directions, links to any attachments (the files themselves are not downloaded), the name Messenger shows for the person, and the page-scoped ID, which is needed to address a reply and identifies nobody outside that Page. Everything is kept in the workspace of the client who connected the Page, isolated at the application and database layers, visible only to the agency staff working on that client, and never shown in the client portal. We keep it while the Page stays connected and never longer than twelve months. Disconnecting the Page deletes its conversations, and a message the person unsends is erased as soon as Meta tells us. We do not use messages for advertising, profiling or training models, and we do not use the aggregated, de-identified or anonymised data allowance of this permission.
+
+### Ô "Test and reproduce" (Messenger)
+
+**Phải có trước khi nộp:**
+
+1. **Tin nhắn đã bật** (OWNER-TODO §7, bước 2–7). Cờ còn tắt thì tab Messages
+   không tồn tại, người duyệt mở ra gặp trang 404.
+2. **Page AHN DEV TEST được kết nối trong tổ chức demo của Gmail review**, và kết
+   nối **sau khi** bật tin nhắn, để grant có `pages_messaging` và
+   `pages_manage_metadata`. Tự thử một lần: nhắn vào Page từ tài khoản của anh,
+   tin phải hiện trong Messages.
+3. **Tài khoản Facebook cho người duyệt:** tạo một tài khoản Facebook **thật** (Meta
+   cấm test user tạo trong App Roles, vì chúng không nhận được tin nhắn).
+   - App Dashboard → App Roles → Roles → **Add People → Tester**, nhập tài khoản đó.
+   - Đăng nhập tài khoản đó và chấp nhận lời mời (developers.facebook.com/requests).
+   - Tắt xác thực hai lớp. Đăng nhập thử vài lần trước, để Facebook không khóa tài
+     khoản mới khi người duyệt đăng nhập từ nơi khác.
+4. **Tắt AI Assistant** cho brand của AHN DEV TEST trong thời gian review (hoặc để
+   Suggest replies). Nếu không, AI có thể tự trả lời trước khi người duyệt kịp gõ.
+5. **Username của Page** cho link m.me: Page → Settings → Username. Chưa có username
+   thì dùng `https://m.me/<Page ID>`.
+
+Thay `[REVIEW_GMAIL]`, `[FB_TESTER_EMAIL]`, `[PASSWORD]` và `[PAGE_USERNAME]` trước
+khi dán.
+
+> Social Square is a staffed inbox, not a bot: replies are typed and sent by a person. There is no Get Started button, menu or webview; the person simply writes to the Page.
+>
+> Accounts:
+> - Social Square (the Page management surface): [REVIEW_GMAIL] / [PASSWORD], signed in with "Continue with Google". This account manages the client workspace that the AHN DEV TEST Page is connected to.
+> - Facebook: [FB_TESTER_EMAIL] / [PASSWORD]. A real Facebook account with the Tester role on this app. It plays the customer who writes to the Page.
+>
+> Step 1: Log in to Facebook as [FB_TESTER_EMAIL]. Go to https://m.me/[PAGE_USERNAME] (the AHN DEV TEST Page) and send any message, for example "Hi, are you open on Sunday?".
+>
+> Step 2: In another browser window, go to https://www.socialsquare.site/sign-in, click "Continue with Google" and sign in as [REVIEW_GMAIL].
+>
+> Step 3: In the left menu click "Community", then the "Messages" tab. The conversation appears within about 15 seconds without reloading (pages_manage_metadata: the Page is subscribed to our webhooks). If it has not appeared, click "Check now". The row shows the sender's name, the message and how long is left to reply ("Reply within …").
+>
+> Step 4: Open the conversation. "Assign" gives it to a colleague and "Mark handled" clears it from the queue. Type a reply in the box "Message as AHN DEV TEST…" and click "Send" (pages_messaging).
+>
+> Step 5: Return to Messenger as [FB_TESTER_EMAIL]: the reply has arrived from the AHN DEV TEST Page.
+>
+> Step 6 (optional): Send the Page another message. The conversation moves back into the queue in Social Square by itself.
+>
+> Social Square only replies to a person who wrote first, and only within the 24-hour messaging window; after that the reply box is closed. Connecting a Page with Facebook Login is shown in the screencast. To repeat it yourself, open Settings → Accounts; this needs a Facebook account with a role on the Page.

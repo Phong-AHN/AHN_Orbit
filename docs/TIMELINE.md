@@ -473,6 +473,7 @@ Cách đọc:
 - **Mô tả `pages_manage_metadata` và `pages_messaging`** (lưu ở META-APP-REVIEW.md):
   - `pages_manage_metadata`: chỉ dùng để đăng ký webhook `messages`, `message_echoes`, `feed`; không đổi cài đặt Page.
   - `pages_messaging`: đọc hội thoại, trả lời kiểu RESPONSE trong 24 giờ, không nhắn trước, không dùng message tag; AI Assistant tùy chọn.
+- **Ô "Test and reproduce" của Messenger:** các bước cho người duyệt (nhắn Page AHN DEV TEST qua m.me bằng tài khoản Facebook Tester → Community → Messages → trả lời → thấy trong Messenger) và 5 việc phải xong trước khi nộp (bật tin nhắn, kết nối lại Page trong tổ chức demo, tài khoản Facebook thật có vai Tester, tắt AI cho brand đó, username Page).
 
 ---
 
