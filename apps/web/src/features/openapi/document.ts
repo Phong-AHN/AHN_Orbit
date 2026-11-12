@@ -64,6 +64,13 @@ const PATHS: Record<string, Partial<Record<'get' | 'post' | 'patch' | 'delete', 
       surface: 'agency',
     },
   },
+  '/api/v1/orgs/{orgSlug}/analytics/refresh': {
+    post: {
+      summary: 'Queue Page and post figure reads now. One press per organization per five minutes.',
+      permission: 'report:generate',
+      surface: 'agency',
+    },
+  },
   '/api/v1/orgs/{orgSlug}/posts/{postId}': {
     get: { summary: 'One post with its variants.', permission: 'post:read', surface: 'agency' },
     patch: { summary: 'Edit content.', permission: 'post:update', surface: 'agency' },

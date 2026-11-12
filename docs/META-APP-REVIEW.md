@@ -162,8 +162,9 @@ cần một cảnh có chú thích riêng. Thêm vào video:
 - Trước bản sửa này, trang Analytics **không hiện chỉ số cấp Page**. Worker cũng
   chưa từng lấy được chỉ số nào: Meta từ chối cả lô vì một tên chỉ số. Phải push
   bản sửa và **Deploy Latest Commit cho worker** trước.
-- Worker đọc số liệu Page mỗi ngày một lần (cửa sổ tính từ 00:00 UTC). Số liệu
-  có muộn nhất sau 7 giờ sáng hôm sau, giờ Việt Nam.
+- Worker đọc số liệu Page mỗi ngày một lần (cửa sổ tính từ 00:00 UTC). Không
+  muốn đợi thì bấm **Refresh figures** trên trang Analytics (D-122), đợi 1–2 phút
+  rồi tải lại trang. Meta vẫn có thể báo số liệu Page trễ tới một ngày.
 - Quay bằng một bài đã đăng qua Social Square **từ hôm trước**; Page nên có chút
   tương tác. Lọc theo đúng Page bằng hàng **Account**, để phần tổng không trộn số
   của X, Bluesky hay TikTok.

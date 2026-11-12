@@ -165,6 +165,7 @@ of clients, accounts or posts (**D-042**).
 | `GET` | `/orgs/{orgId}/posts` | `post:read` | The calendar/list workhorse. `q` (title and text, 100 chars), `status`, `platform`, `workspaceId`, `brandId`, `sort` = `upcoming` (default) \| `newest` \| `oldest` \| `updated` \| `published`. Unknown values are ignored; filters only narrow the caller's access |
 | `POST` | `/orgs/{orgId}/posts` | `post:create` | Creates post + variants in one transaction |
 | `POST` | `/orgs/{orgId}/posts/bulk` | per post | `{ action: delete \| duplicate \| cancel, postIds: [≤100] }`. Every post is checked as its single-post route would check it (`post:delete`, `post:create`, the cancel transition) and answered on its own: `{ succeeded, failed, results: [{ postId, ok, message? }] }` |
+| `POST` | `/orgs/{orgId}/analytics/refresh` | `report:generate` | `{ workspaceId?, accountId? }`. Queues Page and post figure reads now (D-122); returns `{ accounts, posts }` queued. One press per organization per 5 min (429), at most 50 accounts and 50 posts, only what the caller can reach |
 | `GET` `PATCH` `DELETE` | `/orgs/{orgId}/posts/{id}` | `post:read` / `:update` / `:delete` | `PATCH` rejects edits at/after `APPROVED` (409) |
 | `POST` | `/orgs/{orgId}/posts/{id}/duplicate` | `post:create` | |
 | `POST` | `/orgs/{orgId}/posts/{id}/autosave` | `post:update` | Debounced; returns a version token for conflict detection |

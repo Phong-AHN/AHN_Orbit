@@ -456,6 +456,12 @@ Cách đọc:
   - Sửa bản mô tả `read_insights` (chỉ còn 4 chỉ số Page, "totals only") và `pages_show_list` (bỏ "and picture", vì danh sách Page không có ảnh).
   - Kiểm tra: typecheck, lint, 1726 unit test (4 mới), build đều đạt.
   - **Worker phải deploy tay**; số liệu Page có sau lần đọc hằng ngày kế tiếp.
+- **Nút "Refresh figures"** trên trang Analytics (D-122): đọc số liệu Page và số liệu bài ngay, không phải đợi lịch của worker.
+  - Server chỉ xếp job cho worker, web không tự gọi Meta.
+  - Mỗi tổ chức bấm tối đa 1 lần mỗi 5 phút; tối đa 50 tài khoản và 50 bài gần nhất, chỉ trong phạm vi người bấm được xem.
+  - Quyền: `report:generate`.
+  - Meta vẫn có thể báo số liệu Page trễ tới một ngày; thông báo sau khi bấm nói rõ điều này.
+  - Kiểm tra: typecheck, lint, 1730 unit test (4 mới), build đều đạt. Thay đổi chỉ ở web.
 
 ---
 

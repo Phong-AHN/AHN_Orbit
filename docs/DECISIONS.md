@@ -4921,6 +4921,41 @@ appeared. Three faults stacked up:
   needs a manual deploy (only `packages/` changed for it), and Page figures
   appear after the next daily read.
 
+## D-122 — Reading the figures now, from a button
+
+The owner asked for a way to read Page and post figures at once instead of
+waiting for the worker's cadence (account figures daily, a recent post every
+six hours) — first for the `read_insights` screencast, but it is as useful to
+an agency about to send a report.
+
+### What it is
+
+**Refresh figures** on the Analytics page queues the same `analytics` jobs the
+sweep queues — one per account that reports account figures, one per recently
+published post — for the accounts in the current filter. The worker makes the
+calls; the web app makes none (D-022), and opening the page still reads
+nothing from a provider (D-058).
+
+### Bounds, because a press spends the quota publishing uses
+
+- One press per organization per five minutes, said in minutes when refused.
+  The same pattern as the inbox's Check now (D-104).
+- At most 50 accounts and the 50 most recent posts published in the last 90
+  days, and only accounts and posts in workspaces the caller can reach.
+- Gated on `report:generate`, asked with the workspace when one is chosen: the
+  people who report results to a client are the ones who need them fresh.
+- Jobs are named per subject per five-minute window, so a retried request adds
+  nothing.
+
+### What it cannot do
+
+It reads what the platform has now. Meta reports Page insights up to a day
+late, so a new Page or a post published an hour ago can still show "Not
+measured yet" or a gap after a refresh. The message on the button says so
+rather than promising numbers.
+
+- **Date:** 2026-11-12 · **Status:** IMPLEMENTED (no migration; web only)
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

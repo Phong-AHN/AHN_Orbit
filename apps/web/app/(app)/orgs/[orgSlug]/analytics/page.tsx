@@ -13,6 +13,7 @@ import {
 import { listWorkspaces } from '@/features/tenancy/service';
 import { MetricStrip, OverviewTotals } from '@/features/analytics/ui/metric-grid';
 import { AccountInsights } from '@/features/analytics/ui/account-insights';
+import { RefreshAnalyticsButton } from '@/features/analytics/ui/refresh-button';
 import { listReports } from '@/features/reports/service';
 import { ReportPanel } from '@/features/reports/ui/report-panel';
 import { safeExternalUrl } from '@/features/publishing/ui/links';
@@ -120,6 +121,15 @@ export default async function AnalyticsPage({ params, searchParams }: PageProps)
             {option} days
           </Link>
         ))}
+
+        {/* Spends provider quota, so only for those who report results (D-122). */}
+        {canGenerate ? (
+          <RefreshAnalyticsButton
+            orgSlug={orgSlug}
+            workspaceId={workspaceId}
+            accountId={accountId}
+          />
+        ) : null}
 
         {workspaces.length > 1 ? (
           <div className="ml-auto flex flex-wrap gap-2">
