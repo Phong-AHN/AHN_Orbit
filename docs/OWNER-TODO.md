@@ -1254,6 +1254,26 @@ Làm theo đúng thứ tự:
 9. *(Tuỳ chọn)* Xin thêm **Human Agent** để trả lời được tới 7 ngày thay vì 24 giờ.
    Được duyệt rồi mới đặt `META_HUMAN_AGENT_ENABLED=true`.
 
+**Nộp quyền nào trong use case nhắn tin (soát lại theo code, 12/11):**
+
+| Quyền / feature | Nộp? | Vì sao |
+|---|---|---|
+| `pages_messaging` | **Nộp** | Đọc hội thoại Messenger, trả lời qua Send API |
+| `pages_manage_metadata` | **Nộp** | `POST /{page}/subscribed_apps`, để tin nhắn về bằng webhook |
+| `pages_show_list`, `pages_read_engagement` | Đã nằm trong bản nộp Facebook | Meta ghi là phụ thuộc của `pages_messaging` |
+| `public_profile`, `email` | Không phải làm gì | Đã "Ready to publish" |
+| `instagram_business_manage_messages` | **Nộp**, ở use case Instagram (đăng nhập bằng Instagram) | Instagram Direct. Phụ thuộc `instagram_business_basic` |
+| Human Agent | Đợt sau | Code có sẵn sau `META_HUMAN_AGENT_ENABLED`; cần video trả lời một tin cũ hơn 24 giờ |
+| Business Asset User Profile Access | Không | Code không gọi endpoint hồ sơ người dùng (`/{user-id}`); tên người nhắn đọc từ danh sách hội thoại. Nếu sau go-live tên không hiện thì mới xét |
+| `instagram_manage_messages`, `instagram_basic` | Không | Luồng Instagram qua Facebook Page, production không dùng |
+| `ads_management`, `business_management`, `marketing_messages_messenger`, `paid_marketing_messages`, `pages_utility_messaging`, `page_events`, `pages_user_gender`, `pages_user_locale`, `pages_user_timezone` | Không | Không dòng code nào dùng |
+
+**Video Meta đòi** (trang quyền, đọc 12/11): quay **app gửi tin nhắn** và tin đó
+hiện trong hộp thư Messenger / Instagram của người nhận (không nhận ảnh chụp).
+Với Instagram phải có cả luồng đăng nhập Instagram và cấp quyền. Meta còn yêu cầu
+tạo lệnh cURL bằng **API Integration Helper** (dashboard → Messenger, và →
+Instagram).
+
 **Không cần bật tin nhắn vẫn được lợi:** chỉ với bước 2–3 (webhook, không thêm
 quyền), bình luận mới sẽ hiện **ngay lập tức** thay vì đợi vòng quét 5 phút.
 

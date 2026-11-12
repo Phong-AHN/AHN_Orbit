@@ -466,6 +466,8 @@ Cách đọc:
   - Một video cho bốn quyền `instagram_business_*` (basic, content_publish, manage_comments, manage_insights): đăng nhập Instagram → cấp quyền → tài khoản hiện ra → đăng bài → trả lời bình luận (Check now) → Analytics.
   - Khuyên **gỡ** `instagram_basic`, `instagram_content_publish`, `instagram_manage_comments` khỏi bản nộp: chúng thuộc luồng kết nối qua Facebook Page, mà màn hình kết nối không còn mở, nên không có gì để quay.
   - Viết mô tả `instagram_business_basic` (trước đây chỉ có trong chat). Sửa mô tả `content_publish` (câu "không gì lên trước khi client duyệt", "audit log client xem được"), `manage_comments` (cụm audit log) và `manage_insights` (sai tên quyền, câu "client xem trong portal").
+- **Use case nhắn tin của Meta — nộp quyền nào:** soát theo code D-107. Nộp `pages_messaging`, `pages_manage_metadata` (Messenger) và `instagram_business_manage_messages` (Instagram, use case riêng). Human Agent để đợt sau. Không nộp Business Asset User Profile Access, `instagram_manage_messages` và các quyền quảng cáo/marketing. Bảng đầy đủ ở OWNER-TODO §7.
+  - Chưa nộp được ngay: tin nhắn đang tắt (`META_MESSAGING_ENABLED`), nên `pages_messaging` và `pages_manage_metadata` chưa có lệnh gọi API nào.
 
 ---
 
