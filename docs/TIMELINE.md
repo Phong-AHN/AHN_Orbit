@@ -484,6 +484,7 @@ Cách đọc:
   - **Đã sửa:** mỗi kênh/Page nhận đủ credential (refresh token, hạn dùng). Kênh YouTube ghi đúng các quyền Google đã cấp.
   - **Vẫn phải làm:** kết nối lại từng kênh YouTube một lần (kênh cũ không có refresh token), và chuyển app Google Cloud sang *In production* (Testing làm refresh token hết hạn sau 7 ngày).
   - Kiểm tra: typecheck, lint, 1733 unit test (3 mới) đều đạt. Thay đổi ở `packages/providers`; có hiệu lực khi Vercel deploy bản web.
+- Anh đã push, kết nối lại YouTube và đưa app Google lên production (Google đã duyệt). Kiểm tra qua connector: kênh "Pinlo" **Active**, không lỗi, lần kiểm tra gần nhất 08:35 (giờ VN). Danh sách quyền của kênh giờ theo đúng thứ tự Google trả về (`youtube.readonly` trước `youtube.upload`), mà chỉ code mới (D-123) mới ghi như vậy, nên credential đang dùng là bản lưu kèm refresh token. Không đọc trực tiếp được bảng `SocialCredential` (production chặn đọc); đã đưa anh câu SQL chỉ đọc để tự xác nhận.
 
 ---
 
