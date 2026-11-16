@@ -4956,6 +4956,68 @@ rather than promising numbers.
 
 - **Date:** 2026-11-12 · **Status:** IMPLEMENTED (no migration; web only)
 
+## D-123 — YouTube channels were stored without their refresh token
+
+YouTube connections kept dropping within a day of being made. D-120 removed
+one real cause (the review page revoking the shared Google grant) and the
+Accounts page gained a trail of who marked a connection and when, but channels
+still fell over. The owner then brought Google's own checklist: Testing mode,
+`access_type=offline`, `prompt=consent`, a refresh flow. The adapter already
+had all four, which is what sent the search to the one place the checklist
+does not cover: what the connect flow actually stores.
+
+### The bug
+
+`exchangeCode` returns two things: `userCredential`, the token Google issued
+(access token, refresh token, expiry, granted scopes), and `accounts`, one per
+channel, each with its own `credential`. The connect callback stores
+`accounts[].credential` and never reads `userCredential`. The YouTube adapter
+built each channel's credential from the **access token alone**.
+
+So every channel was stored with no refresh token and no expiry:
+
+1. No expiry means `refreshIsDue` never fires, so nothing renews it.
+2. Google refuses the access token after an hour.
+3. The next hourly health probe gets 401, tries to renew, has nothing to renew
+   with, confirms ten minutes later, and marks the channel for reconnection.
+
+Publishing would have failed the same way after the first hour. Testing mode's
+seven-day expiry never came into it: the token died long before.
+
+LinkedIn had the same shape. Its pages kept no expiry and no refresh token, so
+nothing warned before day 60 and an app that is issued refresh tokens could
+never use them.
+
+### The fix
+
+Both adapters attach the whole issued credential to every account they
+discover. Every channel of one Google account shares the one grant, so they
+share its refresh token; Google does not rotate it. YouTube channels now record
+the scopes Google actually granted rather than the full requested set, because
+Google's consent screen lets a person untick one, and the health probe then
+says which is missing instead of the upload failing.
+
+Facebook and Instagram (Page-linked) are unaffected: each Page has its own
+token, built per account. TikTok, Threads, X, Bluesky, Pinterest and Instagram
+username login already attached the full credential.
+
+### What it does not fix
+
+- **Channels connected before this change have no refresh token stored.** Each
+  has to be reconnected once; the reconnection asks with `prompt=consent`, so
+  Google issues a new refresh token.
+- **Testing mode still expires refresh tokens after seven days.** The Google
+  Cloud app has to be moved to *In production* (docs/GOOGLE-VERIFICATION.md).
+
+### Why it survived
+
+The tests asserted what `userCredential` held and that a refresh carried the
+refresh token forward, both true. None asserted what the connect flow stores,
+which is the only credential that matters. Two tests now do, one per adapter.
+
+- **Date:** 2026-11-16 · **Status:** IMPLEMENTED (no migration; takes effect on
+  the web deploy, then a reconnection per channel)
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

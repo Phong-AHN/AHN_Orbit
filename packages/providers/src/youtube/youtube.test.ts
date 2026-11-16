@@ -244,6 +244,44 @@ describe('credentials', () => {
   });
 
   /**
+   * D-123. The connect flow stores each channel's credential and nothing
+   * else, so this is the one that has to carry the refresh token. Without it
+   * the channel worked for an hour and was marked for reconnection at the next
+   * health probe.
+   */
+  it('gives each channel the refresh token and expiry, not only the access token', async () => {
+    const result = await provider(api).exchangeCode({
+      code: 'auth-code',
+      redirectUri: 'https://app.test/cb',
+    });
+
+    const stored = result.accounts[0]?.credential;
+    expect(stored?.accessToken).toBe('ya29.new');
+    expect(stored?.refreshToken).toBe('1//refresh');
+    expect(stored?.expiresAt).toBeInstanceOf(Date);
+  });
+
+  it('records the scopes Google granted, so an unticked one is visible', async () => {
+    api.on(/oauth2.*\/token/, {
+      body: {
+        access_token: 'ya29.new',
+        refresh_token: '1//refresh',
+        expires_in: 3599,
+        scope: 'https://www.googleapis.com/auth/youtube.readonly',
+      },
+    });
+
+    const result = await provider(api).exchangeCode({
+      code: 'auth-code',
+      redirectUri: 'https://app.test/cb',
+    });
+
+    expect(result.accounts[0]?.credential.scopes).toEqual([
+      'https://www.googleapis.com/auth/youtube.readonly',
+    ]);
+  });
+
+  /**
    * Google returns a refresh token on the **first** authorization and never
    * again. An adapter that trusted the refresh response verbatim would drop it
    * and turn an hourly renewal into a one-time one — the connection would work

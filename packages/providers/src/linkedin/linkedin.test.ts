@@ -272,6 +272,43 @@ describe('tokens', () => {
     expect(userCredential?.refreshableUntil).toBeUndefined();
   });
 
+  /**
+   * D-123. Each page's credential is the one the connect flow stores, so it is
+   * the one that needs the expiry (to warn before day 60) and any refresh token.
+   */
+  it('gives each page the expiry and refresh token, not only the access token', async () => {
+    const local = new FakeLinkedIn()
+      .on(/oauth\/v2\/accessToken/, {
+        body: {
+          access_token: 'li.new',
+          expires_in: 5_184_000,
+          refresh_token: 'li.refresh',
+          refresh_token_expires_in: 31_536_000,
+        },
+      })
+      .on(/organizationAcls/, {
+        body: {
+          elements: [
+            { organization: 'urn:li:organization:1', role: 'ADMINISTRATOR', state: 'APPROVED' },
+          ],
+        },
+      })
+      .on(/rest\/organizations\?/, {
+        body: { results: { 'urn:li:organization:1': { localizedName: 'AHN Media' } } },
+      });
+
+    const { accounts } = await provider(local).exchangeCode({
+      code: 'c',
+      redirectUri: 'https://app.test/cb',
+    });
+
+    const stored = accounts[0]?.credential;
+    expect(stored?.accessToken).toBe('li.new');
+    expect(stored?.expiresAt).toBeInstanceOf(Date);
+    expect(stored?.refreshToken).toBe('li.refresh');
+    expect(stored?.refreshableUntil).toBeInstanceOf(Date);
+  });
+
   it('says plainly that an app without refresh tokens needs a fresh sign-in', async () => {
     const outcome = await provider(api).refreshCredential({
       ...credential,

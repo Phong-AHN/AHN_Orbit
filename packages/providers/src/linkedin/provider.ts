@@ -151,7 +151,7 @@ export class LinkedInProvider implements SocialProvider {
     })) as TokenResponse;
 
     const credential = this.toIssuedCredential(token);
-    const accounts = await this.discoverPages(credential.accessToken);
+    const accounts = await this.discoverPages(credential);
 
     return { userCredential: credential, accounts };
   }
@@ -163,8 +163,14 @@ export class LinkedInProvider implements SocialProvider {
    * which role — where a profile lookup would answer who signed in. Roles are
    * filtered to the three LinkedIn documents as permitting publishing, and only
    * APPROVED grants count: a pending invitation is not access.
+   *
+   * Each page carries the whole issued credential, expiry and any refresh token
+   * included (D-123): the connect flow stores `accounts[].credential` and
+   * nothing else, so a page given only the access token could never be renewed
+   * and was never warned about before its 60 days ran out.
    */
-  private async discoverPages(accessToken: string) {
+  private async discoverPages(credential: IssuedCredential) {
+    const accessToken = credential.accessToken;
     const acls = await this.client.request<OrganizationAclResponse>({
       path: '/rest/organizationAcls',
       accessToken,
@@ -205,10 +211,7 @@ export class LinkedInProvider implements SocialProvider {
         // LinkedIn issues one member token that covers every page they
         // administer; there is no per-page credential the way Meta issues a
         // per-Page token. The same credential is attached to each.
-        credential: {
-          accessToken,
-          scopes: [...LINKEDIN_PUBLISH_SCOPES],
-        } satisfies IssuedCredential,
+        credential: { ...credential, scopes: [...LINKEDIN_PUBLISH_SCOPES] },
       };
     });
   }

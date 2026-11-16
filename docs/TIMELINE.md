@@ -475,6 +475,16 @@ Cách đọc:
   - `pages_messaging`: đọc hội thoại, trả lời kiểu RESPONSE trong 24 giờ, không nhắn trước, không dùng message tag; AI Assistant tùy chọn.
 - **Ô "Test and reproduce" của Messenger:** các bước cho người duyệt (nhắn Page AHN DEV TEST qua m.me bằng tài khoản Facebook Tester → Community → Messages → trả lời → thấy trong Messenger) và 5 việc phải xong trước khi nộp (bật tin nhắn, kết nối lại Page trong tổ chức demo, tài khoản Facebook thật có vai Tester, tắt AI cho brand đó, username Page).
 
+
+### 16/11
+
+- **Tìm ra nguyên nhân thật khiến YouTube mất kết nối trong vòng một ngày (D-123).** Anh gửi câu trả lời của Google (chế độ Testing, `access_type=offline`, `prompt=consent`, tự refresh token). Code đã có đủ cả bốn, nên tôi kiểm tra xem lúc kết nối thực sự lưu gì.
+  - **Lỗi:** adapter YouTube gắn cho mỗi kênh một credential **chỉ có access token**. Refresh token và hạn dùng nằm ở chỗ khác, mà luồng kết nối không lưu. Access token hết hạn sau 1 giờ, không có gì để làm mới, và lần kiểm tra sức khỏe kế tiếp đánh dấu kênh cần kết nối lại.
+  - LinkedIn bị y hệt: không lưu hạn dùng và refresh token, nên không cảnh báo trước ngày thứ 60.
+  - **Đã sửa:** mỗi kênh/Page nhận đủ credential (refresh token, hạn dùng). Kênh YouTube ghi đúng các quyền Google đã cấp.
+  - **Vẫn phải làm:** kết nối lại từng kênh YouTube một lần (kênh cũ không có refresh token), và chuyển app Google Cloud sang *In production* (Testing làm refresh token hết hạn sau 7 ngày).
+  - Kiểm tra: typecheck, lint, 1733 unit test (3 mới) đều đạt. Thay đổi ở `packages/providers`; có hiệu lực khi Vercel deploy bản web.
+
 ---
 
 ## Nền tảng mạng xã hội — ngày tích hợp

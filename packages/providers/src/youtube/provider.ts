@@ -199,7 +199,7 @@ export class YouTubeProvider implements SocialProvider {
     })) as TokenResponse;
 
     const credential = this.toIssuedCredential(token);
-    const channels = await this.discoverChannels(credential.accessToken);
+    const channels = await this.discoverChannels(credential);
 
     return { userCredential: credential, accounts: channels };
   }
@@ -210,11 +210,18 @@ export class YouTubeProvider implements SocialProvider {
    * A Google account is not a YouTube channel: plenty have none, and the API
    * says so with `youtubeSignupRequired` rather than an empty list. Returning
    * nothing here is a real state the connect flow explains, not a fault.
+   *
+   * **Each channel carries the whole issued credential (D-123).** The connect
+   * flow stores `accounts[].credential` and nothing else, so a channel given
+   * only the access token kept no refresh token and no expiry: nothing renewed
+   * it, Google refused it an hour later, and the next health probe marked the
+   * channel for reconnection. Every channel of one Google account shares the
+   * one grant, so they share its refresh token too.
    */
-  private async discoverChannels(accessToken: string) {
+  private async discoverChannels(credential: IssuedCredential) {
     const response = await this.client.request<ChannelListResponse>({
       path: '/youtube/v3/channels',
-      accessToken,
+      accessToken: credential.accessToken,
       params: { part: 'snippet', mine: true, maxResults: 50 },
     });
 
@@ -228,10 +235,9 @@ export class YouTubeProvider implements SocialProvider {
           ? { avatarUrl: item.snippet.thumbnails.default.url }
           : {}),
         accountType: 'CHANNEL',
-        credential: {
-          accessToken,
-          scopes: [...YOUTUBE_PUBLISH_SCOPES],
-        } satisfies IssuedCredential,
+        // The scopes Google actually granted: its consent screen lets a person
+        // untick one, and claiming the full set would hide that until upload.
+        credential: { ...credential, scopes: [...credential.scopes] },
       }));
   }
 
@@ -272,7 +278,7 @@ export class YouTubeProvider implements SocialProvider {
       return {
         status: 'REQUIRES_RECONNECT',
         reason:
-          'No Google refresh token is stored for this channel, so it cannot be renewed automatically.',
+          'No Google refresh token is stored for this channel, so it cannot be renewed automatically. Reconnect the channel once to store one.',
       };
     }
 
