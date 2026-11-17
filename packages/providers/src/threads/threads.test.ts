@@ -427,6 +427,74 @@ describe('errors', () => {
     expect(health.status).toBe('NEEDS_RECONNECT');
   });
 
+  /**
+   * "Invalid parameter" is all `message` says. Meta writes the reason for a
+   * person in `error_user_msg`, and that is what the attempt has to show —
+   * the post that prompted this said only "The platform rejected this post".
+   */
+  it('shows Meta’s own explanation of a refused post, and keeps it on the attempt', async () => {
+    const local = happyApi().on(/\/th-user-1\/threads(\?|$)/, {
+      status: 400,
+      body: {
+        error: {
+          message: 'Invalid parameter',
+          type: 'OAuthException',
+          code: 100,
+          error_subcode: 4279004,
+          error_user_title: 'Text is too long',
+          error_user_msg: 'The text of a post can be at most 500 characters.',
+          fbtrace_id: 'trace-1',
+        },
+      },
+    });
+
+    const error = await provider(local)
+      .publish(publishContext())
+      .catch(
+        (caught: { code?: string; userMessage?: string; context?: Record<string, unknown> }) =>
+          caught,
+      );
+
+    expect(error.code).toBe('PROVIDER_VALIDATION_ERROR');
+    expect(error.userMessage).toBe(
+      'Text is too long: The text of a post can be at most 500 characters.',
+    );
+    expect(error.context).toMatchObject({
+      platform: 'THREADS',
+      providerCode: 100,
+      subcode: 4279004,
+      providerMessage: 'Invalid parameter',
+      providerUserMessage: 'The text of a post can be at most 500 characters.',
+    });
+  });
+
+  it('keeps its own message where Meta gives no explanation', async () => {
+    const local = happyApi().on(/\/th-user-1\/threads(\?|$)/, {
+      status: 400,
+      body: { error: { message: 'Invalid parameter', code: 100, error_subcode: 4279004 } },
+    });
+
+    const error = await provider(local)
+      .publish(publishContext())
+      .catch((caught: { userMessage?: string; context?: Record<string, unknown> }) => caught);
+
+    expect(error.userMessage).toMatch(/rejected this post/);
+    expect(error.context?.['providerMessage']).toBe('Invalid parameter');
+  });
+
+  it('counts the hashtags against the 500, because they are written into the text', () => {
+    const body = 'a'.repeat(490);
+    const caps = provider(api).capabilities();
+
+    expect(provider(api).validate({ body }).valid).toBe(true);
+    const withTags = provider(api).validate({ body, hashtags: ['coffee', 'morning'] });
+    expect(withTags.valid).toBe(false);
+    expect(withTags.issues.map((issue) => issue.code)).toContain('TEXT_TOO_LONG');
+    // The link is a card on Threads, so it does not count.
+    expect(provider(api).validate({ body, linkUrl: 'https://example.com/a' }).valid).toBe(true);
+    expect(caps.text.hashtagsInText).toBe(true);
+  });
+
   it('says plainly that an expired connection cannot be refreshed', async () => {
     const health = await provider(api).probeHealth(
       { ...credential, expiresAt: new Date(Date.now() - 1) },

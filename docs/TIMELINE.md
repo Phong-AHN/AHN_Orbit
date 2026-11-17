@@ -503,6 +503,10 @@ Cách đọc:
 - **Nút "Check now" ở Community không đọc được bình luận nào.** Phát hiện từ log worker anh gửi (`engagement jobs require a postVariantId`). Nút này tạo một job cho mỗi *tài khoản*, còn worker chỉ nhận job theo từng *bài*, nên mọi job bị từ chối rồi thử lại vô ích. Bình luận vẫn về nhờ lần quét 15 phút, chỉ riêng nút bấm tay là vô tác dụng.
   - **Đã sửa:** nút tạo một job cho mỗi bài đã đăng trong 14 ngày (giống lần quét), chỉ trong các tài khoản người bấm được phép xem, tối đa 100 bài mỗi lần bấm. Phần tin nhắn vẫn theo tài khoản như cũ.
   - Integration test của nút cố ý không kiểm tra hình dạng job, nên lỗi lọt qua; test đó cần DB nên không chạy được ở máy này. Đã chạy typecheck, lint và unit test.
+- **Bài Threads bị từ chối lúc 14:53 (07:53 UTC): chưa rõ lý do cụ thể.** Log worker: Threads trả `code 100`, `subcode 4279004`, "Invalid parameter" sau 15.6 giây (lúc tạo container, khi Threads tải media). Tài liệu Meta và các bên tích hợp đều không ghi nghĩa của subcode này.
+  - **Vì sao không thấy lý do:** Meta gửi kèm câu giải thích cho người dùng (`error_user_title`, `error_user_msg`), nhưng code khai báo mà không đọc. Giờ câu đó hiện trên dòng attempt khi bài bị từ chối vì nội dung hoặc media, và mọi trường hợp đều được ghi vào attempt và log (cả câu kỹ thuật của Meta). Áp dụng chung cho Facebook, Instagram và Threads.
+  - **Sửa lỗi đếm ký tự Threads:** bước kiểm tra chỉ đếm phần chữ, trong khi adapter gửi chữ + hashtag, nên bài 490 ký tự kèm hashtag lọt qua rồi bị Threads trả về. Thêm `text.hashtagsInText`; Threads đếm chữ + hashtag vào giới hạn 500 (link vẫn đi dạng thẻ, không tính). Adapter gửi đúng chuỗi đã đếm.
+  - Bước tiếp: sau khi push, thử đăng lại bài; dòng attempt sẽ hiện câu Threads giải thích. Kiểm tra: typecheck, lint, 1787 unit test đạt.
 
 ---
 

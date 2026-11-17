@@ -1,6 +1,7 @@
 import { clock, matchesPublishedText, type Platform } from '@orbit/core';
 import { preflightRefusal, toAppError } from '../errors.js';
 import {
+  composePublishedText,
   threadPartsFor,
   validateDraft,
   type ValidationResult,
@@ -999,13 +1000,13 @@ export class ThreadsProvider implements SocialProvider {
   }
 }
 
-/** Hashtags go in the text on Threads, as they do on TikTok. */
+/**
+ * The text as published: the body, then the hashtags. The same function the
+ * validator counts with (`hashtagsInText`), so a post that passes the 500 here
+ * is the post Threads receives. The link is not in it: it goes as a card.
+ */
 function composeText(draft: VariantDraft): string {
-  const tags = (draft.hashtags ?? [])
-    .map((tag) => (tag.startsWith('#') ? tag : `#${tag}`))
-    .join(' ');
-
-  return [draft.body?.trim(), tags].filter((part) => part && part.length > 0).join('\n\n');
+  return composePublishedText({ body: draft.body, hashtags: draft.hashtags });
 }
 
 function sleep(ms: number, signal?: AbortSignal | undefined): Promise<void> {

@@ -143,6 +143,23 @@ export function composePublishedText(
 }
 
 /**
+ * The text a platform receives for this draft, which is what its limit is
+ * counted against: body, hashtags and link where all three are written in;
+ * body and hashtags where the link travels separately; the body alone where
+ * neither is.
+ */
+export function publishedTextFor(
+  draft: Pick<VariantDraft, 'body' | 'hashtags' | 'linkUrl'>,
+  capabilities: PlatformCapabilities,
+): string {
+  if (capabilities.text.composedText) return composePublishedText(draft);
+  if (capabilities.text.hashtagsInText) {
+    return composePublishedText({ body: draft.body, hashtags: draft.hashtags });
+  }
+  return draft.body;
+}
+
+/**
  * The posts a draft becomes, in order: one element unless it is a thread.
  *
  * What is split is the text as published — body, then hashtags, then the link
@@ -158,7 +175,7 @@ export function threadPartsFor(
   capabilities: PlatformCapabilities,
 ): string[] {
   if (draft.thread !== true || !capabilities.thread.supported) {
-    return [capabilities.text.composedText ? composePublishedText(draft) : draft.body];
+    return [publishedTextFor(draft, capabilities)];
   }
 
   const source = composePublishedText({
@@ -436,7 +453,7 @@ export function validateDraft(
 
   // The text the platform will actually receive, where hashtags and the link
   // are written into it rather than sent alongside.
-  const published = capabilities.text.composedText ? composePublishedText(draft) : draft.body;
+  const published = publishedTextFor(draft, capabilities);
 
   // A thread is checked post by post: each part against the limit and the
   // link count, and the whole against the most posts one thread may be.

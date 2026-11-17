@@ -13,6 +13,7 @@ export {
   canEditPublished,
   composePublishedText,
   countCharacters,
+  publishedTextFor,
   threadPartsFor,
   weightedLength,
   errorsOnly,

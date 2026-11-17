@@ -112,6 +112,11 @@ export function threadsCapabilities(
        */
       maxLength: 500,
       /**
+       * The adapter writes the hashtags into the text and sends the link as a
+       * card, so the 500 counts body and hashtags together.
+       */
+      hashtagsInText: true,
+      /**
        * Threads is the one platform here that publishes text on its own **and**
        * media on its own. `media_type: TEXT` is a first-class container.
        */

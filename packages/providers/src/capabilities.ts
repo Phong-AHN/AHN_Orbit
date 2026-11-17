@@ -97,6 +97,14 @@ export const platformCapabilitiesSchema = z.object({
      * `composePublishedText`, the same function the adapter publishes with.
      */
     composedText: z.boolean().default(false),
+    /**
+     * The hashtags are written into the text, but the link is not — it goes
+     * out as a card of its own (Threads' `link_attachment`). The limit then
+     * applies to body and hashtags together. Without this the validator
+     * counted the body alone, and a 480-character post with three hashtags
+     * passed here and was refused by the platform.
+     */
+    hashtagsInText: z.boolean().default(false),
   }),
 
   link: z.object({

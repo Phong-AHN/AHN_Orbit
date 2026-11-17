@@ -98,20 +98,47 @@ export function normalizeGraphError(
       ? (parseRetryAfter(headers?.get('retry-after') ?? undefined) ?? estimateBackoff(headers))
       : undefined;
 
+  /**
+   * Meta's own sentence for the person, where it wrote one.
+   *
+   * `message` is often just "Invalid parameter"; `error_user_msg` is what Meta
+   * writes for an end user and says *which* parameter and why. It was declared
+   * and never read, so a refused Threads post said only "The platform rejected
+   * this post" while the reason sat in the response. Used as the message for a
+   * refusal of the content — where ours is generic — and kept on the attempt
+   * either way. Capped, because it is stored and shown.
+   */
+  const userTitle = metaText(error.error_user_title);
+  const userText = metaText(error.error_user_msg);
+  const metaSays = userText ? (userTitle ? `${userTitle}: ${userText}` : userText) : undefined;
+  const contentRefusal = kind === 'VALIDATION' || kind === 'MEDIA';
+
   return toAppError('FACEBOOK', {
     kind,
     message: error.message ?? `Graph API error (HTTP ${httpStatus})`,
     providerCode: error.code,
     httpStatus,
     retryAfterSeconds,
+    ...(metaSays && contentRefusal ? { userMessage: metaSays } : {}),
     meta: {
       ...(error.error_subcode !== undefined ? { subcode: error.error_subcode } : {}),
       ...(error.type ? { type: error.type } : {}),
       // Meta's support reference. Not sensitive, and the first thing they ask for.
       ...(error.fbtrace_id ? { fbtraceId: error.fbtrace_id } : {}),
       ...(subcodeReason ? { reauthorizationReason: subcodeReason } : {}),
+      // Meta's technical message too: the publishing page reads the attempt
+      // row, not the worker log, and this is what says what went wrong.
+      ...(metaText(error.message) ? { providerMessage: metaText(error.message) } : {}),
+      ...(userTitle ? { providerUserTitle: userTitle } : {}),
+      ...(userText ? { providerUserMessage: userText } : {}),
     },
   });
+}
+
+/** Meta's text, trimmed and capped; nothing when it is empty. */
+function metaText(text: string | undefined): string | undefined {
+  const trimmed = text?.trim();
+  return trimmed ? trimmed.slice(0, 300) : undefined;
 }
 
 /**
