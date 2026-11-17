@@ -500,6 +500,9 @@ Cách đọc:
   - Lỗi lint (`any`) đã hết. Lần chuyển ảnh hỏng trong worker giờ có log.
   - Cùng đợt: URL gõ trong caption Instagram/TikTok không còn bị báo "Links are not supported" (hai nền tảng vẫn nhận, chỉ là không bấm được).
   - Kiểm tra: typecheck, lint đạt; 1784 unit test đạt, gồm test chuyển ảnh thật bằng `sharp`.
+- **Nút "Check now" ở Community không đọc được bình luận nào.** Phát hiện từ log worker anh gửi (`engagement jobs require a postVariantId`). Nút này tạo một job cho mỗi *tài khoản*, còn worker chỉ nhận job theo từng *bài*, nên mọi job bị từ chối rồi thử lại vô ích. Bình luận vẫn về nhờ lần quét 15 phút, chỉ riêng nút bấm tay là vô tác dụng.
+  - **Đã sửa:** nút tạo một job cho mỗi bài đã đăng trong 14 ngày (giống lần quét), chỉ trong các tài khoản người bấm được phép xem, tối đa 100 bài mỗi lần bấm. Phần tin nhắn vẫn theo tài khoản như cũ.
+  - Integration test của nút cố ý không kiểm tra hình dạng job, nên lỗi lọt qua; test đó cần DB nên không chạy được ở máy này. Đã chạy typecheck, lint và unit test.
 
 ---
 

@@ -22,7 +22,7 @@ type Params = { orgSlug: string };
  * `POST` rather than `GET`: it has an effect, it costs provider quota, and it
  * must never be something a browser or a crawler can prefetch.
  *
- * Returns the number of accounts queued, not comments found. The work is
+ * Returns how many accounts and posts were queued, not comments found. The work is
  * asynchronous and a count of comments here would be a number invented before
  * the job runs.
  *

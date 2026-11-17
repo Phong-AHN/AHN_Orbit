@@ -489,6 +489,16 @@ export async function replyToComment(
 }
 
 /**
+ * How far back "Check now" reads: the comment sweep's horizon
+ * (`SWEEP_HORIZON_MS` in the worker). A post older than this is not swept
+ * either, so pressing the button never reads more than the sweep would.
+ */
+const COMMENT_SYNC_HORIZON_MS = 14 * 24 * 60 * 60 * 1_000;
+
+/** Posts one press may queue, for the same per-app quota reason as the cooldown. */
+const COMMENT_SYNC_MAX_POSTS = 100;
+
+/**
  * Read the connected accounts now, instead of waiting for the sweep.
  *
  * ## Why this exists
@@ -515,10 +525,15 @@ export async function replyToComment(
  * ## What it does not do
  *
  * It does not read comments itself. It enqueues the same `engagement` job the
- * sweep enqueues, so there is exactly one ingestion path and no second place
- * where a comment could be written differently. The job is asynchronous, so
- * this returns how many accounts were queued rather than how many comments
- * arrived — claiming a count here would mean lying about work not yet done.
+ * sweep enqueues — **one per published post**, the only shape the job takes —
+ * so there is exactly one ingestion path and no second place where a comment
+ * could be written differently. The job is asynchronous, so this returns how
+ * many accounts and posts were queued rather than how many comments arrived —
+ * claiming a count here would mean lying about work not yet done.
+ *
+ * It used to queue one job per *account*, which the processor refuses
+ * ("engagement jobs require a postVariantId"): the button read no comments at
+ * all, and every press left failing jobs to retry.
  */
 export async function syncNow(ctx: TenantContext, correlationId: string) {
   // Same authorization shape as `listComments`: `comment:read_public` is
@@ -556,13 +571,46 @@ export async function syncNow(ctx: TenantContext, correlationId: string) {
     }),
   );
 
-  for (const account of accounts) {
-    await enqueue('engagement', {
-      organizationId: ctx.organizationId,
-      correlationId,
-      socialAccountId: account.id,
-    });
+  // The posts the sweep would read, from those accounts only: published, still
+  // on the platform, and recent enough to be swept at all.
+  const posts =
+    accounts.length === 0
+      ? []
+      : await withTenant(ctx, (db) =>
+          db.postVariant.findMany({
+            where: {
+              deletedAt: null,
+              status: 'PUBLISHED',
+              externalPostId: { not: null },
+              publishedAt: { gte: new Date(clock.nowMs() - COMMENT_SYNC_HORIZON_MS) },
+              socialAccountId: { in: accounts.map((account) => account.id) },
+            },
+            select: { id: true, socialAccountId: true },
+            // Newest first: when there are more than the bound, the posts
+            // people are watching are the ones read.
+            orderBy: { publishedAt: 'desc' },
+            take: COMMENT_SYNC_MAX_POSTS,
+          }),
+        );
 
+  // One job per post per minute, so a second press that slips past the cooldown
+  // adds nothing. Hyphens, not colons — BullMQ rejects most custom ids
+  // containing `:`.
+  const minute = Math.floor(clock.nowMs() / 60_000);
+  for (const post of posts) {
+    await enqueue(
+      'engagement',
+      {
+        organizationId: ctx.organizationId,
+        correlationId,
+        socialAccountId: post.socialAccountId,
+        postVariantId: post.id,
+      },
+      { jobId: `comments-sync-${post.id}-${minute}` },
+    );
+  }
+
+  for (const account of accounts) {
     // Private messages too, on the platforms that have them (D-107). The job
     // reads nothing when messaging is switched off, so this costs no quota
     // where there is nothing to read.
@@ -578,10 +626,11 @@ export async function syncNow(ctx: TenantContext, correlationId: string) {
   logger.info('community inbox sync requested', {
     organizationId: ctx.organizationId,
     accounts: accounts.length,
+    posts: posts.length,
     correlationId,
   });
 
-  return { queued: accounts.length };
+  return { queued: accounts.length, posts: posts.length };
 }
 
 /** Mark a comment dealt with, or put it back in the queue. */
