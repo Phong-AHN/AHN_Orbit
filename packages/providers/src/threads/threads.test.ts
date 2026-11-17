@@ -312,6 +312,86 @@ describe('publishing', () => {
   });
 
   /**
+   * Threads processes every container, images included, and refuses a parent
+   * naming a child still in progress: "Invalid Carousel Children … invalid,
+   * nonexistent, or expired" (code 100, subcode 4279004). That is how a real
+   * carousel failed, so every child is waited on before the parent is built.
+   */
+  it('waits until every item is ready before naming them in the carousel', async () => {
+    let looks = 0;
+    const local = happyApi().on(/\/container-1(\?|$)/, () => {
+      looks += 1;
+      return { body: { status: looks < 3 ? 'IN_PROGRESS' : 'FINISHED' } };
+    });
+
+    await provider(local).publish(publishContext({ media: [image('a'), image('b')] }));
+
+    const parentAt = local.calls.findIndex(
+      (call) =>
+        call.method === 'POST' &&
+        new URLSearchParams(call.body ?? '').get('media_type') === 'CAROUSEL',
+    );
+    const lastLookAt = local.calls
+      .map((call) => /\/container-1(\?|$)/.test(call.url))
+      .lastIndexOf(true);
+
+    expect(looks).toBe(3);
+    expect(parentAt).toBeGreaterThan(lastLookAt);
+  });
+
+  it('names the item Threads could not use, and builds no carousel', async () => {
+    const local = happyApi().on(/\/container-2(\?|$)/, {
+      body: { status: 'ERROR', error_message: 'FAILED_DOWNLOADING_IMAGE' },
+    });
+
+    const error = await provider(local)
+      .publish(publishContext({ media: [image('a'), image('b')] }))
+      .catch((caught: { code?: string; userMessage?: string }) => caught);
+
+    expect(error.code).toBe('PROVIDER_MEDIA_ERROR');
+    expect(error.userMessage).toBe(
+      'Threads would not accept item 2 of 2 in the carousel (FAILED_DOWNLOADING_IMAGE).',
+    );
+    expect(
+      local.calls.some(
+        (call) => new URLSearchParams(call.body ?? '').get('media_type') === 'CAROUSEL',
+      ),
+    ).toBe(false);
+  });
+
+  it('records the items, and a retry waits on the same ones', async () => {
+    const refs: Array<Record<string, unknown>> = [];
+    await provider(api).publish(
+      publishContext({
+        media: [image('a'), image('b')],
+        recordProviderRef: async (ref: Record<string, unknown>) => {
+          refs.push({ ...ref });
+        },
+      }),
+    );
+    expect(refs[0]).toMatchObject({
+      children: ['container-1', 'container-2'],
+      contentHash: 'hash-1',
+    });
+
+    const retry = happyApi();
+    await provider(retry).publish(
+      publishContext({
+        media: [image('a'), image('b')],
+        previousRef: { children: ['container-7', 'container-8'], contentHash: 'hash-1' },
+      }),
+    );
+
+    const creates = retry.calls.filter(
+      (call) => call.method === 'POST' && /\/th-user-1\/threads(\?|$)/.test(call.url),
+    );
+    expect(creates).toHaveLength(1);
+    expect(new URLSearchParams(creates[0]!.body ?? '').get('children')).toBe(
+      'container-7,container-8',
+    );
+  });
+
+  /**
    * The id is the only thing that can answer "did it go out?" afterwards, and
    * one written after the ambiguous half would not exist in that case.
    */

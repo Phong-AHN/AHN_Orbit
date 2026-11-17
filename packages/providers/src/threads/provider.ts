@@ -94,12 +94,16 @@ const REFRESH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const CONTAINER_POLL_BUDGET_MS = 45_000;
 const CONTAINER_POLL_INTERVAL_MS = 5_000;
 /**
- * A thread's further parts (D-124): none is started after the first of these,
- * and none waits on its container past the second. Both well inside the
- * engine's 60-second budget, so a part is never cut off part-way.
+ * A thread's further parts (D-124): none is started after this long.
  */
 const THREAD_BUDGET_MS = 35_000;
-const THREAD_WAIT_LIMIT_MS = 50_000;
+/**
+ * No container is waited on past this point after publishing began — carousel
+ * items, the post itself, a thread's replies. Well inside the engine's
+ * 60-second budget: running out here is a plain retry that resumes the same
+ * containers, where being cut off by the engine would be "outcome unknown".
+ */
+const CONTAINER_WAIT_LIMIT_MS = 50_000;
 
 export interface ThreadsProviderOptions extends ThreadsClientOptions {
   /**
@@ -533,7 +537,10 @@ export class ThreadsProvider implements SocialProvider {
           ? await this.createTextContainer(ctx, userId, text)
           : ctx.media.length === 1
             ? await this.createSingleContainer(ctx, userId, ctx.media[0]!, text)
-            : await this.createCarouselContainer(ctx, userId, ctx.media, text));
+            : await this.createCarouselContainer(ctx, userId, ctx.media, text, {
+                record: save,
+                waitUntil: startedAt + CONTAINER_WAIT_LIMIT_MS,
+              }));
 
       // Before the wait and before the publish. If either is interrupted, this id
       // is the only thing that can answer whether the post went out.
@@ -543,7 +550,11 @@ export class ThreadsProvider implements SocialProvider {
         ...(progress ? { thread: progress } : {}),
       });
 
-      await this.awaitContainer(ctx, containerId);
+      await this.awaitContainer(
+        ctx,
+        containerId,
+        Math.max(0, startedAt + CONTAINER_WAIT_LIMIT_MS - clock.nowMs()),
+      );
       postId = await this.publishContainer(ctx, userId, containerId);
 
       if (progress) {
@@ -570,7 +581,7 @@ export class ThreadsProvider implements SocialProvider {
           await this.awaitContainer(
             ctx,
             reply,
-            Math.max(0, startedAt + THREAD_WAIT_LIMIT_MS - clock.nowMs()),
+            Math.max(0, startedAt + CONTAINER_WAIT_LIMIT_MS - clock.nowMs()),
           );
           return { id: await this.publishContainer(ctx, userId, reply) };
         },
@@ -645,23 +656,56 @@ export class ThreadsProvider implements SocialProvider {
    * `is_carousel_item` marks a child so Threads does not treat it as a post in
    * its own right. A partial failure here is safe — unpublished children are
    * invisible and expire — which is why they are not cleaned up on error.
+   *
+   * **Every child must be ready before the parent names it.** Threads processes
+   * every container after it is created, images included, and a parent naming
+   * a child still in progress is refused: "Invalid Carousel Children: the
+   * children with IDs … are invalid, nonexistent, or expired" (code 100,
+   * subcode 4279004). So each child is waited on first, inside the same
+   * deadline as everything else, and a child Threads could not use is reported
+   * by its place in the carousel.
+   *
+   * The children are recorded before the wait. A retry after running out of
+   * time waits on the same ones rather than building new ones from scratch.
    */
   private async createCarouselContainer(
     ctx: PublishContext,
     userId: string,
     media: readonly PublishMedia[],
     text: string,
+    options: {
+      record: (patch: Record<string, unknown>) => Promise<void>;
+      waitUntil: number;
+    },
   ): Promise<string> {
-    const children: string[] = [];
+    const recorded = ctx.previousRef?.['children'];
+    const reusable =
+      ctx.previousRef?.['contentHash'] === ctx.contentHash &&
+      Array.isArray(recorded) &&
+      recorded.length === media.length &&
+      recorded.every((id) => typeof id === 'string' && id.length > 0)
+        ? (recorded as string[])
+        : undefined;
 
-    for (const item of media) {
-      children.push(
-        await this.container(ctx, userId, {
-          media_type: item.kind === 'VIDEO' ? 'VIDEO' : 'IMAGE',
-          ...(item.kind === 'VIDEO' ? { video_url: item.url } : { image_url: item.url }),
-          is_carousel_item: true,
-        }),
-      );
+    const children = reusable ? [...reusable] : [];
+    if (!reusable) {
+      for (const item of media) {
+        children.push(
+          await this.container(ctx, userId, {
+            media_type: item.kind === 'VIDEO' ? 'VIDEO' : 'IMAGE',
+            ...(item.kind === 'VIDEO' ? { video_url: item.url } : { image_url: item.url }),
+            is_carousel_item: true,
+          }),
+        );
+      }
+      await options.record({ children, contentHash: ctx.contentHash });
+    }
+
+    for (const [index, child] of children.entries()) {
+      await this.awaitContainer(ctx, child, Math.max(0, options.waitUntil - clock.nowMs()), {
+        index,
+        total: children.length,
+      });
     }
 
     return this.container(ctx, userId, {
@@ -707,6 +751,7 @@ export class ThreadsProvider implements SocialProvider {
     ctx: PublishContext,
     containerId: string,
     limitMs?: number,
+    item?: { index: number; total: number },
   ): Promise<void> {
     const configured = this.options.pollBudgetMs ?? CONTAINER_POLL_BUDGET_MS;
     const budgetMs = limitMs === undefined ? configured : Math.min(configured, limitMs);
@@ -727,10 +772,15 @@ export class ThreadsProvider implements SocialProvider {
         throw toAppError('THREADS', {
           kind: 'MEDIA',
           message: `Threads could not prepare the post: ${container.error_message ?? container.status}`,
-          userMessage: 'Threads would not accept this post.',
+          userMessage: item
+            ? `Threads would not accept item ${item.index + 1} of ${item.total} in the carousel${
+                container.error_message ? ` (${container.error_message})` : ''
+              }.`
+            : 'Threads would not accept this post.',
           meta: {
             containerId,
             ...(container.error_message ? { reason: container.error_message } : {}),
+            ...(item ? { carouselItem: item.index + 1 } : {}),
           },
         });
       }

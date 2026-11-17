@@ -507,6 +507,10 @@ Cách đọc:
   - **Vì sao không thấy lý do:** Meta gửi kèm câu giải thích cho người dùng (`error_user_title`, `error_user_msg`), nhưng code khai báo mà không đọc. Giờ câu đó hiện trên dòng attempt khi bài bị từ chối vì nội dung hoặc media, và mọi trường hợp đều được ghi vào attempt và log (cả câu kỹ thuật của Meta). Áp dụng chung cho Facebook, Instagram và Threads.
   - **Sửa lỗi đếm ký tự Threads:** bước kiểm tra chỉ đếm phần chữ, trong khi adapter gửi chữ + hashtag, nên bài 490 ký tự kèm hashtag lọt qua rồi bị Threads trả về. Thêm `text.hashtagsInText`; Threads đếm chữ + hashtag vào giới hạn 500 (link vẫn đi dạng thẻ, không tính). Adapter gửi đúng chuỗi đã đếm.
   - Bước tiếp: sau khi push, thử đăng lại bài; dòng attempt sẽ hiện câu Threads giải thích. Kiểm tra: typecheck, lint, 1787 unit test đạt.
+- **Đã tìm ra nguyên nhân bài Threads bị từ chối: carousel tạo trước khi ảnh con xử lý xong.** Sau khi deploy bản sửa trên, lần thử lại hiện câu của Threads: *"Invalid Carousel Children: The children with IDs … are invalid, nonexistent, or expired."* (`code 100`, `subcode 4279004`).
+  - **Lỗi:** adapter tạo từng container con (mỗi ảnh/video) rồi tạo ngay container carousel. Threads xử lý mọi container bất đồng bộ, kể cả ảnh, nên container con còn đang xử lý bị coi là không hợp lệ. Instagram không bị vì tải ảnh ngay khi tạo.
+  - **Đã sửa:** chờ từng container con `FINISHED` rồi mới tạo carousel. Mọi lần chờ dùng chung một hạn 50 giây tính từ lúc bắt đầu đăng, nên không bao giờ chạm mốc 60 giây của worker. Id container con được ghi lại trước khi chờ; lần thử lại chờ tiếp đúng các container đó. Container con nào hỏng thì báo rõ "item 2 of 3" kèm lý do của Threads.
+  - Kiểm tra: typecheck, lint, 1790 unit test đạt (3 test mới cho carousel).
 
 ---
 
