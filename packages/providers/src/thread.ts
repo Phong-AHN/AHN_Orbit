@@ -9,12 +9,12 @@
  *
  * ## Where it breaks
  *
- * Greedily, as late as the limit allows, but at the best boundary in reach:
- * a paragraph, else the end of a sentence, else a space. A boundary that would
- * leave a part less than half full is passed over for a later, lesser one —
- * a thread of half-empty posts reads worse than one broken mid-sentence. Only
- * a run with no space in it (a long link, Chinese or Japanese text) is cut
- * inside, and then after a full stop where there is one.
+ * **Only where a sentence ends** — after `.`, `!`, `?`, `…` (or `。！？`), or
+ * at a line or paragraph break — and as late as the limit allows, so each post
+ * carries as many whole sentences as fit. A post never ends mid-sentence
+ * unless a single sentence is longer than a whole post; only then is it cut at
+ * the last space that fits. A run with no space in it (a long link, Chinese or
+ * Japanese text) is cut inside, after a full stop where there is one.
  *
  * Every part of a thread ends with its place, " 2/5", which is counted
  * against the limit like any other text. Text that fits in one post is
@@ -27,10 +27,11 @@ export type Measure = (text: string) => number;
 /** Never let a numbered part be shorter than this, whatever the limit. */
 const MIN_BUDGET = 10;
 
-/** A boundary this far into the budget is good enough to break at. */
-const FILL_RATIO = 0.5;
-
-const SENTENCE_END = /[.!?…:;。！？]["'”’)\]]*$/u;
+/**
+ * A word that ends a sentence, closing quotes and brackets allowed after the
+ * stop. Not `:` or `;` — the sentence goes on after those.
+ */
+const SENTENCE_END = /[.!?…。！？]["'”’)\]]*$/u;
 const CJK_STOP = /[。！？]/u;
 
 const graphemeSegmenter =
@@ -42,6 +43,23 @@ function graphemesOf(text: string): string[] {
   return graphemeSegmenter
     ? Array.from(graphemeSegmenter.segment(text), (part) => part.segment)
     : [...text];
+}
+
+/**
+ * Whether a variant is split into a thread when its text is too long.
+ *
+ * **On by default** wherever the platform can thread: text longer than one
+ * post is split rather than refused, unless somebody switched it off for that
+ * account (`platformOptions.thread === false`). Never on where the platform
+ * cannot thread, so the default cannot raise an error there. The web
+ * validator and the worker both decide through this, so what was checked and
+ * what is published split the same way.
+ */
+export function threadRequested(
+  platformOptions: Record<string, unknown> | null | undefined,
+  capabilities: { thread: { supported: boolean } },
+): boolean {
+  return capabilities.thread.supported && platformOptions?.['thread'] !== false;
 }
 
 /** The place marker appended to every part of a thread. */
@@ -138,11 +156,9 @@ function pack(text: string, budget: number, measure: Measure): string[] {
       break;
     }
 
-    const floor = budget * FILL_RATIO;
-    const best =
-      [3, 2]
-        .map((quality) => breaks.filter((b) => b.quality >= quality && b.used >= floor).at(-1))
-        .find((found) => found !== undefined)?.index ?? lastFit;
+    // The last place a sentence ends; a bare space only when the sentence
+    // in hand is longer than a whole post.
+    const best = breaks.filter((b) => b.quality >= 2).at(-1)?.index ?? lastFit;
 
     chunks.push(joinTokens(tokens, start, best));
     start = best + 1;
@@ -173,7 +189,7 @@ function cutWord(word: string, budget: number, measure: Measure): [string, strin
     if (used + cost > budget) break;
     used += cost;
     fit = index + 1;
-    if (CJK_STOP.test(grapheme) && used >= budget * FILL_RATIO) stop = index + 1;
+    if (CJK_STOP.test(grapheme)) stop = index + 1;
   }
 
   // Always make progress, even if a single grapheme outweighs the budget.

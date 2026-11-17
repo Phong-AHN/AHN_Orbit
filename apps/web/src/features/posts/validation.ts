@@ -4,6 +4,7 @@ import {
   capabilitiesFor,
   missingThreadScopes,
   threadPartsFor,
+  threadRequested,
   validateDraft,
   type ValidationResult,
   type VariantDraft,
@@ -165,8 +166,9 @@ export async function validatePost(ctx: TenantContext, postId: string): Promise<
         ? (variant.platformOptions as Record<string, unknown>)
         : undefined;
     // The one setting in `platformOptions` the shared engine reads (D-124):
-    // it changes how many posts the text becomes, which every layer must agree on.
-    const thread = options?.['thread'] === true;
+    // it changes how many posts the text becomes, which every layer must agree
+    // on. On unless switched off, wherever the platform can thread.
+    const thread = threadRequested(options, capabilities);
 
     const draft: VariantDraft = {
       // Variant overrides win; an unset override inherits the master copy.
@@ -195,29 +197,28 @@ export async function validatePost(ctx: TenantContext, postId: string): Promise<
 
     const result = validateDraft(capabilities, draft);
 
+    const parts = thread ? threadPartsFor(draft, capabilities) : [];
+
     /**
      * A thread on a connection that cannot reply (D-124). The capability layer
      * describes the platform, not the connection, so this is checked here —
      * and the adapter refuses again before posting anything, because a thread
      * that stops after its first post is worse than one that never starts.
+     * Only when the text is really split: threads are on by default, and a
+     * post that fits needs no reply permission.
      */
     const missingForThread =
-      thread && capabilities.thread.supported
-        ? missingThreadScopes(capabilities, variant.socialAccount.scopes)
-        : [];
+      parts.length > 1 ? missingThreadScopes(capabilities, variant.socialAccount.scopes) : [];
     if (missingForThread.length > 0) {
       result.issues.push({
         severity: 'ERROR',
         code: 'THREAD_NEEDS_RECONNECT',
         field: 'thread',
-        message: `${variant.socialAccount.displayName} was connected before threads were switched on. Reconnect it to publish a thread, or turn off "Split into a thread".`,
+        message: `${variant.socialAccount.displayName} was connected before threads were switched on. Reconnect it to publish this as a thread, or shorten the text.`,
         meta: { missing: missingForThread.join(', ') },
       });
       result.valid = false;
     }
-
-    const parts =
-      thread && capabilities.thread.supported ? threadPartsFor(draft, capabilities) : [];
 
     // An account that cannot publish is a blocker for this variant, and the
     // capability layer has no way to know it — it describes the platform, not

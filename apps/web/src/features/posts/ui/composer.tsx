@@ -599,7 +599,7 @@ function CharacterCounters({
           cap.supportsThread &&
           variants
             .filter((v) => v.platform === platform)
-            .every((v) => (v.platformOptions ?? {})['thread'] === true);
+            .every((v) => (v.platformOptions ?? {})['thread'] !== false);
         const over = used > cap.maxTextLength && !threaded;
         return (
           <span
@@ -757,7 +757,8 @@ function VariantEditor({
   const inherits = override.length === 0;
   const counted = inherits ? post.body : override;
 
-  const threadOn = (active.platformOptions ?? {})['thread'] === true;
+  // On by default (D-124): unticked only when somebody switched it off.
+  const threadOn = (active.platformOptions ?? {})['thread'] !== false;
   const threadParts = threadOn
     ? validation?.variants.find((v) => v.variantId === active.id)?.threadParts
     : undefined;

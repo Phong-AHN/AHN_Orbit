@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { defineCapabilities } from './capabilities.js';
-import { readThreadProgress, splitIntoThread, threadFingerprint } from './thread.js';
+import {
+  readThreadProgress,
+  splitIntoThread,
+  threadFingerprint,
+  threadRequested,
+} from './thread.js';
 import { countCharacters, threadPartsFor, validateDraft, weightedLength } from './validation.js';
 import { xCapabilities } from './x/capabilities.js';
 import { blueskyCapabilities } from './bluesky/capabilities.js';
@@ -62,16 +67,50 @@ describe('splitIntoThread', () => {
     expect(first?.replace(/ \d+\/\d+$/, '').endsWith('.')).toBe(true);
   });
 
-  it('does not leave a part less than half full to reach a better boundary', () => {
-    const text = `Hi.\n\n${'word '.repeat(80).trim()}`;
-    const [first] = splitIntoThread(text, 100, plain);
-    expect(plain(first ?? '')).toBeGreaterThan(50);
+  it('ends every post on a whole sentence while one is in reach', () => {
+    const sentences = [
+      'Hôm nay chúng tôi ra mắt sản phẩm mới.',
+      'Nó giúp đội ngũ làm việc nhanh hơn!',
+      'Bạn đã thử chưa?',
+      'Đặt hàng ngay hôm nay, giao trong hai ngày.',
+      'Liên hệ chúng tôi để biết thêm chi tiết…',
+    ];
+    const text = Array.from({ length: 6 }, () => sentences.join(' ')).join(' ');
+    const parts = splitIntoThread(text, 120, plain);
+
+    expect(parts.length).toBeGreaterThan(1);
+    for (const part of parts) {
+      expect(plain(part)).toBeLessThanOrEqual(120);
+      expect(part.replace(/ \d+\/\d+$/, '')).toMatch(/[.!?…]$/);
+    }
+  });
+
+  it('does not treat a colon or a semicolon as the end of a sentence', () => {
+    // Within reach: "One." and, wrongly, "three:" and "eleven;". Only the first ends a sentence.
+    const text =
+      'One. Two three: four five six seven eight nine ten eleven; twelve thirteen fourteen fifteen sixteen seventeen.';
+    const [first] = splitIntoThread(text, 70, plain);
+    expect(first).toMatch(/^One\. 1\/\d+$/);
+  });
+
+  it('cuts at a space only when one sentence is longer than a whole post', () => {
+    const long = `${'word '.repeat(60).trim()}.`;
+    const parts = splitIntoThread(long, 100, plain);
+
+    expect(parts.length).toBeGreaterThan(1);
+    for (const part of parts) expect(plain(part)).toBeLessThanOrEqual(100);
+    expect(
+      parts
+        .at(-1)
+        ?.replace(/ \d+\/\d+$/, '')
+        .endsWith('.'),
+    ).toBe(true);
   });
 
   it('keeps the line breaks inside a part as written', () => {
-    const text = `Line one\nline two\n${'filler '.repeat(60).trim()}`;
+    const text = `Line one\nline two. ${'Short sentence here. '.repeat(10).trim()}`;
     const [first] = splitIntoThread(text, 120, plain);
-    expect(first?.startsWith('Line one\nline two\n')).toBe(true);
+    expect(first?.startsWith('Line one\nline two. Short sentence here.')).toBe(true);
   });
 
   it('cuts a run with no space in it, after a full stop where it can', () => {
@@ -140,6 +179,20 @@ describe('threadPartsFor', () => {
     expect(threadPartsFor({ body, thread: true }, facebookPageCapabilities('v25.0'))).toHaveLength(
       1,
     );
+  });
+});
+
+describe('threadRequested', () => {
+  it('is on by default where the platform can thread, and off only when switched off', () => {
+    expect(threadRequested(undefined, x)).toBe(true);
+    expect(threadRequested({}, x)).toBe(true);
+    expect(threadRequested({ thread: true }, bluesky)).toBe(true);
+    expect(threadRequested({ thread: false }, x)).toBe(false);
+  });
+
+  it('is never on where the platform cannot thread, so the default raises no error there', () => {
+    expect(threadRequested(undefined, facebookPageCapabilities('v25.0'))).toBe(false);
+    expect(threadRequested({ thread: true }, threadsCapabilities('v1.0'))).toBe(false);
   });
 });
 

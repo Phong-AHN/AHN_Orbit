@@ -511,6 +511,11 @@ Cách đọc:
   - **Lỗi:** adapter tạo từng container con (mỗi ảnh/video) rồi tạo ngay container carousel. Threads xử lý mọi container bất đồng bộ, kể cả ảnh, nên container con còn đang xử lý bị coi là không hợp lệ. Instagram không bị vì tải ảnh ngay khi tạo.
   - **Đã sửa:** chờ từng container con `FINISHED` rồi mới tạo carousel. Mọi lần chờ dùng chung một hạn 50 giây tính từ lúc bắt đầu đăng, nên không bao giờ chạm mốc 60 giây của worker. Id container con được ghi lại trước khi chờ; lần thử lại chờ tiếp đúng các container đó. Container con nào hỏng thì báo rõ "item 2 of 3" kèm lý do của Threads.
   - Kiểm tra: typecheck, lint, 1790 unit test đạt (3 test mới cho carousel).
+- **Chia thread: chỉ cắt khi hết câu, và bật mặc định.** Theo yêu cầu của anh:
+  - Chỉ cắt sau `.` `!` `?` `…` (hoặc chỗ xuống dòng/đoạn), lấy nhiều câu trọn vẹn nhất vừa một bài. `:` và `;` không tính là hết câu. Chỉ khi một câu dài hơn cả một bài mới cắt ở khoảng trắng.
+  - Ô "Split into a thread" **tick sẵn** cho X, Bluesky (và Threads khi đã bật). Chữ vượt giới hạn tự chia; bỏ tick thì chặn như trước. Bài ngắn không bị ảnh hưởng. Tài khoản Threads chưa có quyền trả lời chỉ bị chặn khi bài thực sự phải chia.
+  - **Threads vẫn chưa có ô này** vì cờ `THREADS_REPLIES_ENABLED` đang tắt (cần quyền `threads_manage_replies`; xem OWNER-TODO).
+  - **TikTok:** "Post it" vốn đã là mặc định. Không chọn sẵn Public và không tick sẵn Comment/Duet/Stitch: quy định UX bắt buộc của TikTok cấm cả hai, và app đang trong đợt TikTok duyệt (D-126).
 
 ---
 

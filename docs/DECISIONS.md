@@ -5025,10 +5025,14 @@ characters), Bluesky (300 graphemes) and Threads (500): the composer turned the
 counter red and the post could not leave draft. An agency writing one caption
 for every platform had to cut it down for these three by hand.
 
-Each account can now be set to **Split into a thread when the text is too
-long**. The text is published as a chain: the first post carries the images,
+Text longer than one post is now **split into a thread by default** on every
+platform that can thread; the per-account box **Split into a thread when the
+text is too long** is ticked unless somebody unticks it (stored as
+`platformOptions.thread: false`), in which case an over-long text is refused as
+before. The text is published as a chain: the first post carries the images,
 and every later part replies to the one before, which is how all three
-platforms show a thread.
+platforms show a thread. `threadRequested` is the one place that decides,
+used by the web validator and the worker alike.
 
 ### One split, in three places
 
@@ -5041,11 +5045,14 @@ these parts, the composer shows them (from `/validate`, never its own guess)
 and the adapter publishes them. They cannot disagree about where a thread
 breaks.
 
-- It breaks as late as the limit allows, at the best boundary in reach: a
-  paragraph, then the end of a sentence, then a space. A boundary that would
-  leave a post less than half full is skipped. A run with no space in it
-  (a long link, Chinese or Japanese text) is cut inside, after a full stop
-  where there is one.
+- **It breaks only where a sentence ends** — after `.` `!` `?` `…` (or
+  `。！？`), or at a line or paragraph break — as late as the limit allows, so
+  each post carries as many whole sentences as fit. `:` and `;` do not end a
+  sentence. Only a single sentence longer than a whole post is cut at a
+  space; a run with no space in it (a long link, Chinese or Japanese text) is
+  cut inside, after a full stop where there is one. (The first version also
+  broke mid-sentence to avoid a half-empty post; the owner asked for whole
+  sentences instead, 2026-11-17.)
 - Every part ends with its place (` 2/5`), counted against the limit. Text that
   fits in one post goes out as one post, unnumbered, setting on or not.
 - Counting is per platform: X's weights (Vietnamese letters such as "ệ" count
@@ -5186,6 +5193,26 @@ attachment (`linkUrl`) on those platforms is still refused.
 
 - **Date:** 2026-11-17 · **Status:** IMPLEMENTED (no migration; the worker
   needs its new dependency, which its next deploy installs)
+
+## D-126 — TikTok's visibility and interaction settings are never pre-selected
+
+Asked (2026-11-17) to default TikTok posts to *Public* with Allow comments,
+duets and stitches all ticked. Not done, because TikTok's Content Sharing
+Guidelines forbid exactly that, under "Required UX Implementation in Your
+App" (checked 2026-11-17, page dated 2026-08-04):
+
+- Privacy: *"Users must manually select the privacy status from a dropdown
+  and there should be no default value."*
+- Interactions: *"Users must manually turn on these interaction settings and
+  none should be checked by default."*
+
+Social Square is in TikTok's app audit; an unaudited client can only post
+privately, and the audit is what checks this UX. Pre-selecting either would
+fail it, and D-086 already treats the privacy choice as the creator's. *Post
+it* (direct post) was already the default and stays so — the guidelines say
+nothing against it.
+
+- **Date:** 2026-11-17 · **Status:** DECIDED (no change)
 
 ## Known residual gaps
 

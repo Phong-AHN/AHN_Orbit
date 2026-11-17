@@ -12,6 +12,7 @@ import { ensureConvertedImage, presignDownload } from '@orbit/storage';
 import {
   capabilitiesFor,
   isConvertibleImageFormat,
+  threadRequested,
   type DecryptedCredential,
   type PublishMedia,
   type VariantDraft,
@@ -261,11 +262,15 @@ export async function loadPublishSubject(
     hashtags: variant.hashtags,
     firstComment: variant.firstComment,
     // The one stored setting the shared engine reads (D-124): whether a long
-    // text goes out as a thread. Read here exactly as the web validator reads
-    // it, so what was checked and what is published split the same way.
-    ...(variant.platformOptions &&
-    typeof variant.platformOptions === 'object' &&
-    (variant.platformOptions as Record<string, unknown>)['thread'] === true
+    // text goes out as a thread — on unless switched off. Decided by the same
+    // function the web validator uses, so what was checked and what is
+    // published split the same way.
+    ...(threadRequested(
+      variant.platformOptions && typeof variant.platformOptions === 'object'
+        ? (variant.platformOptions as Record<string, unknown>)
+        : undefined,
+      capabilities,
+    )
       ? { thread: true }
       : {}),
     // Settings that exist on one platform only — TikTok's privacy level and
