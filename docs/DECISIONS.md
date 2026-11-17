@@ -5018,6 +5018,113 @@ which is the only credential that matters. Two tests now do, one per adapter.
 - **Date:** 2026-11-16 · **Status:** IMPLEMENTED (no migration; takes effect on
   the web deploy, then a reconnection per channel)
 
+## D-124 — Long captions on X, Threads and Bluesky go out as a thread
+
+A caption longer than one post used to be refused on X (280 weighted
+characters), Bluesky (300 graphemes) and Threads (500): the composer turned the
+counter red and the post could not leave draft. An agency writing one caption
+for every platform had to cut it down for these three by hand.
+
+Each account can now be set to **Split into a thread when the text is too
+long**. The text is published as a chain: the first post carries the images,
+and every later part replies to the one before, which is how all three
+platforms show a thread.
+
+### One split, in three places
+
+`splitIntoThread` (packages/providers/src/thread.ts) is pure and does not know
+which platform it is splitting for: the caller passes the platform's way of
+counting. `threadPartsFor` feeds it the text as published — body, then
+hashtags, then the link where the platform writes it into the text — so the
+hashtags close the last post instead of being repeated. The validator checks
+these parts, the composer shows them (from `/validate`, never its own guess)
+and the adapter publishes them. They cannot disagree about where a thread
+breaks.
+
+- It breaks as late as the limit allows, at the best boundary in reach: a
+  paragraph, then the end of a sentence, then a space. A boundary that would
+  leave a post less than half full is skipped. A run with no space in it
+  (a long link, Chinese or Japanese text) is cut inside, after a full stop
+  where there is one.
+- Every part ends with its place (` 2/5`), counted against the limit. Text that
+  fits in one post goes out as one post, unnumbered, setting on or not.
+- Counting is per platform: X's weights (Vietnamese letters such as "ệ" count
+  2), Bluesky's graphemes, a link on X billed at 23. Every rule is additive
+  across a space, which is what lets the split measure word by word.
+- At most **10 posts**. This limit is ours: every part counts against the
+  account's posting allowance, which on X's lowest API tier is a few dozen a
+  day.
+
+The setting is stored as `platformOptions.thread`, not a new column. It is the
+one key in `platformOptions` that the shared engine reads, and both the web
+validator and the worker read it the same way. Storing it there needs no
+migration: a new column would break every variant query between the deploy and
+a migration that is run by hand.
+
+### Publishing a thread exactly once
+
+A thread is several posts inside one publish call. If a part fails after the
+first one is live, retrying must not post the thread a second time.
+
+- **Every part is recorded the moment it is live**, inside the adapter's
+  `providerRef` (`thread: { fingerprint, total, posted }`), before the next one
+  is tried. A retry, automatic or by hand, continues from the first part not
+  yet live. `continueThread` (thread-publish.ts) holds this rule for all three
+  adapters.
+- **No part is started after 35 seconds.** The engine allows one publish call
+  60 seconds and treats running out as "outcome unknown". So the adapter stops
+  between two parts, with nothing in flight, and throws a retryable error. The
+  retry picks up where it stopped. A part cut off mid-call would leave a post
+  that may or may not exist.
+- **A refused part says how far the thread got**: "3 of 5 posts in this thread
+  are live on X; the next one failed. … Retrying continues from post 4." The
+  error keeps its class, so retry policy is unchanged.
+- **The fingerprint names the exact parts.** If part of a thread is live and
+  the text has since changed, publishing is refused instead of starting a
+  second thread beside the first.
+- **Reconciliation reads the record.** A complete thread is reported published,
+  by its first post. On X and Threads, a thread that stopped part-way is parked
+  for a person. Reporting it published would stop it for good, and calling it
+  missing would repost what is live. Bluesky is different: every part's record
+  key is chosen up front and recorded before the first write. A part an earlier
+  attempt wrote is then refused for its key and adopted, so a partial Bluesky
+  thread is always safe to retry.
+
+### Threads needs a permission, so it is switched off for now
+
+Replying through `reply_to_id` needs `threads_manage_replies`, which Orbit has
+never asked for. Asking for a permission the Threads app has not been given
+fails the whole consent dialog, publishing included. That is the same trap as
+Meta messaging (D-107), so the same answer: `THREADS_REPLIES_ENABLED`, off by
+default, set identically on web and worker. When it is on:
+
+- the connect flow asks for the permission;
+- the descriptor claims threads;
+- a token refresh keeps the permission only where the connection already had it.
+
+A Threads account connected without it is refused a thread twice: in
+`/validate`, and in the adapter before the first post goes out. A thread that
+stops after its first post is worse than one that never started. X and Bluesky
+need no switch; their publishing permission covers replies.
+
+### What it does not do
+
+- **A first post whose outcome is unknown, on X or Threads.** If the call
+  creating the first post times out and reconciliation then finds that post,
+  the variant is parked with the message "the first post is live, the rest did
+  not go out". Nothing here can continue it from part 2; a person posts the
+  rest or deletes the first post and retries.
+- **Analytics and comments follow the first post.** The variant's
+  `externalPostId` is the first post, so its numbers are that post's.
+- **AI agents cannot turn it on.** The agent tools do not write
+  `platformOptions`.
+- **No manual break marker.** Where a thread breaks is decided by the split.
+  To control a break, write a paragraph break there; the split prefers it when
+  it falls in the second half of a post.
+
+- **Date:** 2026-11-17 · **Status:** IMPLEMENTED for X and Bluesky; Threads
+  behind `THREADS_REPLIES_ENABLED` (no migration)
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

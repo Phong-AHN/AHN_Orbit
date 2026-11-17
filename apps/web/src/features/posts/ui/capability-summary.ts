@@ -41,6 +41,9 @@ export interface CapabilitySummary {
   supportsMentions: boolean;
   supportsFirstComment: boolean;
   maxFirstCommentLength: number | null;
+  /** Whether a long text can go out as a thread here (D-124). */
+  supportsThread: boolean;
+  maxThreadPosts: number | null;
   supportsAltText: boolean;
   mediaRequired: boolean;
   carousel: boolean;
@@ -91,6 +94,8 @@ export function summariseCapabilities(
     supportsMentions: c.mentions.supported,
     supportsFirstComment: c.firstComment.supported,
     maxFirstCommentLength: c.firstComment.maxLength ?? null,
+    supportsThread: c.thread.supported,
+    maxThreadPosts: c.thread.supported ? (c.thread.maxPosts ?? null) : null,
     supportsAltText: c.media.altText,
     mediaRequired: c.media.required,
     carousel: c.media.carousel,

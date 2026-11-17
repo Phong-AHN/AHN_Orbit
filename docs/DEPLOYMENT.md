@@ -133,6 +133,7 @@ produces a localhost callback that TikTok refuses.
 | `TIKTOK_REVIEW_ACCESS_CODE` | **Vercel**, only during TikTok app review | Opens `/review/tiktok` for TikTok's reviewers (16+ characters). Needs `TIKTOK_CLIENT_KEY`/`SECRET` and the redirect URI `…/review/tiktok/callback` in the TikTok portal. Unset, the page is a 404. See docs/TIKTOK-REVIEW.md. |
 | `AGENT_ENABLED_ORGS` | **Vercel** | Which organizations may use AI agents (`/api/mcp`, OAuth, agent actions): comma-separated slugs or ids, or `*`. Unset = off everywhere, including existing grants. Needs migration `20261030000000_ai_agents`. See D-109. |
 | `META_HUMAN_AGENT_ENABLED` | **Vercel** and **Railway**, identically | `true` only once Meta has approved Human Agent. Extends the reply window from 24 hours to 7 days. |
+| `THREADS_REPLIES_ENABLED` | **Vercel** and **Railway**, identically | `true` only after `threads_manage_replies` is on the Threads app. Lets a long Threads caption publish as a thread (D-124); the connect flow then asks for the permission, and each Threads account has to be reconnected once. X and Bluesky threads need no switch. |
 
 Webhook callback URLs, registered in the Meta App Dashboard:
 `${APP_URL}/api/v1/webhooks/facebook` (Page: `feed`, `messages`, `message_echoes`) and

@@ -463,6 +463,7 @@ export function Composer(props: ComposerProps) {
             activeVariantId={activeVariantId ?? post.variants[0]?.id ?? null}
             onSelect={setActiveVariantId}
             readOnly={readOnly}
+            validation={validation}
             onSaved={(variant) => {
               setPost((p) => ({
                 ...p,
@@ -592,13 +593,21 @@ function CharacterCounters({
           : body.length;
         if (used === null) return null;
 
-        const over = used > cap.maxTextLength;
+        // Every account on this platform splits the text into a thread, so a
+        // count past the limit is the plan, not a problem (D-124).
+        const threaded =
+          cap.supportsThread &&
+          variants
+            .filter((v) => v.platform === platform)
+            .every((v) => (v.platformOptions ?? {})['thread'] === true);
+        const over = used > cap.maxTextLength && !threaded;
         return (
           <span
             key={platform}
             className={cn('font-mono', over ? 'font-semibold text-danger' : 'text-ink-muted')}
           >
             {platform.toLowerCase()} {used.toLocaleString()}/{cap.maxTextLength.toLocaleString()}
+            {threaded && used > cap.maxTextLength ? ' · thread' : ''}
           </span>
         );
       })}
@@ -707,6 +716,7 @@ function VariantEditor({
   activeVariantId,
   onSelect,
   readOnly,
+  validation,
   onSaved,
 }: {
   orgSlug: string;
@@ -717,6 +727,8 @@ function VariantEditor({
   activeVariantId: string | null;
   onSelect: (id: string) => void;
   readOnly: boolean;
+  /** The server's last verdict, for the thread preview. */
+  validation: PostValidationResponse | null;
   onSaved: (variant: PostDetail['variants'][number]) => void;
 }) {
   const api = React.useMemo(() => postsApi(orgSlug), [orgSlug]);
@@ -725,6 +737,7 @@ function VariantEditor({
   const [override, setOverride] = React.useState('');
   const [firstComment, setFirstComment] = React.useState('');
   const [saving, setSaving] = React.useState(false);
+  const [threadSaving, setThreadSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   // Reset the fields whenever a different account tab is opened, so one
@@ -743,6 +756,28 @@ function VariantEditor({
 
   const inherits = override.length === 0;
   const counted = inherits ? post.body : override;
+
+  const threadOn = (active.platformOptions ?? {})['thread'] === true;
+  const threadParts = threadOn
+    ? validation?.variants.find((v) => v.variantId === active.id)?.threadParts
+    : undefined;
+
+  /** Saved at once, like the platform settings: it changes what the checks say. */
+  async function saveThread(next: boolean) {
+    if (!active) return;
+    setThreadSaving(true);
+    setError(null);
+    try {
+      const { variant } = await api.updateVariant(post.id, active.id, {
+        platformOptions: { thread: next },
+      });
+      onSaved(variant);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'The thread setting could not be saved.');
+    } finally {
+      setThreadSaving(false);
+    }
+  }
 
   async function saveOverride() {
     if (!active) return;
@@ -838,12 +873,61 @@ function VariantEditor({
           <p
             className={cn(
               'font-mono text-xs',
-              counted.length > cap.maxTextLength ? 'font-semibold text-danger' : 'text-ink-muted',
+              counted.length > cap.maxTextLength && !(threadOn && cap.supportsThread)
+                ? 'font-semibold text-danger'
+                : 'text-ink-muted',
             )}
           >
             {counted.length.toLocaleString()}/{cap.maxTextLength.toLocaleString()}
             {inherits ? ' (inherited)' : ''}
+            {threadParts ? ` · thread of ${threadParts.length} posts` : ''}
           </p>
+        ) : null}
+
+        {cap?.supportsThread ? (
+          <div className="space-y-2">
+            <label
+              htmlFor={`variant-thread-${active.id}`}
+              className="flex items-start gap-2 text-sm text-ink"
+            >
+              <input
+                id={`variant-thread-${active.id}`}
+                type="checkbox"
+                checked={threadOn}
+                disabled={readOnly || threadSaving}
+                onChange={(event) => {
+                  void saveThread(event.target.checked);
+                }}
+                className="mt-0.5 size-4 rounded border-line focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+              />
+              <span>
+                Split into a thread when the text is too long
+                <span className="block text-xs text-ink-muted">
+                  Each post ends with its place (1/3, 2/3…). Images go on the first post; each later
+                  post replies to the one before
+                  {cap.maxThreadPosts ? `, up to ${cap.maxThreadPosts} posts` : ''}.
+                </span>
+              </span>
+            </label>
+
+            {threadParts ? (
+              <div className="rounded-lg border border-line bg-surface-sunken p-3">
+                <p className="mb-2 text-xs font-medium text-ink-muted">
+                  Publishes as {threadParts.length} posts — as last saved
+                </p>
+                <ol className="space-y-2">
+                  {threadParts.map((part, index) => (
+                    <li
+                      key={index}
+                      className="whitespace-pre-wrap rounded-md border border-line bg-surface p-2.5 text-sm text-ink"
+                    >
+                      {part}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ) : null}
+          </div>
         ) : null}
 
         {cap?.supportsFirstComment ? (

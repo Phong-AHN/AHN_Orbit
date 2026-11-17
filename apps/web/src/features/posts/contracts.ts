@@ -83,6 +83,15 @@ const platformOptions = z
      */
     boardId: z.string().trim().min(1).max(64).optional(),
     boardSectionId: z.string().trim().min(1).max(64).optional(),
+
+    // ── Threads, on X, Threads and Bluesky (D-124) ─────────────────────────
+    /**
+     * Publish a text longer than one post as a thread instead of refusing it.
+     * Unlike the keys above, the shared validator reads this one: it decides
+     * how many posts the text becomes. Refused on a platform that cannot
+     * thread, not ignored.
+     */
+    thread: z.boolean().optional(),
   })
   .strict();
 

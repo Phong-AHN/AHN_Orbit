@@ -178,6 +178,8 @@ export interface PostValidationResponse {
     accountName: string;
     platform: string;
     result: { valid: boolean; issues: ValidationIssue[] };
+    /** The posts a thread will publish as, from the server's split (D-124). */
+    threadParts?: string[];
   }>;
 }
 

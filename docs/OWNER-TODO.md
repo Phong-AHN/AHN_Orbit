@@ -1871,3 +1871,19 @@ Sửa triệt để cần dạy cho capability descriptor biết nền tảng n�
 lập gì, để bộ validate kiểm tra được mà không cần biết tên nền tảng nào. Đó là
 thay đổi chạm cả bảy adapter, nên em ghi lại (**D-090/D-091**) thay vì làm lặng
 lẽ. Anh muốn em làm thì nói.
+
+## Thread trên Threads (**D-124**, 17/11/2026)
+
+X và Bluesky chia bài dài thành thread được ngay. **Threads đang tắt**, vì đăng
+bài trả lời cần quyền `threads_manage_replies` mà app chưa xin. Nếu xin một quyền
+app chưa được cấp, Meta làm hỏng cả hộp thoại kết nối, kể cả quyền đăng bài.
+
+Muốn bật:
+
+1. Meta App Dashboard → app **Threads** → Use cases → Access the Threads API →
+   thêm quyền **`threads_manage_replies`**. Dùng cho người ngoài (không phải
+   tester) thì quyền này phải qua App Review.
+2. Đặt `THREADS_REPLIES_ENABLED=true` trên **cả Vercel và Railway**, rồi deploy.
+3. **Kết nối lại từng tài khoản Threads** một lần. Tài khoản kết nối trước đó
+   chưa có quyền này: composer báo "Reconnect it to publish a thread", và bài
+   không đăng phần nào.

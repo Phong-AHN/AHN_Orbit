@@ -152,6 +152,7 @@ export function ensureProvidersRegistered(): void {
         appId: env.THREADS_APP_ID,
         appSecret: env.THREADS_APP_SECRET,
         apiVersion: 'v1.0',
+        threadReplies: env.THREADS_REPLIES_ENABLED,
       }),
     );
     registeredAny = true;

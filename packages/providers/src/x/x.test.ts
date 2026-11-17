@@ -886,3 +886,209 @@ describe('reconciliation and lifecycle', () => {
     expect(status.exists).toBe(false);
   });
 });
+
+describe('threads (D-124)', () => {
+  const longBody = Array.from(
+    { length: 14 },
+    (_, i) => `Sentence number ${i + 1} says something useful about the product.`,
+  ).join(' ');
+
+  function threadApi(): { api: FakeX; posts: Array<Record<string, unknown>> } {
+    const posts: Array<Record<string, unknown>> = [];
+    const fake = happyApi()
+      .tap((call) => {
+        if (call.method === 'POST' && /\/2\/tweets$/.test(call.url) && call.body) {
+          posts.push(JSON.parse(call.body) as Record<string, unknown>);
+        }
+      })
+      .on(
+        /\/2\/tweets$/,
+        () => ({ status: 201, body: { data: { id: `t-${posts.length}` } } }),
+        'POST',
+      );
+    return { api: fake, posts };
+  }
+
+  function recorder() {
+    const refs: Array<Record<string, unknown>> = [];
+    return {
+      refs,
+      recordProviderRef: async (ref: Record<string, unknown>) => {
+        refs.push(structuredClone(ref));
+      },
+    };
+  }
+
+  const threadDraft = { body: longBody, hashtags: [], mentions: [], media: [], thread: true };
+
+  it('posts the first part with the media, then each part as a reply to the one before', async () => {
+    const { api: fake, posts } = threadApi();
+    const { refs, recordProviderRef } = recorder();
+
+    const result = await provider(fake).publish(
+      publishContext({ draft: threadDraft, media: [image()], recordProviderRef }),
+    );
+
+    expect(posts.length).toBeGreaterThan(1);
+    expect(posts[0]).toMatchObject({ media: { media_ids: ['m-1'] } });
+    expect(posts[0]?.['reply']).toBeUndefined();
+    posts.slice(1).forEach((post, index) => {
+      expect(post['reply']).toEqual({ in_reply_to_tweet_id: `t-${index + 1}` });
+      expect(post['media']).toBeUndefined();
+    });
+    posts.forEach((post, index) => {
+      expect(String(post['text']).endsWith(` ${index + 1}/${posts.length}`)).toBe(true);
+    });
+
+    // The thread is the first post.
+    expect(result.externalPostId).toBe('t-1');
+    expect(result.providerMeta?.['threadPosts']).toBe(posts.length);
+
+    // Every part is recorded the moment it is live, and the media survives.
+    const last = refs.at(-1) as { thread: { posted: unknown[] }; mediaIds: string[] };
+    expect(last.thread.posted).toHaveLength(posts.length);
+    expect(last.mediaIds).toEqual(['m-1']);
+  });
+
+  it('continues from the first part not yet live, without posting the others again', async () => {
+    const { api: first, posts: firstPosts } = threadApi();
+    const { refs, recordProviderRef } = recorder();
+
+    // Part two is refused once, by an outage.
+    first.on(
+      /\/2\/tweets$/,
+      () =>
+        firstPosts.length === 2
+          ? { status: 503, body: { title: 'Service Unavailable' } }
+          : { status: 201, body: { data: { id: `t-${firstPosts.length}` } } },
+      'POST',
+    );
+
+    const error = await provider(first)
+      .publish(publishContext({ draft: threadDraft, recordProviderRef }))
+      .catch((caught: { retryable?: boolean; userMessage?: string }) => caught);
+
+    expect(error.retryable).toBe(true);
+    expect(error.userMessage).toMatch(/^1 of \d+ posts in this thread are live on X/);
+    expect(error.userMessage).toMatch(/Retrying continues from post 2\./);
+
+    const { api: second, posts: secondPosts } = threadApi();
+    const result = await provider(second).publish(
+      publishContext({ draft: threadDraft, previousRef: refs.at(-1), recordProviderRef }),
+    );
+
+    // The first post is not repeated; the second attempt starts at part two.
+    expect(result.externalPostId).toBe('t-1');
+    expect(secondPosts[0]?.['reply']).toEqual({ in_reply_to_tweet_id: 't-1' });
+    expect(String(secondPosts[0]?.['text'])).toMatch(/ 2\/\d+$/);
+    expect(secondPosts.every((post) => post['media'] === undefined)).toBe(true);
+  });
+
+  it('refuses to start a second thread when the text changed after part of it went out', async () => {
+    const { api: fake, posts } = threadApi();
+    const previousRef = {
+      thread: { fingerprint: 'an-older-split', total: 3, posted: [{ id: 't-1' }] },
+    };
+
+    const error = await provider(fake)
+      .publish(publishContext({ draft: threadDraft, previousRef }))
+      .catch((caught: { code?: string; userMessage?: string }) => caught);
+
+    expect(error.code).toBe('PROVIDER_VALIDATION_ERROR');
+    expect(error.userMessage).toMatch(/already live on X/);
+    expect(posts).toHaveLength(0);
+  });
+
+  it('stops between two parts when the budget runs out, with nothing in flight', async () => {
+    const ticking = fixedClock(NOW);
+    restoreClock();
+    restoreClock = setClock(ticking);
+
+    const { api: fake, posts } = threadApi();
+    fake.tap((call) => {
+      if (call.method === 'POST' && /\/2\/tweets$/.test(call.url)) ticking.advance(20_000);
+    });
+
+    const error = await provider(fake)
+      .publish(publishContext({ draft: threadDraft }))
+      .catch((caught: { code?: string; retryable?: boolean; userMessage?: string }) => caught);
+
+    expect(error.code).toBe('PROVIDER_UNAVAILABLE');
+    expect(error.retryable).toBe(true);
+    expect(error.userMessage).toMatch(/^2 of \d+ posts in this thread are live on X\. The rest/);
+    expect(posts).toHaveLength(2);
+  });
+
+  it('publishes text that fits as one post, thread switched on or not', async () => {
+    const { api: fake, posts } = threadApi();
+    await provider(fake).publish(
+      publishContext({
+        draft: { body: 'Short', hashtags: [], mentions: [], media: [], thread: true },
+      }),
+    );
+    expect(posts).toEqual([{ text: 'Short' }]);
+  });
+
+  describe('reconciliation', () => {
+    const base = {
+      credential,
+      account: { externalId: 'u-1' },
+      contentHash: 'hash-1',
+      body: longBody,
+      attemptedAt: new Date(NOW),
+      windowMs: 10 * 60 * 1000,
+      correlationId: 'corr-1',
+    };
+
+    it('reports a finished thread as published, by its first post', async () => {
+      const result = await provider(api).reconcile({
+        ...base,
+        providerRef: {
+          thread: { fingerprint: 'f', total: 2, posted: [{ id: 't-1' }, { id: 't-2' }] },
+        },
+      });
+      expect(result).toMatchObject({ outcome: 'FOUND', externalPostId: 't-1' });
+    });
+
+    it('parks a thread found part-way out rather than retry or stop it', async () => {
+      const result = await provider(api).reconcile({
+        ...base,
+        providerRef: {
+          thread: { fingerprint: 'f', total: 4, posted: [{ id: 't-1' }, { id: 't-2' }] },
+        },
+      });
+      expect(result.outcome).toBe('INCONCLUSIVE');
+      expect('reason' in result ? result.reason : '').toMatch(/2 of 4 posts/);
+    });
+
+    it('parks a thread whose first post is live but nothing after it', async () => {
+      api.on(/\/2\/users\/u-1\/tweets/, {
+        body: {
+          data: [{ id: 't-1', text: 'Head 1/3', created_at: new Date(NOW).toISOString() }],
+        },
+      });
+
+      const result = await provider(api).reconcile({
+        ...base,
+        providerRef: {
+          publishedText: 'Head 1/3',
+          thread: { fingerprint: 'f', total: 3, posted: [] },
+        },
+      });
+      expect(result.outcome).toBe('INCONCLUSIVE');
+    });
+
+    it('lets a thread whose first post never went out be published', async () => {
+      api.on(/\/2\/users\/u-1\/tweets/, { body: { data: [] } });
+
+      const result = await provider(api).reconcile({
+        ...base,
+        providerRef: {
+          publishedText: 'Head 1/3',
+          thread: { fingerprint: 'f', total: 3, posted: [] },
+        },
+      });
+      expect(result.outcome).toBe('NOT_FOUND');
+    });
+  });
+});

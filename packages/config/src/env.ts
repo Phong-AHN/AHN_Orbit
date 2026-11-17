@@ -271,6 +271,18 @@ export const serverEnvSchema = z.object({
    */
   THREADS_APP_ID: optionalString,
   THREADS_APP_SECRET: optionalString,
+  /**
+   * Threads publishing a long caption as a thread of replies (**D-124**). Off
+   * unless set.
+   *
+   * Replying needs `threads_manage_replies`, which the connect flow then asks
+   * for. **Off by default for the same reason as `META_MESSAGING_ENABLED`:** a
+   * scope the Threads app has not been given fails the whole consent dialog,
+   * publishing included. Turn it on after the permission is on the app, set it
+   * identically on the web app and the worker, and reconnect each Threads
+   * account. X and Bluesky need no switch.
+   */
+  THREADS_REPLIES_ENABLED: flag,
 
   /**
    * ── LinkedIn (SRS §7) ────────────────────────────────────────────────────

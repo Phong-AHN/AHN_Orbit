@@ -487,6 +487,15 @@ Cách đọc:
 - Anh đã push, kết nối lại YouTube và đưa app Google lên production (Google đã duyệt). Kiểm tra qua connector: kênh "Pinlo" **Active**, không lỗi, lần kiểm tra gần nhất 08:35 (giờ VN). Danh sách quyền của kênh giờ theo đúng thứ tự Google trả về (`youtube.readonly` trước `youtube.upload`), mà chỉ code mới (D-123) mới ghi như vậy, nên credential đang dùng là bản lưu kèm refresh token. Không đọc trực tiếp được bảng `SocialCredential` (production chặn đọc); đã đưa anh câu SQL chỉ đọc để tự xác nhận.
 - **Xác nhận YouTube tự làm mới token sau khi kết nối lại.** Lần kiểm tra sức khỏe lúc 12:35 (giờ VN), hơn 3 giờ sau khi access token từ lần kết nối lại hết hạn, gọi YouTube thành công: kênh vẫn **Active**, không lỗi. Danh sách quyền đổi thứ tự (`youtube.upload` trước `youtube.readonly`). Bước kiểm tra sức khỏe chép danh sách này từ credential đang lưu, mà credential chỉ được ghi lại khi kết nối hoặc khi làm mới token, nên worker đã làm mới bằng refresh token ít nhất một lần. Còn lại một mốc: nếu lần kết nối lại diễn ra **trước** khi app Google lên production, refresh token đó vẫn theo hạn 7 ngày của chế độ Testing (khoảng 23/11).
 
+
+### 17/11
+
+- **Chia bài dài thành thread trên X, Threads và Bluesky (D-124).** Trước đây chữ dài hơn giới hạn (X 280, Bluesky 300, Threads 500) bị chặn, bài không ra khỏi bản nháp được.
+  - **Cách dùng:** trong "Per-account text", tick **Split into a thread when the text is too long** cho từng tài khoản. Bài tự chia ở chỗ xuống đoạn, rồi cuối câu, rồi khoảng trắng; mỗi phần có số thứ tự `1/3`. Composer hiện trước từng phần sẽ đăng. Ảnh nằm ở bài đầu; hashtag và link ở bài cuối. Tối đa 10 bài.
+  - **Không đăng trùng:** mỗi phần được ghi lại ngay khi lên. Lỗi giữa chừng thì lần thử lại (tự động hoặc bấm tay) đăng tiếp từ phần còn thiếu. Thông báo lỗi nói rõ "3 of 5 posts … are live". Nếu chữ đã sửa sau khi một phần đã lên thì từ chối đăng, để không tạo thread thứ hai.
+  - **Threads đang tắt:** đăng bài trả lời trên Threads cần quyền `threads_manage_replies`, mà app chưa xin. Bật bằng cờ `THREADS_REPLIES_ENABLED` sau khi thêm quyền vào app Threads (OWNER-TODO). X và Bluesky dùng được ngay.
+  - Kiểm tra: typecheck đạt; toàn bộ unit test đạt, trong đó 44 test mới. Lint báo 1 lỗi ở `packages/storage/src/convert.ts`, thuộc phần chuyển ảnh đang làm dở bên ngoài, không nằm trong thay đổi này.
+
 ---
 
 ## Nền tảng mạng xã hội — ngày tích hợp

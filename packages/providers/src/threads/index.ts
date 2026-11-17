@@ -8,6 +8,7 @@ export {
   THREADS_POST_METRICS,
   THREADS_PUBLISH_SCOPES,
   THREADS_REPLY_SCOPES,
+  THREADS_THREAD_SCOPES,
   threadsCapabilities,
 } from './capabilities.js';
 export type { ThreadsContainerStatus } from './capabilities.js';

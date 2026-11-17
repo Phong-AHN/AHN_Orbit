@@ -573,3 +573,153 @@ describe('client metadata and record keys', () => {
     expect(a < b).toBe(true);
   });
 });
+
+describe('threads (D-124)', () => {
+  const longBody = Array.from(
+    { length: 16 },
+    (_, i) => `Sentence number ${i + 1} says something useful about the product.`,
+  ).join(' ');
+
+  function threadAtproto(): FakeAtproto {
+    return happyAtproto().on(/com\.atproto\.repo\.createRecord/, (call) => {
+      const { rkey } = JSON.parse(call.body ?? '{}') as { rkey: string };
+      return { body: { uri: `at://${DID}/app.bsky.feed.post/${rkey}`, cid: `cid-${rkey}` } };
+    });
+  }
+
+  const records = (fake: FakeAtproto) =>
+    fake
+      .callsTo(/createRecord/)
+      .map(
+        (call) =>
+          JSON.parse(call.body ?? '{}') as { rkey: string; record: Record<string, unknown> },
+      );
+
+  it('chooses every part’s key before writing, and names root and parent on each reply', async () => {
+    const fake = threadAtproto();
+    const refs: Array<Record<string, unknown>> = [];
+
+    const result = await provider(fake).publish({
+      credential,
+      account: { externalId: DID },
+      draft: { body: longBody, media: [], thread: true },
+      media: [],
+      contentHash: 'h-1',
+      correlationId: 'c',
+      recordProviderRef: async (ref: Record<string, unknown>) => {
+        refs.push(structuredClone(ref));
+      },
+    } as never);
+
+    const written = records(fake);
+    expect(written.length).toBeGreaterThan(1);
+
+    // The keys were on record before the first write, in the order used.
+    const keys = refs[0]?.['rkeys'] as string[];
+    expect(keys).toEqual(written.map((w) => w.rkey));
+    expect(new Set(keys).size).toBe(keys.length);
+
+    const rootKey = keys[0] as string;
+    expect(written[0]?.record['reply']).toBeUndefined();
+    written.slice(1).forEach((w, index) => {
+      const parentKey = keys[index] as string;
+      expect(w.record['reply']).toEqual({
+        root: { uri: `at://${DID}/app.bsky.feed.post/${rootKey}`, cid: `cid-${rootKey}` },
+        parent: { uri: `at://${DID}/app.bsky.feed.post/${parentKey}`, cid: `cid-${parentKey}` },
+      });
+    });
+
+    expect(result.externalPostId).toBe(`at://${DID}/app.bsky.feed.post/${rootKey}`);
+    expect(result.providerMeta?.['threadPosts']).toBe(written.length);
+  });
+
+  it('adopts a part an earlier attempt wrote instead of writing it twice', async () => {
+    const first = threadAtproto();
+    const refs: Array<Record<string, unknown>> = [];
+    await provider(first).publish({
+      credential,
+      account: { externalId: DID },
+      draft: { body: longBody, media: [], thread: true },
+      media: [],
+      contentHash: 'h-1',
+      correlationId: 'c',
+      recordProviderRef: async (ref: Record<string, unknown>) => {
+        refs.push(structuredClone(ref));
+      },
+    } as never);
+
+    // Replay as if only the first post had been recorded, though two landed.
+    const full = refs.at(-1) as { rkeys: string[]; thread: { posted: unknown[] } };
+    const previousRef = {
+      ...full,
+      thread: { ...full.thread, posted: full.thread.posted.slice(0, 1) },
+    };
+    const secondKey = full.rkeys[1] as string;
+
+    const second = threadAtproto()
+      .on(/com\.atproto\.repo\.createRecord/, (call) => {
+        const { rkey } = JSON.parse(call.body ?? '{}') as { rkey: string };
+        return rkey === secondKey
+          ? { status: 400, body: { error: 'InvalidRequest', message: 'Record already exists' } }
+          : { body: { uri: `at://${DID}/app.bsky.feed.post/${rkey}`, cid: `cid-${rkey}` } };
+      })
+      .on(/com\.atproto\.repo\.getRecord/, {
+        body: { uri: `at://${DID}/app.bsky.feed.post/${secondKey}`, cid: `cid-${secondKey}` },
+      });
+
+    await provider(second).publish({
+      credential,
+      account: { externalId: DID },
+      draft: { body: longBody, media: [], thread: true },
+      media: [],
+      contentHash: 'h-1',
+      correlationId: 'c',
+      previousRef,
+    } as never);
+
+    const written = records(second);
+    // The first post was not attempted again; the second was adopted.
+    expect(written.map((w) => w.rkey)).toEqual(full.rkeys.slice(1));
+    expect(written[1]?.record['reply']).toMatchObject({
+      parent: { cid: `cid-${secondKey}` },
+    });
+  });
+
+  describe('reconciliation', () => {
+    const base = {
+      credential,
+      account: { externalId: DID },
+      contentHash: 'h-1',
+      body: longBody,
+      attemptedAt: new Date(NOW),
+      windowMs: 600_000,
+      correlationId: 'c',
+    };
+    const providerRef = {
+      rkey: 'k1',
+      rkeys: ['k1', 'k2', 'k3'],
+      thread: { fingerprint: 'f', total: 3, posted: [{ id: 'at://x/k1', ref: 'c1' }] },
+    };
+
+    it('reports the thread published once its last part exists', async () => {
+      api.on(/getRecord/, {
+        body: {
+          uri: `at://${DID}/app.bsky.feed.post/k3`,
+          value: { createdAt: new Date(NOW).toISOString() },
+        },
+      });
+      expect(await provider(api).reconcile({ ...base, providerRef })).toMatchObject({
+        outcome: 'FOUND',
+        externalPostId: `at://${DID}/app.bsky.feed.post/k1`,
+      });
+    });
+
+    it('lets a thread part-way out be retried, because every part is keyed', async () => {
+      api.on(/getRecord/, {
+        status: 400,
+        body: { error: 'RecordNotFound', message: 'Could not locate record' },
+      });
+      expect((await provider(api).reconcile({ ...base, providerRef })).outcome).toBe('NOT_FOUND');
+    });
+  });
+});

@@ -12,6 +12,7 @@ export {
   canEditPublished,
   composePublishedText,
   countCharacters,
+  threadPartsFor,
   weightedLength,
   errorsOnly,
   type DraftMedia,
@@ -20,6 +21,18 @@ export {
   type ValidationSeverity,
   type VariantDraft,
 } from './validation.js';
+
+export {
+  readThreadProgress,
+  splitIntoThread,
+  threadFingerprint,
+  threadMarker,
+  type Measure,
+  type ThreadLink,
+  type ThreadProgress,
+} from './thread.js';
+
+export { missingThreadScopes } from './thread-publish.js';
 
 export {
   ProviderErrorMap,

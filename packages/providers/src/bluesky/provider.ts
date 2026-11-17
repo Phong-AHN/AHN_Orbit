@@ -3,11 +3,19 @@ import { clock, matchesPublishedText, type Platform } from '@orbit/core';
 import { preflightRefusal, toAppError } from '../errors.js';
 import {
   composePublishedText,
+  threadPartsFor,
   validateDraft,
   type ValidationResult,
   type VariantDraft,
 } from '../validation.js';
 import type { PlatformCapabilities } from '../capabilities.js';
+import { readThreadProgress, threadFingerprint, type ThreadProgress } from '../thread.js';
+import {
+  assertThreadScopes,
+  continueThread,
+  threadChangedRefusal,
+  threadStateOf,
+} from '../thread-publish.js';
 import type {
   AccountHealth,
   AuthorizationUrlInput,
@@ -80,6 +88,11 @@ import {
 
 /** Refresh once the access token has less than this left. atproto's last ≤ 30 minutes. */
 const REFRESH_WINDOW_MS = 5 * 60 * 1000;
+/**
+ * No further part of a thread is started this long after publishing began,
+ * well inside the engine's 60-second budget (D-124).
+ */
+const THREAD_BUDGET_MS = 35_000;
 const POST_COLLECTION = 'app.bsky.feed.post';
 
 export interface BlueskyProviderOptions {
@@ -135,6 +148,7 @@ interface PostView {
 
 interface RecordView {
   uri?: string;
+  cid?: string;
   value?: { text?: string; createdAt?: string };
 }
 
@@ -428,6 +442,11 @@ export class BlueskyProvider implements SocialProvider {
 
     const session = readSession(ctx.credential);
     const dpopKey = keyFromPrivateJwk(session.dpop);
+
+    // A thread's parts come from the split the validator counted (D-124).
+    const parts = threadPartsFor(ctx.draft, this.capabilityCache);
+    if (parts.length > 1) return this.publishThread(ctx, session, dpopKey, parts);
+
     // The same composition the validator counted.
     const text = composePublishedText(ctx.draft);
     const facets = detectFacets(text);
@@ -502,6 +521,159 @@ export class BlueskyProvider implements SocialProvider {
     };
   }
 
+  /**
+   * A thread, written so that every part goes out exactly once (D-124).
+   *
+   * Every part's record key is chosen up front and recorded before the first
+   * write — the same idea as the single post's key, extended to the whole
+   * thread. A retry reuses the keys; a part an earlier attempt already wrote is
+   * refused for its key and adopted instead of written twice. That is why a
+   * thread here can always be retried, where X and Threads, which offer no such
+   * key, have to stop and ask a person.
+   *
+   * Each reply names the thread's first post as its root and the part before
+   * as its parent, by uri and content id, which is how Bluesky threads them.
+   */
+  private async publishThread(
+    ctx: PublishContext,
+    session: Session,
+    dpopKey: Es256Key,
+    parts: readonly string[],
+  ): Promise<PublishResult> {
+    assertThreadScopes('BLUESKY', 'Bluesky', this.capabilityCache, ctx.credential.scopes);
+    const startedAt = clock.nowMs();
+
+    const fingerprint = threadFingerprint(parts);
+    const previous = readThreadProgress(ctx.previousRef, fingerprint);
+    if (previous === 'CHANGED') throw threadChangedRefusal('BLUESKY', 'Bluesky');
+
+    const recordedKeys = ctx.previousRef?.['rkeys'];
+    const rkeys =
+      previous &&
+      Array.isArray(recordedKeys) &&
+      recordedKeys.length === parts.length &&
+      recordedKeys.every((key) => typeof key === 'string')
+        ? (recordedKeys as string[])
+        : parts.map((_, index) => newTid(clock.nowMs() + index));
+
+    let progress: ThreadProgress = previous ?? { fingerprint, total: parts.length, posted: [] };
+    let ref: Record<string, unknown> = {
+      rkey: rkeys[0],
+      contentHash: ctx.contentHash,
+      did: session.did,
+      rkeys,
+      thread: progress,
+    };
+    const save = async (patch: Record<string, unknown>) => {
+      ref = { ...ref, ...patch };
+      await ctx.recordProviderRef?.(ref);
+    };
+
+    let imageCount = 0;
+    if (progress.posted.length === 0) {
+      // Images first, as for a single post: an orphaned blob is collected.
+      const images = [];
+      for (const media of ctx.media) {
+        images.push({
+          image: await this.uploadImage(ctx, session, dpopKey, media),
+          alt: media.altText ?? '',
+          ...(media.width && media.height
+            ? { aspectRatio: { width: media.width, height: media.height } }
+            : {}),
+        });
+      }
+      imageCount = images.length;
+
+      // The keys, before anything is written.
+      await save({});
+
+      const text = parts[0] as string;
+      const facets = detectFacets(text);
+      const head = await this.createOrAdopt(ctx, session, dpopKey, rkeys[0] as string, {
+        $type: POST_COLLECTION,
+        text,
+        createdAt: clock.now().toISOString(),
+        ...(facets.length > 0 ? { facets } : {}),
+        ...(images.length > 0 ? { embed: { $type: 'app.bsky.embed.images', images } } : {}),
+      });
+
+      progress = { ...progress, posted: [{ id: head.uri, ref: head.cid }] };
+      await save({ thread: progress });
+    }
+
+    await continueThread({
+      platform: 'BLUESKY',
+      label: 'Bluesky',
+      parts,
+      progress,
+      deadlineMs: startedAt + THREAD_BUDGET_MS,
+      postReply: async ({ text, index, parent, root }) => {
+        const facets = detectFacets(text);
+        const created = await this.createOrAdopt(ctx, session, dpopKey, rkeys[index] as string, {
+          $type: POST_COLLECTION,
+          text,
+          createdAt: clock.now().toISOString(),
+          ...(facets.length > 0 ? { facets } : {}),
+          reply: {
+            root: { uri: root.id, cid: root.ref },
+            parent: { uri: parent.id, cid: parent.ref },
+          },
+        });
+        return { id: created.uri, ref: created.cid };
+      },
+      record: (next) => save({ thread: next }),
+    });
+
+    const headKey = rkeys[0] as string;
+    return {
+      externalPostId: `at://${session.did}/${POST_COLLECTION}/${headKey}`,
+      permalink: permalinkFor(session.did, headKey),
+      publishedAt: clock.now(),
+      providerMeta: { apiVersion: BLUESKY_API_VERSION, imageCount, threadPosts: parts.length },
+    };
+  }
+
+  /**
+   * Write a record under a key chosen in advance, or adopt the one an earlier
+   * attempt wrote there. Bluesky refuses a second record under the same key,
+   * so a refusal followed by finding the record is the answer, not a failure.
+   */
+  private async createOrAdopt(
+    ctx: PublishContext,
+    session: Session,
+    dpopKey: Es256Key,
+    rkey: string,
+    record: Record<string, unknown>,
+  ): Promise<{ uri: string; cid: string }> {
+    try {
+      const created = await this.http.xrpc<{ uri?: string; cid?: string }>({
+        pds: session.pds,
+        method: 'POST',
+        nsid: 'com.atproto.repo.createRecord',
+        accessToken: session.token,
+        dpopKey,
+        json: { repo: session.did, collection: POST_COLLECTION, rkey, record },
+        signal: ctx.signal,
+      });
+      if (!created.uri || !created.cid) {
+        throw toAppError('BLUESKY', {
+          kind: 'UNAVAILABLE',
+          message: 'Bluesky accepted the post but returned no uri or content id',
+        });
+      }
+      return { uri: created.uri, cid: created.cid };
+    } catch (error) {
+      const existing = await this.getRecord(session, rkey).catch(() => null);
+      if (existing?.cid) {
+        return {
+          uri: existing.uri ?? `at://${session.did}/${POST_COLLECTION}/${rkey}`,
+          cid: existing.cid,
+        };
+      }
+      throw error;
+    }
+  }
+
   private async uploadImage(
     ctx: PublishContext,
     session: Session,
@@ -549,6 +721,38 @@ export class BlueskyProvider implements SocialProvider {
       session = readSession(ctx.credential);
     } catch {
       return { outcome: 'INCONCLUSIVE', reason: 'The stored Bluesky session could not be read.' };
+    }
+
+    /**
+     * A thread (D-124): every part is keyed, so the last part existing means
+     * the thread is complete. Anything less is safe to retry — the retry adopts
+     * the parts that exist and writes the rest — so it is reported as not
+     * found rather than parked for a person.
+     */
+    const keys = ctx.providerRef?.['rkeys'];
+    if (
+      threadStateOf(ctx.providerRef) &&
+      Array.isArray(keys) &&
+      keys.length > 1 &&
+      keys.every((key) => typeof key === 'string')
+    ) {
+      try {
+        const last = await this.getRecord(session, keys[keys.length - 1] as string);
+        if (!last) return { outcome: 'NOT_FOUND' };
+        const headKey = keys[0] as string;
+        const head = await this.getRecord(session, headKey);
+        return {
+          outcome: 'FOUND',
+          externalPostId: `at://${session.did}/${POST_COLLECTION}/${headKey}`,
+          permalink: permalinkFor(session.did, headKey),
+          publishedAt: head?.value?.createdAt ? new Date(head.value.createdAt) : clock.now(),
+        };
+      } catch {
+        return {
+          outcome: 'INCONCLUSIVE',
+          reason: 'Bluesky could not be reached to confirm whether this thread went out.',
+        };
+      }
     }
 
     const rkey = ctx.providerRef?.['rkey'];

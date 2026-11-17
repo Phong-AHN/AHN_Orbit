@@ -1,5 +1,6 @@
 import type { MediaKind } from '@orbit/core';
 import type { MediaConstraint, PlatformCapabilities } from './capabilities.js';
+import { splitIntoThread } from './thread.js';
 
 /**
  * Capability-driven validation (SRS §9).
@@ -59,6 +60,13 @@ export interface VariantDraft {
   scheduledFor?: Date | undefined;
   /** Evaluated against `lifecycle.editOwnPostsOnly` when editing. */
   createdByThisApp?: boolean | undefined;
+  /**
+   * Publish text longer than one post as a thread rather than refuse it
+   * (**D-124**). Honoured only where `capabilities.thread.supported`; anywhere
+   * else it is an error, not something quietly ignored. Text that fits in one
+   * post is published as one post either way.
+   */
+  thread?: boolean | undefined;
   /**
    * Settings that exist on exactly one platform, kept opaque on purpose.
    *
@@ -132,6 +140,36 @@ export function composePublishedText(
   const link = draft.linkUrl && !body.includes(draft.linkUrl) ? draft.linkUrl : '';
 
   return [body, tags, link].filter((part) => part.length > 0).join('\n\n');
+}
+
+/**
+ * The posts a draft becomes, in order: one element unless it is a thread.
+ *
+ * What is split is the text as published — body, then hashtags, then the link
+ * where the platform writes it into the text — so the hashtags close the last
+ * post of a thread rather than being repeated on every one. A platform that
+ * sends the link separately (Threads' link card) attaches it to the first post.
+ *
+ * The validator counts these, the composer shows them and the adapter
+ * publishes them: the same function in all three places.
+ */
+export function threadPartsFor(
+  draft: Pick<VariantDraft, 'body' | 'hashtags' | 'linkUrl' | 'thread'>,
+  capabilities: PlatformCapabilities,
+): string[] {
+  if (draft.thread !== true || !capabilities.thread.supported) {
+    return [capabilities.text.composedText ? composePublishedText(draft) : draft.body];
+  }
+
+  const source = composePublishedText({
+    body: draft.body,
+    hashtags: draft.hashtags,
+    linkUrl: capabilities.text.composedText ? draft.linkUrl : null,
+  });
+
+  return splitIntoThread(source, capabilities.text.maxLength, (text) =>
+    countCharacters(text, capabilities),
+  );
 }
 
 /**
@@ -364,7 +402,48 @@ export function validateDraft(
   // are written into it rather than sent alongside.
   const published = capabilities.text.composedText ? composePublishedText(draft) : draft.body;
 
-  if (capabilities.text.supported) {
+  // A thread is checked post by post: each part against the limit and the
+  // link count, and the whole against the most posts one thread may be.
+  const threaded = draft.thread === true && capabilities.thread.supported;
+  const parts = threaded ? threadPartsFor(draft, capabilities) : [];
+
+  if (draft.thread === true && !capabilities.thread.supported) {
+    issues.push(
+      issue('ERROR', 'THREAD_UNSUPPORTED', 'thread', 'This platform cannot publish a thread.'),
+    );
+  }
+
+  if (capabilities.text.supported && threaded) {
+    const maxPosts = capabilities.thread.maxPosts ?? 1;
+    if (parts.length > maxPosts) {
+      issues.push(
+        issue(
+          'ERROR',
+          'THREAD_TOO_LONG',
+          'body',
+          `This would be a thread of ${parts.length} posts; the most is ${maxPosts}. Shorten the text.`,
+          { count: parts.length, maxPosts },
+        ),
+      );
+    }
+
+    // Cannot happen with a well-behaved split. Checked anyway, because the
+    // platform refusing part four of a live thread is far worse than this.
+    parts.forEach((part, index) => {
+      const count = countCharacters(part, capabilities);
+      if (count > capabilities.text.maxLength) {
+        issues.push(
+          issue(
+            'ERROR',
+            'TEXT_TOO_LONG',
+            'body',
+            `Post ${index + 1} of the thread is longer than the platform allows.`,
+            { count, maxLength: capabilities.text.maxLength, part: index + 1 },
+          ),
+        );
+      }
+    });
+  } else if (capabilities.text.supported) {
     const count = countCharacters(published, capabilities);
     if (count > capabilities.text.maxLength) {
       issues.push(
@@ -403,6 +482,22 @@ export function validateDraft(
     issues.push(
       issue('ERROR', 'LINK_UNSUPPORTED', 'linkUrl', 'Links are not supported on this platform.'),
     );
+  } else if (capabilities.link.supported && threaded) {
+    parts.forEach((part, index) => {
+      const separateLink = index === 0 && draft.linkUrl && !capabilities.text.composedText ? 1 : 0;
+      const count = (part.match(URL_PATTERN) ?? []).length + separateLink;
+      if (count > capabilities.link.maxCount) {
+        issues.push(
+          issue(
+            'ERROR',
+            'TOO_MANY_LINKS',
+            'linkUrl',
+            `Post ${index + 1} of the thread has more links than this platform allows.`,
+            { count, maxCount: capabilities.link.maxCount, part: index + 1 },
+          ),
+        );
+      }
+    });
   } else if (capabilities.link.supported && totalLinks > capabilities.link.maxCount) {
     issues.push(
       issue('ERROR', 'TOO_MANY_LINKS', 'linkUrl', 'This platform allows fewer links.', {

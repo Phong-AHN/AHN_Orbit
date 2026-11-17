@@ -1,7 +1,21 @@
 import { clock, matchesPublishedText, type Platform } from '@orbit/core';
 import { preflightRefusal, toAppError } from '../errors.js';
-import { validateDraft, type ValidationResult, type VariantDraft } from '../validation.js';
+import {
+  threadPartsFor,
+  validateDraft,
+  type ValidationResult,
+  type VariantDraft,
+} from '../validation.js';
 import type { PlatformCapabilities } from '../capabilities.js';
+import { readThreadProgress, threadFingerprint, type ThreadProgress } from '../thread.js';
+import {
+  assertThreadScopes,
+  continueThread,
+  partialThread,
+  threadChangedRefusal,
+  threadNotStarted,
+  threadStateOf,
+} from '../thread-publish.js';
 import type {
   AccountHealth,
   AuthorizationUrlInput,
@@ -29,6 +43,7 @@ import {
   THREADS_DEFAULT_SCOPES,
   THREADS_POST_METRICS,
   THREADS_PUBLISH_SCOPES,
+  THREADS_THREAD_SCOPES,
   threadsCapabilities,
 } from './capabilities.js';
 
@@ -77,6 +92,13 @@ const REFRESH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 /** How long publishing waits for a container, and how often it asks. */
 const CONTAINER_POLL_BUDGET_MS = 45_000;
 const CONTAINER_POLL_INTERVAL_MS = 5_000;
+/**
+ * A thread's further parts (D-124): none is started after the first of these,
+ * and none waits on its container past the second. Both well inside the
+ * engine's 60-second budget, so a part is never cut off part-way.
+ */
+const THREAD_BUDGET_MS = 35_000;
+const THREAD_WAIT_LIMIT_MS = 50_000;
 
 export interface ThreadsProviderOptions extends ThreadsClientOptions {
   /**
@@ -85,6 +107,13 @@ export interface ThreadsProviderOptions extends ThreadsClientOptions {
    */
   pollBudgetMs?: number | undefined;
   pollIntervalMs?: number | undefined;
+  /**
+   * Threads switched on (`THREADS_REPLIES_ENABLED`, D-124): the connect flow
+   * asks for `threads_manage_replies` and the descriptor claims threads. Off
+   * until the permission is on the Meta app — asking for one it has not been
+   * given fails the whole consent dialog.
+   */
+  threadReplies?: boolean | undefined;
 }
 
 interface TokenResponse {
@@ -137,7 +166,9 @@ export class ThreadsProvider implements SocialProvider {
 
   constructor(private readonly options: ThreadsProviderOptions) {
     this.client = new ThreadsClient(options);
-    this.capabilityCache = threadsCapabilities(options.apiVersion);
+    this.capabilityCache = threadsCapabilities(options.apiVersion, {
+      threadReplies: options.threadReplies,
+    });
   }
 
   capabilities(): PlatformCapabilities {
@@ -155,7 +186,7 @@ export class ThreadsProvider implements SocialProvider {
    * not on `facebook.com`. Scopes are comma-delimited here.
    */
   getAuthorizationUrl(input: AuthorizationUrlInput): { url: string; scopes: readonly string[] } {
-    const scopes = [...new Set([...THREADS_PUBLISH_SCOPES, ...(input.extraScopes ?? [])])];
+    const scopes = [...new Set([...this.requestedScopes(), ...(input.extraScopes ?? [])])];
 
     const url = new URL(THREADS_AUTHORIZE_URL);
     url.searchParams.set('client_id', this.client.appId);
@@ -224,6 +255,18 @@ export class ThreadsProvider implements SocialProvider {
     };
   }
 
+  /**
+   * What the consent dialog asks for. Threads' token responses do not say
+   * what was granted, so this is also what a new connection is recorded as
+   * holding — the dialog grants all of it or nothing.
+   */
+  private requestedScopes(): string[] {
+    return [
+      ...THREADS_PUBLISH_SCOPES,
+      ...(this.options.threadReplies ? THREADS_THREAD_SCOPES : []),
+    ];
+  }
+
   private async exchangeForLongLived(shortLivedToken: string): Promise<IssuedCredential> {
     const long = await this.client.request<TokenResponse>({
       path: '/access_token',
@@ -235,10 +278,10 @@ export class ThreadsProvider implements SocialProvider {
       },
     });
 
-    return this.toIssuedCredential(long);
+    return this.toIssuedCredential(long, this.requestedScopes());
   }
 
-  private toIssuedCredential(token: TokenResponse): IssuedCredential {
+  private toIssuedCredential(token: TokenResponse, scopes: readonly string[]): IssuedCredential {
     if (!token.access_token) {
       throw toAppError('THREADS', {
         kind: 'AUTHENTICATION',
@@ -263,7 +306,7 @@ export class ThreadsProvider implements SocialProvider {
        * until it was past saving.
        */
       ...(expiresAt ? { refreshableUntil: expiresAt } : {}),
-      scopes: [...THREADS_PUBLISH_SCOPES],
+      scopes: [...scopes],
     };
   }
 
@@ -297,7 +340,20 @@ export class ThreadsProvider implements SocialProvider {
         params: { grant_type: 'th_refresh_token', access_token: credential.accessToken },
       });
 
-      return { status: 'REFRESHED', credential: this.toIssuedCredential(refreshed) };
+      /**
+       * A refresh renews the token, not the grant: the reply scope is carried
+       * forward only where the connection already had it, so a refresh never
+       * claims a permission somebody was not asked for (D-124).
+       */
+      const carried = credential.scopes.filter((scope) =>
+        (THREADS_THREAD_SCOPES as readonly string[]).includes(scope),
+      );
+      return {
+        status: 'REFRESHED',
+        credential: this.toIssuedCredential(refreshed, [
+          ...new Set([...THREADS_PUBLISH_SCOPES, ...carried]),
+        ]),
+      };
     } catch (error) {
       const code = (error as { code?: string }).code;
       if (code === 'PROVIDER_AUTHENTICATION_ERROR' || code === 'PROVIDER_PERMISSION_ERROR') {
@@ -416,41 +472,129 @@ export class ThreadsProvider implements SocialProvider {
       throw toAppError('THREADS', preflightRefusal('THREADS', validation));
     }
 
-    const text = composeText(ctx.draft);
+    const startedAt = clock.nowMs();
     const userId = ctx.account.externalId;
 
-    /**
-     * Resume rather than restart.
-     *
-     * A container left transcoding on a previous attempt is still transcoding,
-     * and is minutes further along than a fresh one. Building a new container
-     * on every retry is why a long video could never publish: each attempt
-     * restarted the transcode and ran out of budget at exactly the same point.
-     *
-     * The recorded id is only reused when this content still matches — the hash
-     * is stamped alongside it — because a container built from an older draft
-     * would publish text nobody approved.
-     */
-    const resumable =
-      typeof ctx.previousRef?.['containerId'] === 'string' &&
-      ctx.previousRef['contentHash'] === ctx.contentHash
-        ? (ctx.previousRef['containerId'] as string)
-        : undefined;
+    // A thread's parts come from the split the validator counted (D-124).
+    const parts = threadPartsFor(ctx.draft, this.capabilityCache);
+    const threaded = parts.length > 1;
+    const text = threaded ? (parts[0] as string) : composeText(ctx.draft);
 
-    const containerId =
-      resumable ??
-      (ctx.media.length === 0
-        ? await this.createTextContainer(ctx, userId, text)
-        : ctx.media.length === 1
-          ? await this.createSingleContainer(ctx, userId, ctx.media[0]!, text)
-          : await this.createCarouselContainer(ctx, userId, ctx.media, text));
+    let progress: ThreadProgress | undefined;
+    if (threaded) {
+      assertThreadScopes('THREADS', 'Threads', this.capabilityCache, ctx.credential.scopes);
+      const fingerprint = threadFingerprint(parts);
+      const previous = readThreadProgress(ctx.previousRef, fingerprint);
+      if (previous === 'CHANGED') throw threadChangedRefusal('THREADS', 'Threads');
+      progress = previous ?? { fingerprint, total: parts.length, posted: [] };
+    }
 
-    // Before the wait and before the publish. If either is interrupted, this id
-    // is the only thing that can answer whether the post went out.
-    await ctx.recordProviderRef?.({ containerId, contentHash: ctx.contentHash });
+    // Written whole every time: the engine keeps only the latest write.
+    let ref: Record<string, unknown> = {};
+    const save = async (patch: Record<string, unknown>) => {
+      ref = { ...ref, ...patch };
+      await ctx.recordProviderRef?.(ref);
+    };
 
-    await this.awaitContainer(ctx, containerId);
+    let postId: string;
+    let containerId: string | undefined;
 
+    if (progress && progress.posted.length > 0) {
+      // The first post went out on an earlier attempt; only the rest is left.
+      ref = { ...ctx.previousRef };
+      postId = (progress.posted[0] as { id: string }).id;
+    } else {
+      /**
+       * Resume rather than restart.
+       *
+       * A container left transcoding on a previous attempt is still transcoding,
+       * and is minutes further along than a fresh one. Building a new container
+       * on every retry is why a long video could never publish: each attempt
+       * restarted the transcode and ran out of budget at exactly the same point.
+       *
+       * The recorded id is only reused when this content still matches — the hash
+       * is stamped alongside it, and a thread's split must match too — because a
+       * container built from an older draft would publish text nobody approved.
+       */
+      const sameShape = threaded
+        ? progress !== undefined && ctx.previousRef?.['thread'] !== undefined
+        : ctx.previousRef?.['thread'] === undefined;
+      const resumable =
+        sameShape &&
+        typeof ctx.previousRef?.['containerId'] === 'string' &&
+        ctx.previousRef['contentHash'] === ctx.contentHash
+          ? (ctx.previousRef['containerId'] as string)
+          : undefined;
+
+      containerId =
+        resumable ??
+        (ctx.media.length === 0
+          ? await this.createTextContainer(ctx, userId, text)
+          : ctx.media.length === 1
+            ? await this.createSingleContainer(ctx, userId, ctx.media[0]!, text)
+            : await this.createCarouselContainer(ctx, userId, ctx.media, text));
+
+      // Before the wait and before the publish. If either is interrupted, this id
+      // is the only thing that can answer whether the post went out.
+      await save({
+        containerId,
+        contentHash: ctx.contentHash,
+        ...(progress ? { thread: progress } : {}),
+      });
+
+      await this.awaitContainer(ctx, containerId);
+      postId = await this.publishContainer(ctx, userId, containerId);
+
+      if (progress) {
+        progress = { ...progress, posted: [{ id: postId }] };
+        await save({ thread: progress });
+      }
+    }
+
+    if (progress) {
+      await continueThread({
+        platform: 'THREADS',
+        label: 'Threads',
+        parts,
+        progress,
+        deadlineMs: startedAt + THREAD_BUDGET_MS,
+        postReply: async ({ text: part, parent }) => {
+          const reply = await this.container(ctx, userId, {
+            media_type: 'TEXT',
+            text: part,
+            reply_to_id: parent.id,
+          });
+          // Never waits past the point the engine would cut the call off:
+          // running out here is a plain retry, cut off would be "unknown".
+          await this.awaitContainer(
+            ctx,
+            reply,
+            Math.max(0, startedAt + THREAD_WAIT_LIMIT_MS - clock.nowMs()),
+          );
+          return { id: await this.publishContainer(ctx, userId, reply) };
+        },
+        record: (next) => save({ thread: next }),
+      });
+    }
+
+    return {
+      externalPostId: postId,
+      ...(await this.permalinkFor(postId, ctx.credential)),
+      publishedAt: clock.now(),
+      providerMeta: {
+        accountId: userId,
+        apiVersion: this.client.apiVersion,
+        ...(containerId ? { containerId } : {}),
+        ...(threaded ? { threadPosts: parts.length } : {}),
+      },
+    };
+  }
+
+  private async publishContainer(
+    ctx: PublishContext,
+    userId: string,
+    containerId: string,
+  ): Promise<string> {
     const published = await this.client.request<ContainerResponse>({
       path: `/${userId}/threads_publish`,
       method: 'POST',
@@ -466,17 +610,7 @@ export class ThreadsProvider implements SocialProvider {
         meta: { containerId },
       });
     }
-
-    return {
-      externalPostId: published.id,
-      ...(await this.permalinkFor(published.id, ctx.credential)),
-      publishedAt: clock.now(),
-      providerMeta: {
-        accountId: userId,
-        apiVersion: this.client.apiVersion,
-        containerId,
-      },
-    };
+    return published.id;
   }
 
   private async createTextContainer(
@@ -568,8 +702,13 @@ export class ThreadsProvider implements SocialProvider {
    * gave; running out of budget is neither, and raises a timeout the engine
    * reconciles rather than retries — retrying would publish twice.
    */
-  private async awaitContainer(ctx: PublishContext, containerId: string): Promise<void> {
-    const budgetMs = this.options.pollBudgetMs ?? CONTAINER_POLL_BUDGET_MS;
+  private async awaitContainer(
+    ctx: PublishContext,
+    containerId: string,
+    limitMs?: number,
+  ): Promise<void> {
+    const configured = this.options.pollBudgetMs ?? CONTAINER_POLL_BUDGET_MS;
+    const budgetMs = limitMs === undefined ? configured : Math.min(configured, limitMs);
     const intervalMs = this.options.pollIntervalMs ?? CONTAINER_POLL_INTERVAL_MS;
     const deadline = clock.nowMs() + budgetMs;
 
@@ -634,6 +773,23 @@ export class ThreadsProvider implements SocialProvider {
    * else's post, so it only runs when nothing better exists.
    */
   async reconcile(ctx: ReconcileContext): Promise<ReconcileResult> {
+    // A thread answers from what it recorded, part by part (D-124).
+    const thread = threadStateOf(ctx.providerRef);
+    if (thread?.state === 'COMPLETE') {
+      return {
+        outcome: 'FOUND',
+        externalPostId: thread.head.id,
+        ...(await this.permalinkFor(thread.head.id, ctx.credential)),
+        publishedAt: clock.now(),
+      };
+    }
+    if (thread?.state === 'PARTIAL') return partialThread(thread.posted, thread.total, 'Threads');
+
+    const single = await this.reconcileSingle(ctx);
+    return thread ? threadNotStarted(single, thread.total, 'Threads') : single;
+  }
+
+  private async reconcileSingle(ctx: ReconcileContext): Promise<ReconcileResult> {
     const containerId = ctx.providerRef?.['containerId'];
 
     if (typeof containerId === 'string' && containerId.length > 0) {

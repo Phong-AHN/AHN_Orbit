@@ -1,6 +1,13 @@
 import type { Platform, TenantContext } from '@orbit/core';
 import { withTenant } from '@orbit/db';
-import { capabilitiesFor, validateDraft, type ValidationResult } from '@orbit/providers';
+import {
+  capabilitiesFor,
+  missingThreadScopes,
+  threadPartsFor,
+  validateDraft,
+  type ValidationResult,
+  type VariantDraft,
+} from '@orbit/providers';
 import { ensureProvidersRegistered } from '@/server/providers';
 
 /**
@@ -22,6 +29,12 @@ export interface VariantValidation {
   accountName: string;
   platform: Platform;
   result: ValidationResult;
+  /**
+   * The posts this variant will publish as, when it is a thread of two or
+   * more (D-124). From the same split the adapter publishes, so the composer
+   * shows exactly what will go out rather than its own guess.
+   */
+  threadParts?: string[] | undefined;
 }
 
 export interface PostValidation {
@@ -87,7 +100,7 @@ export async function validatePost(ctx: TenantContext, postId: string): Promise<
             scheduledFor: true,
             socialAccountId: true,
             socialAccount: {
-              select: { displayName: true, accountType: true, status: true },
+              select: { displayName: true, accountType: true, status: true, scopes: true },
             },
             media: {
               orderBy: { position: 'asc' },
@@ -147,18 +160,25 @@ export async function validatePost(ctx: TenantContext, postId: string): Promise<
     const attachments = variant.media.length > 0 ? variant.media : post.media;
     const usable = attachments.filter((m) => m.mediaAsset.status === 'READY');
 
-    const result = validateDraft(capabilities, {
+    const options =
+      variant.platformOptions && typeof variant.platformOptions === 'object'
+        ? (variant.platformOptions as Record<string, unknown>)
+        : undefined;
+    // The one setting in `platformOptions` the shared engine reads (D-124):
+    // it changes how many posts the text becomes, which every layer must agree on.
+    const thread = options?.['thread'] === true;
+
+    const draft: VariantDraft = {
       // Variant overrides win; an unset override inherits the master copy.
       body: variant.body.length > 0 ? variant.body : post.body,
       linkUrl: variant.linkUrl,
       hashtags: variant.hashtags,
       firstComment: variant.firstComment,
       scheduledFor: variant.scheduledFor ?? post.scheduledFor ?? undefined,
+      ...(thread ? { thread: true } : {}),
       // Threaded through so the composer checks the same draft the worker will
       // publish. `validateDraft` ignores it; an adapter reads its own keys.
-      ...(variant.platformOptions && typeof variant.platformOptions === 'object'
-        ? { providerOptions: variant.platformOptions as Record<string, unknown> }
-        : {}),
+      ...(options ? { providerOptions: options } : {}),
       media: usable.map((m) => ({
         id: m.mediaAsset.id,
         kind: m.mediaAsset.kind,
@@ -171,7 +191,33 @@ export async function validatePost(ctx: TenantContext, postId: string): Promise<
         peakFrameRate: m.mediaAsset.peakFrameRate ?? undefined,
         altText: m.altText ?? undefined,
       })),
-    });
+    };
+
+    const result = validateDraft(capabilities, draft);
+
+    /**
+     * A thread on a connection that cannot reply (D-124). The capability layer
+     * describes the platform, not the connection, so this is checked here —
+     * and the adapter refuses again before posting anything, because a thread
+     * that stops after its first post is worse than one that never starts.
+     */
+    const missingForThread =
+      thread && capabilities.thread.supported
+        ? missingThreadScopes(capabilities, variant.socialAccount.scopes)
+        : [];
+    if (missingForThread.length > 0) {
+      result.issues.push({
+        severity: 'ERROR',
+        code: 'THREAD_NEEDS_RECONNECT',
+        field: 'thread',
+        message: `${variant.socialAccount.displayName} was connected before threads were switched on. Reconnect it to publish a thread, or turn off "Split into a thread".`,
+        meta: { missing: missingForThread.join(', ') },
+      });
+      result.valid = false;
+    }
+
+    const parts =
+      thread && capabilities.thread.supported ? threadPartsFor(draft, capabilities) : [];
 
     // An account that cannot publish is a blocker for this variant, and the
     // capability layer has no way to know it — it describes the platform, not
@@ -208,6 +254,7 @@ export async function validatePost(ctx: TenantContext, postId: string): Promise<
       accountName: variant.socialAccount.displayName,
       platform: variant.platform,
       result,
+      ...(parts.length > 1 ? { threadParts: parts } : {}),
     };
   });
 

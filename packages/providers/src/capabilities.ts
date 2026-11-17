@@ -137,6 +137,35 @@ export const platformCapabilitiesSchema = z.object({
 
   mentions: z.object({ supported: z.boolean() }),
 
+  /**
+   * Publishing text too long for one post as a thread: the first post, then
+   * each further part as a reply to the one before (**D-124**).
+   *
+   * Defaulted to "no", so every descriptor that predates threads parses as a
+   * platform that cannot do it. Only a platform whose replies are posts in
+   * their own right — shown under the first one, by the same account — may
+   * claim it; a comment under a Facebook post is not a thread.
+   */
+  thread: z
+    .object({
+      supported: z.boolean().default(false),
+      /**
+       * Most posts one thread may become. A product ceiling, not the
+       * platform's: every part is a post against the account's publishing
+       * limit, and a thread that long is rarely read to the end.
+       */
+      maxPosts: z.number().int().positive().optional(),
+      /**
+       * Scopes replying to one's own post needs, beyond publishing. Threads
+       * asks for `threads_manage_replies`; an account connected without it
+       * can still post, and is refused a thread before its first post goes
+       * out rather than after — a thread that stops at post one is worse than
+       * a refusal.
+       */
+      scopes: z.array(z.string()).readonly().default([]),
+    })
+    .default({}),
+
   /** Posting a first comment alongside the post (common hashtag strategy). */
   firstComment: z.object({
     supported: z.boolean(),
@@ -325,6 +354,14 @@ export function defineCapabilities(input: unknown): PlatformCapabilities {
     throw new Error(
       `${parsed.platform}: messaging.humanAgentWindowHours must be longer than replyWindowHours.`,
     );
+  }
+  if (parsed.thread.supported && (parsed.thread.maxPosts ?? 0) < 2) {
+    // A "thread" of one post is a post; claiming threads without a ceiling
+    // would let one draft spend an account's whole daily allowance.
+    throw new Error(`${parsed.platform}: thread.supported needs maxPosts of at least 2.`);
+  }
+  if (parsed.thread.supported && !parsed.text.supported) {
+    throw new Error(`${parsed.platform}: thread.supported is set on a platform without text.`);
   }
   if (parsed.lifecycle.editOwnPostsOnly && !parsed.lifecycle.edit) {
     throw new Error(`${parsed.platform}: editOwnPostsOnly set while editing is unsupported.`);

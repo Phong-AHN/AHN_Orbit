@@ -75,7 +75,26 @@ export type ThreadsContainerStatus = (typeof THREADS_CONTAINER_STATUS)[number];
  */
 export const THREADS_POST_METRICS = ['views', 'likes', 'replies', 'reposts', 'quotes'] as const;
 
-export function threadsCapabilities(apiVersion: string): PlatformCapabilities {
+/**
+ * Replying to one's own post — what a thread is made of (D-124).
+ *
+ * Verified: a container created with `reply_to_id` needs
+ * `threads_manage_replies`, which publishing alone does not. Requested only
+ * when threads are switched on, for the reason Meta's messaging permissions
+ * are (D-107): asking for a permission the app has not been given makes the
+ * whole consent dialog fail, publishing included.
+ */
+export const THREADS_THREAD_SCOPES = ['threads_manage_replies'] as const;
+
+export interface ThreadsCapabilityOptions {
+  /** Whether threads are switched on (`THREADS_REPLIES_ENABLED`). */
+  threadReplies?: boolean | undefined;
+}
+
+export function threadsCapabilities(
+  apiVersion: string,
+  options: ThreadsCapabilityOptions = {},
+): PlatformCapabilities {
   return defineCapabilities({
     platform: 'THREADS',
     accountType: null,
@@ -154,6 +173,15 @@ export function threadsCapabilities(apiVersion: string): PlatformCapabilities {
 
     /** No first-comment endpoint; a reply is a separate post with its own id. */
     firstComment: { supported: false },
+    /**
+     * Verified: a container created with `reply_to_id` publishes as a reply,
+     * which is how Threads chains a thread; replies have their own allowance
+     * of 1,000 a day. Ten is ours (D-124): every part is a container to
+     * build, wait for and publish. Off until `THREADS_REPLIES_ENABLED`.
+     */
+    thread: options.threadReplies
+      ? { supported: true, maxPosts: 10, scopes: [...THREADS_THREAD_SCOPES] }
+      : { supported: false },
 
     scheduling: {
       // Threads publishes when `threads_publish` is called. Orbit's queue is the

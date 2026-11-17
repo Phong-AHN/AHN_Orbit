@@ -145,8 +145,15 @@ export function xCapabilities(apiVersion: string): PlatformCapabilities {
     hashtags: { supported: true },
     /** A plain `@handle` in the text is a mention on X; nothing to look up. */
     mentions: { supported: true },
-    /** A reply to one's own post is a thread; not built. */
+    /** Not a first comment: a reply to one's own post is a thread, below. */
     firstComment: { supported: false },
+    /**
+     * Verified: `POST /2/tweets` with `reply.in_reply_to_tweet_id` posts a
+     * reply, and a chain of replies to one's own posts is how X shows a
+     * thread. Ten is ours (D-124): each part counts against the account's
+     * post limit, which on the lowest API tier is a few dozen a day.
+     */
+    thread: { supported: true, maxPosts: 10 },
 
     scheduling: { providerSide: false },
 

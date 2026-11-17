@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { fixedClock, setClock } from '@orbit/core';
 import { ThreadsProvider } from './provider.js';
 import type { FetchLike } from './client.js';
 
@@ -555,5 +556,159 @@ describe('insights permission', () => {
     if (capabilities.analytics.post) {
       expect(scopes).toContain('threads_manage_insights');
     }
+  });
+});
+
+describe('threads (D-124)', () => {
+  const longBody = Array.from(
+    { length: 24 },
+    (_, i) => `Sentence number ${i + 1} says something useful about the product.`,
+  ).join(' ');
+
+  const replyCredential = {
+    ...credential,
+    scopes: ['threads_basic', 'threads_content_publish', 'threads_manage_replies'],
+  };
+
+  function threadApi(): FakeThreads {
+    let published = 0;
+    return happyApi()
+      .on(/\/th-user-1\/threads_publish/, () => {
+        published += 1;
+        return { body: { id: `post-${published}` } };
+      })
+      .on(/\/post-\d+/, { body: { permalink: 'https://threads.net/@a/post/1' } });
+  }
+
+  it('is off, and asks for no reply permission, until it is switched on', () => {
+    const off = provider(api);
+    expect(off.capabilities().thread.supported).toBe(false);
+    expect(
+      off.getAuthorizationUrl({ redirectUri: 'https://app.test/cb', state: 's' }).scopes,
+    ).not.toContain('threads_manage_replies');
+
+    const on = provider(api, { threadReplies: true });
+    expect(on.capabilities().thread).toMatchObject({
+      supported: true,
+      maxPosts: 10,
+      scopes: ['threads_manage_replies'],
+    });
+    expect(
+      on.getAuthorizationUrl({ redirectUri: 'https://app.test/cb', state: 's' }).scopes,
+    ).toContain('threads_manage_replies');
+  });
+
+  it('posts each further part as a text reply to the one before', async () => {
+    const fake = threadApi();
+    const result = await provider(fake, { threadReplies: true }).publish(
+      publishContext({
+        credential: replyCredential,
+        draft: { body: longBody, hashtags: [], mentions: [], media: [], thread: true },
+      }),
+    );
+
+    const containers = fake.calls.filter(
+      (call) => call.method === 'POST' && /\/th-user-1\/threads(\?|$)/.test(call.url),
+    );
+    expect(containers.length).toBeGreaterThan(1);
+
+    const forms = containers.map((call) => new URLSearchParams(call.body ?? ''));
+    expect(forms[0]?.get('reply_to_id')).toBeNull();
+    forms.slice(1).forEach((form, index) => {
+      expect(form.get('media_type')).toBe('TEXT');
+      expect(form.get('reply_to_id')).toBe(`post-${index + 1}`);
+    });
+    forms.forEach((form, index) => {
+      expect(form.get('text')?.endsWith(` ${index + 1}/${forms.length}`)).toBe(true);
+    });
+
+    expect(result.externalPostId).toBe('post-1');
+    expect(result.providerMeta?.['threadPosts']).toBe(forms.length);
+  });
+
+  it('refuses before posting anything when the connection cannot reply', async () => {
+    const fake = threadApi();
+    const error = await provider(fake, { threadReplies: true })
+      .publish(
+        publishContext({
+          credential, // connected before threads were switched on
+          draft: { body: longBody, hashtags: [], mentions: [], media: [], thread: true },
+        }),
+      )
+      .catch((caught: { code?: string; userMessage?: string }) => caught);
+
+    expect(error.code).toBe('PROVIDER_VALIDATION_ERROR');
+    expect(error.userMessage).toMatch(/Reconnect it/);
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  it('stops waiting on a reply container before the engine would cut the call off', async () => {
+    const ticking = fixedClock(Date.UTC(2026, 10, 17, 9, 0, 0));
+    const restore = setClock(ticking);
+    try {
+      const fake = threadApi()
+        // Every container after the first stays in progress, ten seconds a look.
+        .on(/\/container-([2-9]|\d\d)/, () => {
+          ticking.advance(10_000);
+          return { body: { status: 'IN_PROGRESS' } };
+        });
+
+      const error = await provider(fake, { threadReplies: true, pollBudgetMs: 60_000 })
+        .publish(
+          publishContext({
+            credential: replyCredential,
+            draft: { body: longBody, hashtags: [], mentions: [], media: [], thread: true },
+          }),
+        )
+        .catch((caught: { code?: string; retryable?: boolean; userMessage?: string }) => caught);
+
+      // Not "unknown": nothing was published past the first post, and a retry resumes.
+      expect(error.code).toBe('PROVIDER_UNAVAILABLE');
+      expect(error.retryable).toBe(true);
+      expect(error.userMessage).toMatch(/^1 of \d+ posts in this thread are live on Threads/);
+      expect(fake.called(/threads_publish/)).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it('keeps the reply permission across a refresh only where the connection had it', async () => {
+    const fake = new FakeThreads().on(/\/refresh_access_token/, {
+      body: { access_token: 'th.renewed', expires_in: 5_184_000 },
+    });
+    const soon = new Date(Date.now() + 60 * 60 * 1000);
+
+    const kept = await provider(fake, { threadReplies: true }).refreshCredential({
+      ...replyCredential,
+      expiresAt: soon,
+    });
+    const notGranted = await provider(fake, { threadReplies: true }).refreshCredential({
+      ...credential,
+      expiresAt: soon,
+    });
+
+    expect(kept.status === 'REFRESHED' && kept.credential.scopes).toContain(
+      'threads_manage_replies',
+    );
+    expect(notGranted.status === 'REFRESHED' && notGranted.credential.scopes).not.toContain(
+      'threads_manage_replies',
+    );
+  });
+
+  it('parks a thread found part-way out', async () => {
+    const result = await provider(api, { threadReplies: true }).reconcile({
+      credential: replyCredential,
+      account: { externalId: 'th-user-1' },
+      contentHash: 'hash-1',
+      body: longBody,
+      providerRef: {
+        containerId: 'container-1',
+        thread: { fingerprint: 'f', total: 3, posted: [{ id: 'post-1' }] },
+      },
+      attemptedAt: new Date(),
+      windowMs: 600_000,
+      correlationId: 'corr-1',
+    });
+    expect(result.outcome).toBe('INCONCLUSIVE');
   });
 });

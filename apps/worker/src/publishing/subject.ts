@@ -211,6 +211,14 @@ export async function loadPublishSubject(
     linkUrl: variant.linkUrl,
     hashtags: variant.hashtags,
     firstComment: variant.firstComment,
+    // The one stored setting the shared engine reads (D-124): whether a long
+    // text goes out as a thread. Read here exactly as the web validator reads
+    // it, so what was checked and what is published split the same way.
+    ...(variant.platformOptions &&
+    typeof variant.platformOptions === 'object' &&
+    (variant.platformOptions as Record<string, unknown>)['thread'] === true
+      ? { thread: true }
+      : {}),
     // Settings that exist on one platform only — TikTok's privacy level and
     // post mode are the first. Opaque here on purpose: only the adapter that
     // wrote the keys reads them, and `validateDraft` never looks at all.

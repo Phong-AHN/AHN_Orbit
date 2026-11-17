@@ -99,6 +99,12 @@ export function blueskyCapabilities(apiVersion: string): PlatformCapabilities {
      */
     mentions: { supported: false },
     firstComment: { supported: false },
+    /**
+     * Verified: `app.bsky.feed.post#reply` names the thread's root and the
+     * post replied to, each by uri and cid. Ten is ours (D-124), matching X
+     * and Threads so a thread composed for all three splits alike in length.
+     */
+    thread: { supported: true, maxPosts: 10 },
 
     scheduling: { providerSide: false },
 

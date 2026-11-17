@@ -3,11 +3,21 @@ import { clock, matchesPublishedText, type Platform } from '@orbit/core';
 import { preflightRefusal, toAppError } from '../errors.js';
 import {
   composePublishedText,
+  threadPartsFor,
   validateDraft,
   type ValidationResult,
   type VariantDraft,
 } from '../validation.js';
 import type { PlatformCapabilities } from '../capabilities.js';
+import { readThreadProgress, threadFingerprint, type ThreadProgress } from '../thread.js';
+import {
+  assertThreadScopes,
+  continueThread,
+  partialThread,
+  threadChangedRefusal,
+  threadNotStarted,
+  threadStateOf,
+} from '../thread-publish.js';
 import type {
   AccountHealth,
   AuthorizationUrlInput,
@@ -71,6 +81,12 @@ const MEDIA_POLL_BUDGET_MS = 45_000;
 const MEDIA_POLL_INTERVAL_MS = 2_000;
 /** Do not reuse a recorded media id this close to its expiry. */
 const MEDIA_REUSE_MARGIN_MS = 10 * 60 * 1000;
+/**
+ * No further part of a thread is started this long after publishing began.
+ * Well inside the engine's 60-second budget, so a part is never cut off in
+ * flight; the rest follows on the retry (D-124).
+ */
+const THREAD_BUDGET_MS = 35_000;
 
 export interface XProviderOptions extends XClientOptions {
   /**
@@ -347,34 +363,106 @@ export class XProvider implements SocialProvider {
       throw toAppError('X', preflightRefusal('X', validation));
     }
 
+    const startedAt = clock.nowMs();
+
     // The same composition the validator counted, so the composer's count and
-    // X's verdict cannot disagree.
-    const text = composePublishedText(ctx.draft);
+    // X's verdict cannot disagree. A thread's parts come from the same split.
+    const parts = threadPartsFor(ctx.draft, this.capabilityCache);
+    const threaded = parts.length > 1;
+    const text = threaded ? (parts[0] as string) : composePublishedText(ctx.draft);
+
+    let progress: ThreadProgress | undefined;
+    if (threaded) {
+      assertThreadScopes('X', 'X', this.capabilityCache, ctx.credential.scopes);
+      const fingerprint = threadFingerprint(parts);
+      const previous = readThreadProgress(ctx.previousRef, fingerprint);
+      if (previous === 'CHANGED') throw threadChangedRefusal('X', 'X');
+      progress = previous ?? { fingerprint, total: parts.length, posted: [] };
+    }
 
     /**
-     * Media first, post second: an uploaded file with no post is invisible and
-     * expires on its own, while a post created first and then failed on media
-     * would be public and wrong.
+     * Everything this attempt has recorded, written whole every time: the
+     * engine replaces the stored ref on each write, so a write that left out
+     * the media or the text would lose what reconciliation reads.
      */
-    const prepared = ctx.media.length > 0 ? await this.prepareMedia(ctx) : undefined;
-    const mediaIds = prepared?.mediaIds ?? [];
+    let ref: Record<string, unknown> = {};
+    const save = async (patch: Record<string, unknown>) => {
+      ref = { ...ref, ...patch };
+      await ctx.recordProviderRef?.(ref);
+    };
 
-    // Before the call whose outcome can be lost: reconciliation matches on the
-    // text actually sent — hashtags and link included — not on the body alone,
-    // which a short post shares with too little of what X published.
-    await ctx.recordProviderRef?.({
-      ...(prepared ?? { contentHash: ctx.contentHash }),
-      publishedText: withoutLinks(text),
-    });
+    let id: string;
+    let mediaCount = ctx.media.length;
 
+    if (progress && progress.posted.length > 0) {
+      // The first post went out on an earlier attempt; only the rest is left.
+      ref = { ...ctx.previousRef };
+      id = (progress.posted[0] as { id: string }).id;
+    } else {
+      /**
+       * Media first, post second: an uploaded file with no post is invisible and
+       * expires on its own, while a post created first and then failed on media
+       * would be public and wrong.
+       */
+      const prepared = ctx.media.length > 0 ? await this.prepareMedia(ctx) : undefined;
+      const mediaIds = prepared?.mediaIds ?? [];
+      mediaCount = mediaIds.length;
+
+      // Before the call whose outcome can be lost: reconciliation matches on the
+      // text actually sent — hashtags and link included — not on the body alone,
+      // which a short post shares with too little of what X published.
+      await save({
+        ...(prepared ?? { contentHash: ctx.contentHash }),
+        publishedText: withoutLinks(text),
+        ...(progress ? { thread: progress } : {}),
+      });
+
+      id = await this.createPost(ctx, {
+        ...(text ? { text } : {}),
+        ...(mediaIds.length > 0 ? { media: { media_ids: mediaIds } } : {}),
+      });
+
+      if (progress) {
+        progress = { ...progress, posted: [{ id }] };
+        await save({ thread: progress });
+      }
+    }
+
+    if (progress) {
+      await continueThread({
+        platform: 'X',
+        label: 'X',
+        parts,
+        progress,
+        deadlineMs: startedAt + THREAD_BUDGET_MS,
+        postReply: async ({ text: part, parent }) => ({
+          id: await this.createPost(ctx, {
+            text: part,
+            reply: { in_reply_to_tweet_id: parent.id },
+          }),
+        }),
+        record: (next) => save({ thread: next }),
+      });
+    }
+
+    return {
+      externalPostId: id,
+      permalink: permalinkFor(id),
+      publishedAt: clock.now(),
+      providerMeta: {
+        apiVersion: X_API_VERSION,
+        mediaCount,
+        ...(threaded ? { threadPosts: parts.length } : {}),
+      },
+    };
+  }
+
+  private async createPost(ctx: PublishContext, json: Record<string, unknown>): Promise<string> {
     const created = await this.client.request<{ data?: { id?: string; text?: string } }>({
       path: '/2/tweets',
       method: 'POST',
       accessToken: ctx.credential.accessToken,
-      json: {
-        ...(text ? { text } : {}),
-        ...(mediaIds.length > 0 ? { media: { media_ids: mediaIds } } : {}),
-      },
+      json,
       ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
 
@@ -385,13 +473,7 @@ export class XProvider implements SocialProvider {
         message: 'X accepted the post but returned no id',
       });
     }
-
-    return {
-      externalPostId: id,
-      permalink: permalinkFor(id),
-      publishedAt: clock.now(),
-      providerMeta: { apiVersion: X_API_VERSION, mediaCount: mediaIds.length },
-    };
+    return id;
   }
 
   /**
@@ -580,6 +662,23 @@ export class XProvider implements SocialProvider {
    * the published text never equals what was sent.
    */
   async reconcile(ctx: ReconcileContext): Promise<ReconcileResult> {
+    // A thread answers from what it recorded, part by part (D-124).
+    const thread = threadStateOf(ctx.providerRef);
+    if (thread?.state === 'COMPLETE') {
+      return {
+        outcome: 'FOUND',
+        externalPostId: thread.head.id,
+        permalink: permalinkFor(thread.head.id),
+        publishedAt: clock.now(),
+      };
+    }
+    if (thread?.state === 'PARTIAL') return partialThread(thread.posted, thread.total, 'X');
+
+    const single = await this.reconcileSingle(ctx);
+    return thread ? threadNotStarted(single, thread.total, 'X') : single;
+  }
+
+  private async reconcileSingle(ctx: ReconcileContext): Promise<ReconcileResult> {
     const from = new Date(ctx.attemptedAt.getTime() - ctx.windowMs);
 
     let recent;
