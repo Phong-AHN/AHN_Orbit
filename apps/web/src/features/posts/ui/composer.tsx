@@ -759,18 +759,19 @@ function VariantEditor({
 
   // On by default (D-124): unticked only when somebody switched it off.
   const threadOn = (active.platformOptions ?? {})['thread'] !== false;
+  const numberingOn = (active.platformOptions ?? {})['threadNumbering'] !== false;
   const threadParts = threadOn
     ? validation?.variants.find((v) => v.variantId === active.id)?.threadParts
     : undefined;
 
   /** Saved at once, like the platform settings: it changes what the checks say. */
-  async function saveThread(next: boolean) {
+  async function saveThread(next: { thread?: boolean; threadNumbering?: boolean }) {
     if (!active) return;
     setThreadSaving(true);
     setError(null);
     try {
       const { variant } = await api.updateVariant(post.id, active.id, {
-        platformOptions: { thread: next },
+        platformOptions: next,
       });
       onSaved(variant);
     } catch (e) {
@@ -897,19 +898,43 @@ function VariantEditor({
                 checked={threadOn}
                 disabled={readOnly || threadSaving}
                 onChange={(event) => {
-                  void saveThread(event.target.checked);
+                  void saveThread({ thread: event.target.checked });
                 }}
                 className="mt-0.5 size-4 rounded border-line focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
               />
               <span>
                 Split into a thread when the text is too long
                 <span className="block text-xs text-ink-muted">
-                  Each post ends with its place (1/3, 2/3…). Images go on the first post; each later
-                  post replies to the one before
+                  Breaks only where a sentence ends. Images go on the first post; each later post
+                  replies to the one before
                   {cap.maxThreadPosts ? `, up to ${cap.maxThreadPosts} posts` : ''}.
                 </span>
               </span>
             </label>
+
+            {threadOn ? (
+              <label
+                htmlFor={`variant-thread-numbering-${active.id}`}
+                className="ml-6 flex items-start gap-2 text-sm text-ink"
+              >
+                <input
+                  id={`variant-thread-numbering-${active.id}`}
+                  type="checkbox"
+                  checked={numberingOn}
+                  disabled={readOnly || threadSaving}
+                  onChange={(event) => {
+                    void saveThread({ threadNumbering: event.target.checked });
+                  }}
+                  className="mt-0.5 size-4 rounded border-line focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+                />
+                <span>
+                  Number the posts (1/3, 2/3…)
+                  <span className="block text-xs text-ink-muted">
+                    Added at the end of each post and counted in its length.
+                  </span>
+                </span>
+              </label>
+            ) : null}
 
             {threadParts ? (
               <div className="rounded-lg border border-line bg-surface-sunken p-3">

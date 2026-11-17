@@ -3,6 +3,7 @@ import { withTenant } from '@orbit/db';
 import {
   capabilitiesFor,
   missingThreadScopes,
+  threadNumbered,
   threadPartsFor,
   threadRequested,
   validateDraft,
@@ -178,6 +179,7 @@ export async function validatePost(ctx: TenantContext, postId: string): Promise<
       firstComment: variant.firstComment,
       scheduledFor: variant.scheduledFor ?? post.scheduledFor ?? undefined,
       ...(thread ? { thread: true } : {}),
+      ...(thread && !threadNumbered(options) ? { threadNumbering: false } : {}),
       // Threaded through so the composer checks the same draft the worker will
       // publish. `validateDraft` ignores it; an adapter reads its own keys.
       ...(options ? { providerOptions: options } : {}),

@@ -16,9 +16,10 @@
  * the last space that fits. A run with no space in it (a long link, Chinese or
  * Japanese text) is cut inside, after a full stop where there is one.
  *
- * Every part of a thread ends with its place, " 2/5", which is counted
- * against the limit like any other text. Text that fits in one post is
- * returned as it is, unnumbered.
+ * Every part of a thread ends with its place, " 2/5", counted against the
+ * limit like any other text — unless numbering is switched off for the
+ * account, when the parts carry the text alone and use the whole limit. Text
+ * that fits in one post is returned as it is, unnumbered either way.
  */
 
 /** Counts text the way the platform does. */
@@ -62,6 +63,19 @@ export function threadRequested(
   return capabilities.thread.supported && platformOptions?.['thread'] !== false;
 }
 
+/**
+ * Whether a thread's posts end with their place (" 2/5").
+ *
+ * On by default; off only when somebody switched it off for the account
+ * (`platformOptions.threadNumbering === false`). Read the same way by the web
+ * validator and the worker, because it changes where the text breaks.
+ */
+export function threadNumbered(
+  platformOptions: Record<string, unknown> | null | undefined,
+): boolean {
+  return platformOptions?.['threadNumbering'] !== false;
+}
+
 /** The place marker appended to every part of a thread. */
 export function threadMarker(index: number, total: number): string {
   return ` ${index}/${total}`;
@@ -73,9 +87,16 @@ export function threadMarker(index: number, total: number): string {
  * Returns one element when the text fits. Whitespace inside a part is kept as
  * written; whitespace at a break is dropped, so no part starts or ends blank.
  */
-export function splitIntoThread(text: string, maxLength: number, measure: Measure): string[] {
+export function splitIntoThread(
+  text: string,
+  maxLength: number,
+  measure: Measure,
+  options: { numbered?: boolean | undefined } = {},
+): string[] {
   const clean = text.trim();
   if (clean.length === 0 || measure(clean) <= maxLength) return [clean];
+
+  if (options.numbered === false) return pack(clean, maxLength, measure);
 
   // The marker's width depends on how many parts there turn out to be, which
   // depends on the marker's width. Assume one digit, then two, then three.

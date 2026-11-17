@@ -92,6 +92,8 @@ const platformOptions = z
      * thread, not ignored.
      */
     thread: z.boolean().optional(),
+    /** End each post of a thread with its place (" 2/5"). On unless false. */
+    threadNumbering: z.boolean().optional(),
   })
   .strict();
 

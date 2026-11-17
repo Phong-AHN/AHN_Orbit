@@ -4,6 +4,7 @@ import {
   readThreadProgress,
   splitIntoThread,
   threadFingerprint,
+  threadNumbered,
   threadRequested,
 } from './thread.js';
 import { countCharacters, threadPartsFor, validateDraft, weightedLength } from './validation.js';
@@ -179,6 +180,41 @@ describe('threadPartsFor', () => {
     expect(threadPartsFor({ body, thread: true }, facebookPageCapabilities('v25.0'))).toHaveLength(
       1,
     );
+  });
+});
+
+describe('numbering (1/3, 2/3…)', () => {
+  const text = Array.from({ length: 20 }, (_, i) => sentence(i + 1)).join(' ');
+
+  it('is on by default, and off only when switched off', () => {
+    expect(threadNumbered(undefined)).toBe(true);
+    expect(threadNumbered({})).toBe(true);
+    expect(threadNumbered({ threadNumbering: true })).toBe(true);
+    expect(threadNumbered({ threadNumbering: false })).toBe(false);
+  });
+
+  it('leaves the marker off when numbering is off, and uses the whole limit', () => {
+    const numbered = splitIntoThread(text, 280, plain);
+    const bare = splitIntoThread(text, 280, plain, { numbered: false });
+
+    expect(bare.length).toBeGreaterThan(1);
+    for (const part of bare) {
+      expect(part).not.toMatch(/ \d+\/\d+$/);
+      expect(plain(part)).toBeLessThanOrEqual(280);
+      expect(part).toMatch(/[.!?…]$/);
+    }
+    // Nothing is lost or added: the same words, in the same order.
+    expect(bare.join(' ').split(/\s+/)).toEqual(text.split(/\s+/));
+    expect(bare.length).toBeLessThanOrEqual(numbered.length);
+  });
+
+  it('follows the draft, so the validator and the adapter split alike', () => {
+    const on = threadPartsFor({ body: text, thread: true }, x);
+    const off = threadPartsFor({ body: text, thread: true, threadNumbering: false }, x);
+
+    expect(on.every((part, index) => part.endsWith(` ${index + 1}/${on.length}`))).toBe(true);
+    expect(off.some((part) => / \d+\/\d+$/.test(part))).toBe(false);
+    expect(validateDraft(x, { body: text, thread: true, threadNumbering: false }).valid).toBe(true);
   });
 });
 

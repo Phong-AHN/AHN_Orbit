@@ -5053,8 +5053,12 @@ breaks.
   cut inside, after a full stop where there is one. (The first version also
   broke mid-sentence to avoid a half-empty post; the owner asked for whole
   sentences instead, 2026-11-17.)
-- Every part ends with its place (` 2/5`), counted against the limit. Text that
-  fits in one post goes out as one post, unnumbered, setting on or not.
+- Every part ends with its place (` 2/5`), counted against the limit — **a
+  second per-account box, on by default** (`platformOptions.threadNumbering:
+  false` turns it off, 2026-11-17). Off, the parts carry the text alone and
+  use the whole limit. Text that fits in one post goes out as one post,
+  unnumbered, either way. `threadNumbered` decides, for the validator and the
+  worker alike, since it changes where the text breaks.
 - Counting is per platform: X's weights (Vietnamese letters such as "ệ" count
   2), Bluesky's graphemes, a link on X billed at 23. Every rule is additive
   across a space, which is what lets the split measure word by word.

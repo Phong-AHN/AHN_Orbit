@@ -68,6 +68,12 @@ export interface VariantDraft {
    */
   thread?: boolean | undefined;
   /**
+   * End each post of a thread with its place (" 2/5"). On unless `false`.
+   * Changes where the text breaks, so the validator, the composer and the
+   * adapter all read it from the draft.
+   */
+  threadNumbering?: boolean | undefined;
+  /**
    * Settings that exist on exactly one platform, kept opaque on purpose.
    *
    * TikTok's `privacy_level`, `disable_duet` and post mode are the motivating
@@ -171,7 +177,7 @@ export function publishedTextFor(
  * publishes them: the same function in all three places.
  */
 export function threadPartsFor(
-  draft: Pick<VariantDraft, 'body' | 'hashtags' | 'linkUrl' | 'thread'>,
+  draft: Pick<VariantDraft, 'body' | 'hashtags' | 'linkUrl' | 'thread' | 'threadNumbering'>,
   capabilities: PlatformCapabilities,
 ): string[] {
   if (draft.thread !== true || !capabilities.thread.supported) {
@@ -184,8 +190,11 @@ export function threadPartsFor(
     linkUrl: capabilities.text.composedText ? draft.linkUrl : null,
   });
 
-  return splitIntoThread(source, capabilities.text.maxLength, (text) =>
-    countCharacters(text, capabilities),
+  return splitIntoThread(
+    source,
+    capabilities.text.maxLength,
+    (text) => countCharacters(text, capabilities),
+    { numbered: draft.threadNumbering !== false },
   );
 }
 

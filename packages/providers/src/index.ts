@@ -29,6 +29,7 @@ export {
   splitIntoThread,
   threadFingerprint,
   threadMarker,
+  threadNumbered,
   threadRequested,
   type Measure,
   type ThreadLink,

@@ -516,6 +516,7 @@ Cách đọc:
   - Ô "Split into a thread" **tick sẵn** cho X, Bluesky (và Threads khi đã bật). Chữ vượt giới hạn tự chia; bỏ tick thì chặn như trước. Bài ngắn không bị ảnh hưởng. Tài khoản Threads chưa có quyền trả lời chỉ bị chặn khi bài thực sự phải chia.
   - **Threads vẫn chưa có ô này** vì cờ `THREADS_REPLIES_ENABLED` đang tắt (cần quyền `threads_manage_replies`; xem OWNER-TODO).
   - **TikTok:** "Post it" vốn đã là mặc định. Không chọn sẵn Public và không tick sẵn Comment/Duet/Stitch: quy định UX bắt buộc của TikTok cấm cả hai, và app đang trong đợt TikTok duyệt (D-126).
+- **Đánh số `1/3, 2/3…` thành tùy chọn bật/tắt.** Dưới ô "Split into a thread" có thêm ô **Number the posts (1/3, 2/3…)**, tick sẵn. Bỏ tick thì các bài trong thread không có số và dùng trọn giới hạn ký tự. Lưu theo từng tài khoản (`platformOptions.threadNumbering`); bước kiểm tra, composer và worker cùng đọc một chỗ nên chia giống nhau. Kiểm tra: typecheck, lint, toàn bộ unit test đạt (3 test mới).
 
 ---
 

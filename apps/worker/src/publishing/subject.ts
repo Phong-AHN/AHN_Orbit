@@ -12,6 +12,7 @@ import { ensureConvertedImage, presignDownload } from '@orbit/storage';
 import {
   capabilitiesFor,
   isConvertibleImageFormat,
+  threadNumbered,
   threadRequested,
   type DecryptedCredential,
   type PublishMedia,
@@ -271,7 +272,16 @@ export async function loadPublishSubject(
         : undefined,
       capabilities,
     )
-      ? { thread: true }
+      ? {
+          thread: true,
+          ...(threadNumbered(
+            variant.platformOptions && typeof variant.platformOptions === 'object'
+              ? (variant.platformOptions as Record<string, unknown>)
+              : undefined,
+          )
+            ? {}
+            : { threadNumbering: false }),
+        }
       : {}),
     // Settings that exist on one platform only — TikTok's privacy level and
     // post mode are the first. Opaque here on purpose: only the adapter that
