@@ -9,6 +9,7 @@ export {
 
 export {
   validateDraft,
+  isConvertibleImageFormat,
   canEditPublished,
   composePublishedText,
   countCharacters,

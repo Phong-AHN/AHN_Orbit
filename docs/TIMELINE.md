@@ -495,6 +495,11 @@ Cách đọc:
   - **Không đăng trùng:** mỗi phần được ghi lại ngay khi lên. Lỗi giữa chừng thì lần thử lại (tự động hoặc bấm tay) đăng tiếp từ phần còn thiếu. Thông báo lỗi nói rõ "3 of 5 posts … are live". Nếu chữ đã sửa sau khi một phần đã lên thì từ chối đăng, để không tạo thread thứ hai.
   - **Threads đang tắt:** đăng bài trả lời trên Threads cần quyền `threads_manage_replies`, mà app chưa xin. Bật bằng cờ `THREADS_REPLIES_ENABLED` sau khi thêm quyền vào app Threads (OWNER-TODO). X và Bluesky dùng được ngay.
   - Kiểm tra: typecheck đạt; toàn bộ unit test đạt, trong đó 44 test mới. Lint báo 1 lỗi ở `packages/storage/src/convert.ts`, thuộc phần chuyển ảnh đang làm dở bên ngoài, không nằm trong thay đổi này.
+- **Hoàn thiện và commit tính năng chuyển ảnh (D-125)**, phần đang làm dở chưa commit trong repo. PNG/WebP giờ được tự chuyển sang JPEG cho Instagram và TikTok, không còn bị chặn trong composer.
+  - **Sửa 3 lỗi trước khi commit:** worker trên Railway không có `sharp` (mọi lần chuyển ảnh sẽ hỏng và bị nuốt lỗi; bài được duyệt rồi mới hỏng lúc đăng); `sharp` được import bằng tên biến, nên trên Vercel cũng sẽ không tìm thấy; bản JPEG đã chuyển không bị xóa khi khách xóa ảnh gốc.
+  - Lỗi lint (`any`) đã hết. Lần chuyển ảnh hỏng trong worker giờ có log.
+  - Cùng đợt: URL gõ trong caption Instagram/TikTok không còn bị báo "Links are not supported" (hai nền tảng vẫn nhận, chỉ là không bấm được).
+  - Kiểm tra: typecheck, lint đạt; 1784 unit test đạt, gồm test chuyển ảnh thật bằng `sharp`.
 
 ---
 

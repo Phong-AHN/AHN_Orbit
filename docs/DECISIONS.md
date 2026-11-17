@@ -5125,6 +5125,68 @@ need no switch; their publishing permission covers replies.
 - **Date:** 2026-11-17 · **Status:** IMPLEMENTED for X and Bluesky; Threads
   behind `THREADS_REPLIES_ENABLED` (no migration)
 
+## D-125 — PNG and WebP are converted for the platforms that refuse them
+
+Instagram takes JPEG only, and TikTok's photo posts JPEG or WebP. People upload
+PNG anyway: screenshots, design exports, anything with transparency. The
+composer refused those ("image/png isn't accepted here"), so the file had to be
+re-exported by hand before the post could go anywhere.
+
+### What happens now
+
+- **The validator lets a convertible image through.** `isConvertibleImageFormat`
+  accepts PNG or WebP where a platform takes JPEG, and JPEG or WebP where it
+  takes PNG. Every other check — size, dimensions, aspect ratio — still runs
+  on the original.
+- **The worker publishes a converted copy.** `loadPublishSubject` converts any
+  image the target platform would refuse and hands the adapter the copy's URL,
+  type and size.
+- **How it converts:** with `sharp`. It applies the EXIF rotation, flattens
+  transparency onto white so it never turns black in a JPEG, uses sRGB, and
+  encodes JPEG with mozjpeg at quality 85.
+- **The copy is written once, beside the original**
+  (`…/<assetId>/converted-jpeg.jpg`), and reused by every later publish. A PNG
+  upload is converted when it completes, as well, so the scheduled publish
+  usually finds the copy already there. Both are best effort; a failure is
+  logged.
+
+### What was fixed before it shipped
+
+The work arrived uncommitted, and three things in it would have failed in
+production:
+
+1. **The worker had no `sharp`.** Only `apps/web` declared it, and the worker
+   image installs only its own packages. Every conversion on Railway would
+   have failed. The failure was also swallowed silently, and the validator now
+   lets the PNG through, so a post that used to be refused in the composer
+   would have been approved and then failed at its scheduled time. `sharp` is
+   now a dependency of `@orbit/storage`, the package that uses it, so both
+   apps install it; the lockfile already carried the musl build that Alpine
+   needs.
+2. **`sharp` was imported by a computed name** (`import(modName)`), with a
+   fallback that resolved it from `apps/web` relative to the working directory.
+   The web bundler and Vercel's file tracing cannot follow a computed import, so
+   on Vercel it would have been missing too. It is now a static import, loaded
+   on first use.
+3. **A deleted image's converted copy was never deleted.** The media purge
+   removed only the original's key, so the JPEG copy of a client's deleted
+   image would have stayed in the bucket for good. `derivedImageKeys` names
+   every copy, and the purge deletes them with the original.
+
+A conversion that fails in the worker is now logged with the asset and both
+types. The original is still sent, so the platform refuses it and the post
+fails with the platform's own words, and the log says why.
+
+### Also in this change: a URL in a caption is just text
+
+On platforms without clickable links (Instagram, TikTok), a URL typed into the
+caption used to be refused as "Links are not supported". Both platforms accept
+it — it simply is not clickable — so it is now left as text. A separate link
+attachment (`linkUrl`) on those platforms is still refused.
+
+- **Date:** 2026-11-17 · **Status:** IMPLEMENTED (no migration; the worker
+  needs its new dependency, which its next deploy installs)
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

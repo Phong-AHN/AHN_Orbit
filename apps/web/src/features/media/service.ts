@@ -9,12 +9,14 @@ import {
   type TenantContext,
 } from '@orbit/core';
 import { withTenant, type TenantDb } from '@orbit/db';
-import { logger } from '@orbit/observability';
+import { logError, logger } from '@orbit/observability';
 import {
   MediaRejected,
   assertKeyBelongsTo,
   buildObjectKey,
   deleteObjects,
+  derivedImageKeys,
+  ensureConvertedImage,
   presignDownload,
   presignUpload,
   sanitiseFilename,
@@ -346,6 +348,26 @@ export async function completeMediaUpload(
       return row;
     });
 
+    /**
+     * Convert a PNG to JPEG now, while somebody is waiting anyway, so a post to
+     * Instagram or TikTok does not convert at its scheduled time (D-125). Best
+     * effort: the worker converts at publish whatever happens here, and the
+     * upload is already complete and verified.
+     */
+    if (verified.kind === 'IMAGE' && verified.mimeType === 'image/png') {
+      try {
+        await ensureConvertedImage({
+          storageKey: asset.storageKey,
+          targetMimeType: 'image/jpeg',
+        });
+      } catch (error) {
+        logError('could not pre-convert a PNG upload to JPEG', error, {
+          mediaAssetId: assetId,
+          organizationId: ctx.organizationId,
+        });
+      }
+    }
+
     return updated;
   } catch (error) {
     const reason =
@@ -639,8 +661,10 @@ export async function cleanupMedia(
   });
 
   // Objects go after the rows: a failure here leaves a recoverable orphan,
-  // whereas the reverse would leave a row pointing at nothing.
-  await deleteObjects([...abandonedKeys, ...purgedKeys]);
+  // whereas the reverse would leave a row pointing at nothing. A converted copy
+  // (D-125) is the client's image too, so it goes with its original.
+  const originals = [...abandonedKeys, ...purgedKeys];
+  await deleteObjects([...originals, ...originals.flatMap(derivedImageKeys)]);
 
   if (abandonedKeys.length > 0 || purgedKeys.length > 0) {
     logger.info('media cleanup completed', {

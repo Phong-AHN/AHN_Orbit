@@ -225,6 +225,37 @@ export function weightedLength(text: string): number {
   return total;
 }
 
+/**
+ * Whether Orbit's automatic image conversion pipeline can convert the source
+ * image MIME type to one of the accepted MIME types for the target platform.
+ *
+ * For instance, Instagram Graph API requires JPEG. If a user uploads a PNG,
+ * Orbit automatically converts it to JPEG with transparency flattening
+ * (.flatten({ background: '#ffffff' })) and sRGB profile.
+ */
+export function isConvertibleImageFormat(
+  sourceMimeType: string,
+  acceptedMimeTypes: readonly string[],
+): boolean {
+  if (acceptedMimeTypes.includes(sourceMimeType)) return true;
+
+  // Convert PNG or WebP to JPEG if platform requires JPEG
+  if (acceptedMimeTypes.includes('image/jpeg')) {
+    if (sourceMimeType === 'image/png' || sourceMimeType === 'image/webp') {
+      return true;
+    }
+  }
+
+  // Convert JPEG or WebP to PNG if platform requires PNG
+  if (acceptedMimeTypes.includes('image/png')) {
+    if (sourceMimeType === 'image/jpeg' || sourceMimeType === 'image/webp') {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function validateMediaItem(
   item: DraftMedia,
   constraint: MediaConstraint | null,
@@ -238,18 +269,23 @@ function validateMediaItem(
   const issues: ValidationIssue[] = [];
 
   if (!constraint.mimeTypes.includes(item.mimeType)) {
-    // Naming what *is* accepted turns a dead end into an instruction. The list
-    // was already in the metadata and nothing rendered it, so the reader was
-    // told their file was wrong and left to guess what would be right.
-    issues.push(
-      issue(
-        'ERROR',
-        'MEDIA_TYPE_UNSUPPORTED',
-        field,
-        `${item.mimeType} isn't accepted here — this platform takes ${constraint.mimeTypes.join(', ')}.`,
-        { accepted: constraint.mimeTypes.join(', ') },
-      ),
-    );
+    const autoConvertible =
+      item.kind === 'IMAGE' && isConvertibleImageFormat(item.mimeType, constraint.mimeTypes);
+
+    if (!autoConvertible) {
+      // Naming what *is* accepted turns a dead end into an instruction. The list
+      // was already in the metadata and nothing rendered it, so the reader was
+      // told their file was wrong and left to guess what would be right.
+      issues.push(
+        issue(
+          'ERROR',
+          'MEDIA_TYPE_UNSUPPORTED',
+          field,
+          `${item.mimeType} isn't accepted here — this platform takes ${constraint.mimeTypes.join(', ')}.`,
+          { accepted: constraint.mimeTypes.join(', ') },
+        ),
+      );
+    }
   }
 
   if (item.sizeBytes > constraint.maxBytes) {
@@ -473,12 +509,12 @@ export function validateDraft(
   }
 
   // ── Links ───────────────────────────────────────────────────────────────
-  // A composed text already contains the destination link, so it is counted
-  // once from there rather than once more on its own.
-  const bodyLinks = published.match(URL_PATTERN) ?? [];
-  const totalLinks = bodyLinks.length + (draft.linkUrl && !capabilities.text.composedText ? 1 : 0);
-
-  if (totalLinks > 0 && !capabilities.link.supported) {
+  // A dedicated linkUrl attachment on a platform without link support is rejected.
+  // When a platform does not support clickable links (e.g. TikTok, Instagram),
+  // URLs in the text/caption are treated as normal plain text rather than
+  // flagging them as an unsupported link error, so authors can include links
+  // in captions without issue.
+  if (draft.linkUrl && !capabilities.link.supported) {
     issues.push(
       issue('ERROR', 'LINK_UNSUPPORTED', 'linkUrl', 'Links are not supported on this platform.'),
     );
@@ -498,13 +534,18 @@ export function validateDraft(
         );
       }
     });
-  } else if (capabilities.link.supported && totalLinks > capabilities.link.maxCount) {
-    issues.push(
-      issue('ERROR', 'TOO_MANY_LINKS', 'linkUrl', 'This platform allows fewer links.', {
-        count: totalLinks,
-        maxCount: capabilities.link.maxCount,
-      }),
-    );
+  } else if (capabilities.link.supported) {
+    const bodyLinks = published.match(URL_PATTERN) ?? [];
+    const totalLinks =
+      bodyLinks.length + (draft.linkUrl && !capabilities.text.composedText ? 1 : 0);
+    if (totalLinks > capabilities.link.maxCount) {
+      issues.push(
+        issue('ERROR', 'TOO_MANY_LINKS', 'linkUrl', 'This platform allows fewer links.', {
+          count: totalLinks,
+          maxCount: capabilities.link.maxCount,
+        }),
+      );
+    }
   }
 
   // ── Media ───────────────────────────────────────────────────────────────

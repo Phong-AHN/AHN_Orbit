@@ -26,11 +26,21 @@ export {
   putObject,
   headObject,
   readRange,
+  readObject,
   deleteObject,
   deleteObjects,
   type ObjectHead,
   type PresignUploadInput,
 } from './s3.js';
+
+export {
+  convertImage,
+  derivedImageKeys,
+  ensureConvertedImage,
+  getDerivedStorageKey,
+  type ImageConversionOptions,
+  type ConvertedImage,
+} from './convert.js';
 
 export { s3ClientConfig, type StorageConnection } from './client-config.js';
 

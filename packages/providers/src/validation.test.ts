@@ -121,20 +121,45 @@ describe('links', () => {
     expect(codes(result)).toContain('TOO_MANY_LINKS');
   });
 
-  it('rejects any link where links are unsupported', () => {
+  it('allows links in the body as normal text on platforms without clickable link support (e.g. IG/TikTok)', () => {
     const noLinks = caps({ link: { supported: false, maxCount: 0 } });
-    const result = validateDraft(noLinks, { body: 'go to https://a.test' });
+    const result = validateDraft(noLinks, { body: 'go to https://a.test and check bio' });
+    expect(codes(result)).not.toContain('LINK_UNSUPPORTED');
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects a dedicated linkUrl attachment where links are unsupported', () => {
+    const noLinks = caps({ link: { supported: false, maxCount: 0 } });
+    const result = validateDraft(noLinks, { body: 'hello', linkUrl: 'https://a.test' });
     expect(codes(result)).toContain('LINK_UNSUPPORTED');
   });
 });
 
 describe('media', () => {
-  it('rejects an unsupported mime type', () => {
+  it('rejects an unsupported mime type that cannot be auto-converted', () => {
     const result = validateDraft(caps(), {
       body: 'x',
       media: [image({ mimeType: 'image/tiff' })],
     });
     expect(codes(result)).toContain('MEDIA_TYPE_UNSUPPORTED');
+  });
+
+  it('allows auto-convertible image formats such as PNG for JPEG-only platforms (e.g. Instagram)', () => {
+    const jpegOnly = caps({
+      media: {
+        ...caps().media,
+        image: {
+          mimeTypes: ['image/jpeg'],
+          maxBytes: 8 * 1024 * 1024,
+        },
+      },
+    });
+    const result = validateDraft(jpegOnly, {
+      body: 'New product drop',
+      media: [image({ mimeType: 'image/png' })],
+    });
+    expect(codes(result)).not.toContain('MEDIA_TYPE_UNSUPPORTED');
+    expect(result.valid).toBe(true);
   });
 
   it('rejects a file over the size limit', () => {

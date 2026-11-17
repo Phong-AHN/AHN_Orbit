@@ -180,6 +180,28 @@ export async function readRange(key: string, start: number, end: number): Promis
 }
 
 /**
+ * Read the entire object bytes from storage.
+ */
+export async function readObject(key: string): Promise<Uint8Array> {
+  const result = await s3().send(new GetObjectCommand({ Bucket: bucket(), Key: key }));
+
+  const body = result.Body;
+  if (!body) throw new InternalError('Object body was empty');
+
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of body as AsyncIterable<Uint8Array>) chunks.push(chunk);
+
+  const total = chunks.reduce((sum, c) => sum + c.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
+
+/**
  * Write bytes from the server.
  *
  * Uploads from a browser go through `presignUpload` so the bytes never touch

@@ -298,6 +298,9 @@ importers:
       '@orbit/core':
         specifier: workspace:*
         version: link:../core
+      sharp:
+        specifier: 0.34.5
+        version: 0.34.5
 
   packages/ui:
     dependencies:

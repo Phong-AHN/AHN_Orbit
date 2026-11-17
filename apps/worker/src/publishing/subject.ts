@@ -7,8 +7,15 @@ import {
   type TenantContext,
 } from '@orbit/core';
 import { withTenant } from '@orbit/db';
-import { presignDownload } from '@orbit/storage';
-import type { DecryptedCredential, PublishMedia, VariantDraft } from '@orbit/providers';
+import { logError } from '@orbit/observability';
+import { ensureConvertedImage, presignDownload } from '@orbit/storage';
+import {
+  capabilitiesFor,
+  isConvertibleImageFormat,
+  type DecryptedCredential,
+  type PublishMedia,
+  type VariantDraft,
+} from '@orbit/providers';
 import { freshenCredential, openCredential } from '../credentials.js';
 
 /**
@@ -180,30 +187,72 @@ export async function loadPublishSubject(
     }),
   );
 
+  const capabilities = capabilitiesFor(variant.platform, variant.socialAccount.accountType);
+
   const media: PublishMedia[] = await Promise.all(
-    usable.map(async (item) => ({
-      id: item.mediaAsset.id,
-      kind: item.mediaAsset.kind,
-      mimeType: item.mediaAsset.mimeType,
-      sizeBytes: item.mediaAsset.sizeBytes,
-      // Short-lived and inline: the provider fetches it directly.
-      url: (
-        await presignDownload({
-          key: item.mediaAsset.storageKey,
-          contentType: item.mediaAsset.mimeType,
-          inline: true,
-          expiresInSeconds: MEDIA_URL_TTL_SECONDS,
-        })
-      ).url,
-      ...(item.altText ? { altText: item.altText } : {}),
-      ...(item.mediaAsset.width !== null ? { width: item.mediaAsset.width } : {}),
-      ...(item.mediaAsset.height !== null ? { height: item.mediaAsset.height } : {}),
-      ...(item.mediaAsset.durationMs !== null ? { durationMs: item.mediaAsset.durationMs } : {}),
-      ...(item.mediaAsset.frameRate !== null ? { frameRate: item.mediaAsset.frameRate } : {}),
-      ...(item.mediaAsset.peakFrameRate !== null
-        ? { peakFrameRate: item.mediaAsset.peakFrameRate }
-        : {}),
-    })),
+    usable.map(async (item) => {
+      let storageKey = item.mediaAsset.storageKey;
+      let mimeType = item.mediaAsset.mimeType;
+      let sizeBytes = item.mediaAsset.sizeBytes;
+      let width = item.mediaAsset.width !== null ? item.mediaAsset.width : undefined;
+      let height = item.mediaAsset.height !== null ? item.mediaAsset.height : undefined;
+
+      // Platform-specific image format conversion (e.g. PNG -> JPEG for Instagram)
+      if (item.mediaAsset.kind === 'IMAGE') {
+        const acceptedTypes = capabilities.media.image?.mimeTypes ?? [];
+        if (
+          !acceptedTypes.includes(mimeType) &&
+          isConvertibleImageFormat(mimeType, acceptedTypes)
+        ) {
+          const targetMime = acceptedTypes.includes('image/jpeg') ? 'image/jpeg' : acceptedTypes[0];
+          try {
+            const converted = await ensureConvertedImage({
+              storageKey,
+              targetMimeType: targetMime,
+            });
+            storageKey = converted.storageKey;
+            mimeType = converted.mimeType;
+            sizeBytes = converted.sizeBytes;
+            if (converted.width) width = converted.width;
+            if (converted.height) height = converted.height;
+          } catch (error) {
+            // The original goes out and the platform refuses it, which fails
+            // the post with the platform's own words. Logged here so the cause
+            // is findable: the refusal alone would read as a bad file.
+            logError('image conversion failed; publishing the original', error, {
+              variantId: variant.id,
+              mediaAssetId: item.mediaAsset.id,
+              from: item.mediaAsset.mimeType,
+              to: targetMime ?? 'unknown',
+            });
+          }
+        }
+      }
+
+      return {
+        id: item.mediaAsset.id,
+        kind: item.mediaAsset.kind,
+        mimeType,
+        sizeBytes,
+        // Short-lived and inline: the provider fetches it directly.
+        url: (
+          await presignDownload({
+            key: storageKey,
+            contentType: mimeType,
+            inline: true,
+            expiresInSeconds: MEDIA_URL_TTL_SECONDS,
+          })
+        ).url,
+        ...(item.altText ? { altText: item.altText } : {}),
+        ...(width !== undefined ? { width } : {}),
+        ...(height !== undefined ? { height } : {}),
+        ...(item.mediaAsset.durationMs !== null ? { durationMs: item.mediaAsset.durationMs } : {}),
+        ...(item.mediaAsset.frameRate !== null ? { frameRate: item.mediaAsset.frameRate } : {}),
+        ...(item.mediaAsset.peakFrameRate !== null
+          ? { peakFrameRate: item.mediaAsset.peakFrameRate }
+          : {}),
+      };
+    }),
   );
 
   const draft: VariantDraft = {
