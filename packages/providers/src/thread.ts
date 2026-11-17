@@ -218,6 +218,91 @@ function cutWord(word: string, budget: number, measure: Measure): [string, strin
   return [graphemes.slice(0, at).join(''), graphemes.slice(at).join('')];
 }
 
+// ── Threads edited by hand ─────────────────────────────────────────────────
+
+/**
+ * The line that separates one post from the next in a thread edited by hand.
+ *
+ * Stored in the account's own text, so the posts somebody wrote are the
+ * content: a client reviewing the post sees them, approval locks them, and the
+ * content hash covers them. A Markdown rule, so the raw text still reads as
+ * "post, then the next post" to anybody who sees it.
+ */
+export const THREAD_BREAK = '---';
+
+const BREAK_LINE = /\r?\n[ \t]*---[ \t]*(?:\r?\n|$)/;
+
+/** The posts of a thread edited by hand, in order, without empty ones. */
+export function splitManualThread(text: string): string[] {
+  return `\n${text}\n`
+    .split(BREAK_LINE)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
+/** The text that stores these posts as a thread edited by hand. */
+export function joinManualThread(parts: readonly string[]): string {
+  return parts
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .join(`\n\n${THREAD_BREAK}\n\n`);
+}
+
+/** The same text as one post: the breaks become paragraph breaks. */
+export function stripThreadBreaks(text: string): string {
+  return splitManualThread(text).join('\n\n');
+}
+
+/**
+ * Whether the account's posts were edited by hand.
+ *
+ * Only ever from the account's own text: a thread inherited from the main text
+ * has nothing written post by post, and the flag on its own would make the
+ * main text be read as hand-made posts.
+ */
+export function threadIsManual(
+  platformOptions: Record<string, unknown> | null | undefined,
+  hasOwnText: boolean,
+): boolean {
+  return hasOwnText && platformOptions?.['threadManual'] === true;
+}
+
+/**
+ * The thread fields of a draft, decided once for the web validator and the
+ * worker, so what is checked and what is published split identically.
+ *
+ * A thread edited by hand whose splitting has since been switched off is
+ * published as one post with the breaks taken out, never with `---` in it.
+ */
+export function resolveThreadDraft(input: {
+  body: string;
+  hasOwnText: boolean;
+  platformOptions: Record<string, unknown> | null | undefined;
+  capabilities: { thread: { supported: boolean } };
+}): {
+  body: string;
+  thread?: true;
+  threadNumbering?: false;
+  threadManual?: true;
+} {
+  const thread = threadRequested(input.platformOptions, input.capabilities);
+  const manual = threadIsManual(input.platformOptions, input.hasOwnText);
+
+  return {
+    body: manual && !thread ? stripThreadBreaks(input.body) : input.body,
+    ...(thread ? { thread: true as const } : {}),
+    ...(thread && !threadNumbered(input.platformOptions)
+      ? { threadNumbering: false as const }
+      : {}),
+    ...(thread && manual ? { threadManual: true as const } : {}),
+  };
+}
+
+/** A part as shown to be edited: without the " 2/5" the split adds. */
+export function withoutThreadMarker(part: string): string {
+  return part.replace(/ \d+\/\d+$/, '');
+}
+
 // ── Progress, for resuming a thread that stopped part-way ──────────────────
 
 /**

@@ -25,8 +25,15 @@ export {
 } from './validation.js';
 
 export {
+  THREAD_BREAK,
+  joinManualThread,
   readThreadProgress,
+  resolveThreadDraft,
   splitIntoThread,
+  splitManualThread,
+  stripThreadBreaks,
+  threadIsManual,
+  withoutThreadMarker,
   threadFingerprint,
   threadMarker,
   threadNumbered,

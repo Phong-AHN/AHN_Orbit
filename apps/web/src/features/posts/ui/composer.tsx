@@ -29,6 +29,8 @@ import { AIAssist } from '@/features/ai/ui/ai-assist';
 import { PublishNowButton } from './publish-now-button';
 import { PostPreview } from './preview';
 import { PlatformSettingsPanel } from './platform-settings-panel';
+import { ThreadEditor } from './thread-editor';
+import { joinManualThread, stripThreadBreaks } from '@orbit/providers/thread';
 import { missingPlatformSettings, requiresPlatformSettings } from './platform-settings';
 
 /**
@@ -760,6 +762,8 @@ function VariantEditor({
   // On by default (D-124): unticked only when somebody switched it off.
   const threadOn = (active.platformOptions ?? {})['thread'] !== false;
   const numberingOn = (active.platformOptions ?? {})['threadNumbering'] !== false;
+  // Edited post by post: the account's own text holds the posts (D-124).
+  const manual = (active.platformOptions ?? {})['threadManual'] === true && active.body.length > 0;
   const threadParts = threadOn
     ? validation?.variants.find((v) => v.variantId === active.id)?.threadParts
     : undefined;
@@ -770,8 +774,12 @@ function VariantEditor({
     setThreadSaving(true);
     setError(null);
     try {
+      // Switching splitting off leaves no hand-made posts behind: the text
+      // becomes one post again, its breaks turned into paragraphs.
+      const leavingManual = next.thread === false && manual;
       const { variant } = await api.updateVariant(post.id, active.id, {
-        platformOptions: next,
+        ...(leavingManual ? { body: stripThreadBreaks(active.body) } : {}),
+        platformOptions: { ...next, ...(leavingManual ? { threadManual: false } : {}) },
       });
       onSaved(variant);
     } catch (e) {
@@ -779,6 +787,26 @@ function VariantEditor({
     } finally {
       setThreadSaving(false);
     }
+  }
+
+  /** The posts as edited, stored in the account's own text. */
+  async function saveThreadParts(parts: string[]) {
+    if (!active) return;
+    const { variant } = await api.updateVariant(post.id, active.id, {
+      body: joinManualThread(parts),
+      platformOptions: { threadManual: true },
+    });
+    onSaved(variant);
+  }
+
+  /** Back to automatic splitting, keeping the wording that was edited. */
+  async function resetThreadParts() {
+    if (!active) return;
+    const { variant } = await api.updateVariant(post.id, active.id, {
+      body: stripThreadBreaks(active.body),
+      platformOptions: { threadManual: false },
+    });
+    onSaved(variant);
   }
 
   async function saveOverride() {
@@ -850,28 +878,35 @@ function VariantEditor({
           })}
         </div>
 
-        <Field
-          label={`Text for ${active.socialAccount.displayName}`}
-          hint={
-            inherits
-              ? 'Empty means this account uses the main post text.'
-              : 'This account has its own text. Clear it to go back to the main text.'
-          }
-          htmlFor={`variant-body-${active.id}`}
-        >
-          <Textarea
-            id={`variant-body-${active.id}`}
-            rows={6}
-            value={override}
-            disabled={readOnly || saving}
-            placeholder={post.body || 'Same as the main post'}
-            onChange={(e) => {
-              setOverride(e.target.value);
-            }}
-          />
-        </Field>
+        {manual && threadOn ? (
+          <p className="text-sm text-ink-secondary">
+            {active.socialAccount.displayName}&rsquo;s text is edited post by post below. Choose
+            &ldquo;Split automatically again&rdquo; to edit it as one text.
+          </p>
+        ) : (
+          <Field
+            label={`Text for ${active.socialAccount.displayName}`}
+            hint={
+              inherits
+                ? 'Empty means this account uses the main post text.'
+                : 'This account has its own text. Clear it to go back to the main text.'
+            }
+            htmlFor={`variant-body-${active.id}`}
+          >
+            <Textarea
+              id={`variant-body-${active.id}`}
+              rows={6}
+              value={override}
+              disabled={readOnly || saving}
+              placeholder={post.body || 'Same as the main post'}
+              onChange={(e) => {
+                setOverride(e.target.value);
+              }}
+            />
+          </Field>
+        )}
 
-        {cap ? (
+        {cap && !(manual && threadOn) ? (
           <p
             className={cn(
               'font-mono text-xs',
@@ -936,22 +971,19 @@ function VariantEditor({
               </label>
             ) : null}
 
-            {threadParts ? (
-              <div className="rounded-lg border border-line bg-surface-sunken p-3">
-                <p className="mb-2 text-xs font-medium text-ink-muted">
-                  Publishes as {threadParts.length} posts — as last saved
-                </p>
-                <ol className="space-y-2">
-                  {threadParts.map((part, index) => (
-                    <li
-                      key={index}
-                      className="whitespace-pre-wrap rounded-md border border-line bg-surface p-2.5 text-sm text-ink"
-                    >
-                      {part}
-                    </li>
-                  ))}
-                </ol>
-              </div>
+            {threadOn ? (
+              <ThreadEditor
+                key={active.id}
+                parts={threadParts}
+                manual={manual}
+                body={active.body}
+                maxTextLength={cap.maxTextLength}
+                maxPosts={cap.maxThreadPosts}
+                numbered={numberingOn}
+                readOnly={readOnly}
+                onSave={saveThreadParts}
+                onReset={resetThreadParts}
+              />
             ) : null}
           </div>
         ) : null}
@@ -981,7 +1013,7 @@ function VariantEditor({
           </p>
         ) : null}
 
-        {!readOnly ? (
+        {!readOnly && !(manual && threadOn) ? (
           <Button size="sm" variant="secondary" loading={saving} onClick={saveOverride}>
             Save override
           </Button>

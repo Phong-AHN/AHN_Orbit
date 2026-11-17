@@ -3,9 +3,8 @@ import { withTenant } from '@orbit/db';
 import {
   capabilitiesFor,
   missingThreadScopes,
-  threadNumbered,
+  resolveThreadDraft,
   threadPartsFor,
-  threadRequested,
   validateDraft,
   type ValidationResult,
   type VariantDraft,
@@ -166,20 +165,24 @@ export async function validatePost(ctx: TenantContext, postId: string): Promise<
       variant.platformOptions && typeof variant.platformOptions === 'object'
         ? (variant.platformOptions as Record<string, unknown>)
         : undefined;
-    // The one setting in `platformOptions` the shared engine reads (D-124):
-    // it changes how many posts the text becomes, which every layer must agree
-    // on. On unless switched off, wherever the platform can thread.
-    const thread = threadRequested(options, capabilities);
-
-    const draft: VariantDraft = {
+    // The settings in `platformOptions` the shared engine reads (D-124): they
+    // change how many posts the text becomes, which every layer must agree on.
+    // Decided by the same function the worker uses.
+    const threadFields = resolveThreadDraft({
       // Variant overrides win; an unset override inherits the master copy.
       body: variant.body.length > 0 ? variant.body : post.body,
+      hasOwnText: variant.body.length > 0,
+      platformOptions: options,
+      capabilities,
+    });
+    const thread = threadFields.thread === true;
+
+    const draft: VariantDraft = {
+      ...threadFields,
       linkUrl: variant.linkUrl,
       hashtags: variant.hashtags,
       firstComment: variant.firstComment,
       scheduledFor: variant.scheduledFor ?? post.scheduledFor ?? undefined,
-      ...(thread ? { thread: true } : {}),
-      ...(thread && !threadNumbered(options) ? { threadNumbering: false } : {}),
       // Threaded through so the composer checks the same draft the worker will
       // publish. `validateDraft` ignores it; an adapter reads its own keys.
       ...(options ? { providerOptions: options } : {}),

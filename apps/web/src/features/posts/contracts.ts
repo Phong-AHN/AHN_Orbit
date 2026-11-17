@@ -94,6 +94,11 @@ const platformOptions = z
     thread: z.boolean().optional(),
     /** End each post of a thread with its place (" 2/5"). On unless false. */
     threadNumbering: z.boolean().optional(),
+    /**
+     * The account's own text holds the thread's posts as somebody edited them,
+     * separated by `---` lines. Ignored when the account has no text of its own.
+     */
+    threadManual: z.boolean().optional(),
   })
   .strict();
 

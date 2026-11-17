@@ -1,6 +1,6 @@
 import type { MediaKind } from '@orbit/core';
 import type { MediaConstraint, PlatformCapabilities } from './capabilities.js';
-import { splitIntoThread } from './thread.js';
+import { splitIntoThread, splitManualThread, threadMarker } from './thread.js';
 
 /**
  * Capability-driven validation (SRS §9).
@@ -73,6 +73,12 @@ export interface VariantDraft {
    * adapter all read it from the draft.
    */
   threadNumbering?: boolean | undefined;
+  /**
+   * The body holds the thread's posts as somebody edited them, separated by
+   * `---` lines (`joinManualThread`). Each is published as written — plus its
+   * place, if numbered — instead of being split automatically.
+   */
+  threadManual?: boolean | undefined;
   /**
    * Settings that exist on exactly one platform, kept opaque on purpose.
    *
@@ -177,12 +183,17 @@ export function publishedTextFor(
  * publishes them: the same function in all three places.
  */
 export function threadPartsFor(
-  draft: Pick<VariantDraft, 'body' | 'hashtags' | 'linkUrl' | 'thread' | 'threadNumbering'>,
+  draft: Pick<
+    VariantDraft,
+    'body' | 'hashtags' | 'linkUrl' | 'thread' | 'threadNumbering' | 'threadManual'
+  >,
   capabilities: PlatformCapabilities,
 ): string[] {
   if (draft.thread !== true || !capabilities.thread.supported) {
     return [publishedTextFor(draft, capabilities)];
   }
+
+  if (draft.threadManual === true) return manualThreadParts(draft, capabilities);
 
   const source = composePublishedText({
     body: draft.body,
@@ -196,6 +207,46 @@ export function threadPartsFor(
     (text) => countCharacters(text, capabilities),
     { numbered: draft.threadNumbering !== false },
   );
+}
+
+/**
+ * A thread edited by hand: each post as written.
+ *
+ * The hashtags and the link (where the platform writes it into the text)
+ * close the last post, as in a split one — but only those not already in a
+ * post, because editing usually starts from a split that put them there.
+ * Numbered as a split thread is, and checked against the limit post by post
+ * like one: a post somebody made too long is refused, not split further.
+ */
+function manualThreadParts(
+  draft: Pick<VariantDraft, 'body' | 'hashtags' | 'linkUrl' | 'threadNumbering'>,
+  capabilities: PlatformCapabilities,
+): string[] {
+  const sections = splitManualThread(draft.body);
+  if (sections.length === 0) return [''];
+
+  const written = sections.join('\n');
+  const missingTags = (draft.hashtags ?? [])
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length > 0)
+    .map((tag) => (tag.startsWith('#') ? tag : `#${tag}`))
+    .filter((tag) => !written.includes(tag));
+  const link =
+    capabilities.text.composedText && draft.linkUrl && !written.includes(draft.linkUrl)
+      ? draft.linkUrl
+      : null;
+
+  const parts = [
+    ...sections.slice(0, -1),
+    composePublishedText({
+      body: sections[sections.length - 1] as string,
+      hashtags: missingTags,
+      linkUrl: link,
+    }),
+  ];
+
+  if (parts.length === 1 || draft.threadNumbering === false) return parts;
+  return parts.map((part, index) => `${part}${threadMarker(index + 1, parts.length)}`);
 }
 
 /**

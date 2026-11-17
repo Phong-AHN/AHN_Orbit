@@ -12,8 +12,7 @@ import { ensureConvertedImage, presignDownload } from '@orbit/storage';
 import {
   capabilitiesFor,
   isConvertibleImageFormat,
-  threadNumbered,
-  threadRequested,
+  resolveThreadDraft,
   type DecryptedCredential,
   type PublishMedia,
   type VariantDraft,
@@ -258,31 +257,22 @@ export async function loadPublishSubject(
   );
 
   const draft: VariantDraft = {
-    body,
+    // The thread settings the shared engine reads (D-124) — whether a long
+    // text goes out as a thread, numbered or not, and whether its posts were
+    // edited by hand — decided by the same function the web validator uses,
+    // so what was checked and what is published split the same way.
+    ...resolveThreadDraft({
+      body,
+      hasOwnText: variant.body.length > 0,
+      platformOptions:
+        variant.platformOptions && typeof variant.platformOptions === 'object'
+          ? (variant.platformOptions as Record<string, unknown>)
+          : undefined,
+      capabilities,
+    }),
     linkUrl: variant.linkUrl,
     hashtags: variant.hashtags,
     firstComment: variant.firstComment,
-    // The one stored setting the shared engine reads (D-124): whether a long
-    // text goes out as a thread — on unless switched off. Decided by the same
-    // function the web validator uses, so what was checked and what is
-    // published split the same way.
-    ...(threadRequested(
-      variant.platformOptions && typeof variant.platformOptions === 'object'
-        ? (variant.platformOptions as Record<string, unknown>)
-        : undefined,
-      capabilities,
-    )
-      ? {
-          thread: true,
-          ...(threadNumbered(
-            variant.platformOptions && typeof variant.platformOptions === 'object'
-              ? (variant.platformOptions as Record<string, unknown>)
-              : undefined,
-          )
-            ? {}
-            : { threadNumbering: false }),
-        }
-      : {}),
     // Settings that exist on one platform only — TikTok's privacy level and
     // post mode are the first. Opaque here on purpose: only the adapter that
     // wrote the keys reads them, and `validateDraft` never looks at all.

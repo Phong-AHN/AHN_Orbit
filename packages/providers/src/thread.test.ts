@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { defineCapabilities } from './capabilities.js';
 import {
+  joinManualThread,
   readThreadProgress,
+  resolveThreadDraft,
   splitIntoThread,
+  splitManualThread,
+  stripThreadBreaks,
   threadFingerprint,
   threadNumbered,
   threadRequested,
+  withoutThreadMarker,
 } from './thread.js';
 import { countCharacters, threadPartsFor, validateDraft, weightedLength } from './validation.js';
 import { xCapabilities } from './x/capabilities.js';
@@ -215,6 +220,99 @@ describe('numbering (1/3, 2/3…)', () => {
     expect(on.every((part, index) => part.endsWith(` ${index + 1}/${on.length}`))).toBe(true);
     expect(off.some((part) => / \d+\/\d+$/.test(part))).toBe(false);
     expect(validateDraft(x, { body: text, thread: true, threadNumbering: false }).valid).toBe(true);
+  });
+});
+
+describe('a thread edited by hand', () => {
+  const posts = ['First post, written by hand.', 'Second post.', 'Third and last.'];
+  const body = joinManualThread(posts);
+
+  it('stores the posts with --- lines and reads them back, empties dropped', () => {
+    expect(body).toBe(
+      'First post, written by hand.\n\n---\n\nSecond post.\n\n---\n\nThird and last.',
+    );
+    expect(splitManualThread(body)).toEqual(posts);
+    expect(splitManualThread('---\nOne\n  ---  \n\n---\nTwo\n---')).toEqual(['One', 'Two']);
+    expect(joinManualThread(['A', '  ', 'B'])).toBe('A\n\n---\n\nB');
+  });
+
+  it('publishes each post as written, with its place', () => {
+    const parts = threadPartsFor({ body, thread: true, threadManual: true }, x);
+    expect(parts).toEqual([
+      'First post, written by hand. 1/3',
+      'Second post. 2/3',
+      'Third and last. 3/3',
+    ]);
+  });
+
+  it('leaves the place off when numbering is off', () => {
+    const parts = threadPartsFor(
+      { body, thread: true, threadManual: true, threadNumbering: false },
+      x,
+    );
+    expect(parts).toEqual(posts);
+  });
+
+  it('adds only the hashtags and link not already written into a post', () => {
+    const written = joinManualThread(['Intro.', 'Details #launch']);
+    const parts = threadPartsFor(
+      {
+        body: written,
+        thread: true,
+        threadManual: true,
+        threadNumbering: false,
+        hashtags: ['launch', 'news'],
+        linkUrl: 'https://example.com/p',
+      },
+      bluesky,
+    );
+    expect(parts).toEqual(['Intro.', 'Details #launch\n\n#news\n\nhttps://example.com/p']);
+  });
+
+  it('refuses a post made too long by hand rather than splitting it again', () => {
+    const tooLong = joinManualThread(['Fine.', 'x'.repeat(400)]);
+    const result = validateDraft(x, { body: tooLong, thread: true, threadManual: true });
+    const issue = result.issues.find((i) => i.code === 'TEXT_TOO_LONG');
+
+    expect(result.valid).toBe(false);
+    expect(issue?.meta).toMatchObject({ part: 2 });
+  });
+
+  it('decides the draft once, for the validator and the worker alike', () => {
+    expect(
+      resolveThreadDraft({
+        body,
+        hasOwnText: true,
+        platformOptions: { threadManual: true },
+        capabilities: x,
+      }),
+    ).toEqual({ body, thread: true, threadManual: true });
+
+    // Inherited text was never written post by post.
+    expect(
+      resolveThreadDraft({
+        body: 'Main text.',
+        hasOwnText: false,
+        platformOptions: { threadManual: true },
+        capabilities: x,
+      }),
+    ).toEqual({ body: 'Main text.', thread: true });
+
+    // Splitting switched off: one post, and no --- left in it.
+    expect(
+      resolveThreadDraft({
+        body,
+        hasOwnText: true,
+        platformOptions: { thread: false, threadManual: true },
+        capabilities: x,
+      }),
+    ).toEqual({ body: stripThreadBreaks(body) });
+    expect(stripThreadBreaks(body)).toBe(posts.join('\n\n'));
+  });
+
+  it('shows a split post without its place, ready to edit', () => {
+    expect(withoutThreadMarker('Some words. 2/5')).toBe('Some words.');
+    expect(withoutThreadMarker('No marker here')).toBe('No marker here');
   });
 });
 

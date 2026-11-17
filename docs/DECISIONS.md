@@ -5072,6 +5072,31 @@ validator and the worker read it the same way. Storing it there needs no
 migration: a new column would break every variant query between the deploy and
 a migration that is run by hand.
 
+### Editing the posts by hand (2026-11-17)
+
+Under the preview, **Edit posts** turns each post into a box of its own:
+somebody can move text between posts, add one or remove one. Saving writes
+the posts into the **account's own text**, separated by `---` lines
+(`joinManualThread`), and sets `platformOptions.threadManual`. From then on
+each post goes out as written — plus its place, if numbered — and is not
+split again.
+
+- **Why the account's text and not a list of posts beside it.** The posts are
+  the content. In the text, a client reviewing the post sees them, approval
+  locks them like any other edit, and the content hash covers them. A list in
+  `platformOptions` would be invisible to the reviewer and could drift from the
+  approved text.
+- **Hashtags and the link** close the last post, but only those not already in
+  a post — editing usually starts from a split that put them there.
+- **A post made too long by hand is refused**, named by its number, not split
+  again: the person decided where it breaks.
+- **Split automatically again** keeps the edited wording and drops the breaks.
+  Switching splitting off does the same, and a thread edited by hand whose
+  splitting is off is always published as one post with no `---` in it
+  (`resolveThreadDraft`, used by the validator and the worker alike).
+- The flag only counts when the account has text of its own: inherited main
+  text was never written post by post.
+
 ### Publishing a thread exactly once
 
 A thread is several posts inside one publish call. If a part fails after the

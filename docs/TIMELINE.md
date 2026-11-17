@@ -517,6 +517,11 @@ Cách đọc:
   - **Threads vẫn chưa có ô này** vì cờ `THREADS_REPLIES_ENABLED` đang tắt (cần quyền `threads_manage_replies`; xem OWNER-TODO).
   - **TikTok:** "Post it" vốn đã là mặc định. Không chọn sẵn Public và không tick sẵn Comment/Duet/Stitch: quy định UX bắt buộc của TikTok cấm cả hai, và app đang trong đợt TikTok duyệt (D-126).
 - **Đánh số `1/3, 2/3…` thành tùy chọn bật/tắt.** Dưới ô "Split into a thread" có thêm ô **Number the posts (1/3, 2/3…)**, tick sẵn. Bỏ tick thì các bài trong thread không có số và dùng trọn giới hạn ký tự. Lưu theo từng tài khoản (`platformOptions.threadNumbering`); bước kiểm tra, composer và worker cùng đọc một chỗ nên chia giống nhau. Kiểm tra: typecheck, lint, toàn bộ unit test đạt (3 test mới).
+- **Sửa từng bài trong thread.** Dưới phần xem trước có nút **Edit posts**: mỗi bài thành một ô riêng, chuyển chữ qua lại giữa các bài, thêm hoặc bớt bài; **Save posts** để lưu. Có bộ đếm ký tự cho từng bài.
+  - Lưu ngay trong chữ riêng của tài khoản đó, mỗi bài cách nhau một dòng `---`, nên khách duyệt thấy đúng các bài sẽ đăng, bài đã duyệt bị khóa như mọi nội dung khác, và không cần migration.
+  - Sau khi sửa tay, mỗi bài đăng đúng như đã viết (cộng số thứ tự nếu bật). Bài nào dài quá giới hạn thì bị chặn và báo đúng số bài, không tự chia tiếp.
+  - **Split automatically again** giữ nguyên chữ đã sửa và quay về chia tự động. Tắt chia thread cũng vậy; không bao giờ đăng ra chữ `---`.
+  - Kiểm tra: typecheck, lint, 1804 unit test đạt (7 test mới). Chưa xem được giao diện thật ở máy này.
 
 ---
 

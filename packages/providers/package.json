@@ -7,6 +7,7 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./thread": "./dist/thread.js",
     "./contract": "./dist/contract/index.js",
     "./mock": "./dist/mock/index.js",
     "./facebook": "./dist/facebook/index.js",
