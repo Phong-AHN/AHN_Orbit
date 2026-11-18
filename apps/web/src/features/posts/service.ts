@@ -683,6 +683,13 @@ export interface TransitionOptions {
    * it, without this module needing to know what that feature is.
    */
   onTransition?: ((db: TenantDb, post: { id: string }) => Promise<void>) | undefined;
+  /**
+   * `false` sends no notification for this move. Only for the steps a post
+   * passes straight through when it is published without review (D-127):
+   * "this needs your review" about a post approved a moment later is a prompt
+   * to do something that is already done.
+   */
+  notify?: boolean | undefined;
 }
 
 export async function transitionPost(
@@ -692,7 +699,7 @@ export async function transitionPost(
   fingerprint: Pick<AuditInput, 'ip' | 'userAgent'>,
   options: TransitionOptions = {},
 ) {
-  const { comment, onTransition } = options;
+  const { comment, onTransition, notify = true } = options;
 
   const { post, rule } = await withTenant(ctx, async (db) => {
     const found = await requirePost(db, postId);
@@ -872,7 +879,7 @@ export async function transitionPost(
   // Postgres decided. Equally, a queue that is briefly unreachable must not
   // fail somebody's approval: the transition is the record, the notification is
   // a prompt, so `notifyTransition` swallows its own failures.
-  await notifyTransition(ctx, result, to);
+  if (notify) await notifyTransition(ctx, result, to);
 
   return result;
 }

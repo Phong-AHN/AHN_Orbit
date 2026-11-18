@@ -209,6 +209,30 @@ async function applySchedule(
 // ── Schedule ────────────────────────────────────────────────────────────────
 
 /**
+ * Whether this schedule could be applied to this post, without applying it.
+ *
+ * The same resolution and the same "not in the past" rule `schedulePost`
+ * applies, so a caller that has more to do first — publishing without review
+ * (D-127) — can refuse a bad time before it has moved the post at all.
+ */
+export async function checkScheduleIntent(
+  ctx: TenantContext,
+  postId: string,
+  input: ScheduleInput,
+): Promise<void> {
+  await withTenant(ctx, async (db) => {
+    const post = await db.post.findFirst({
+      where: { id: postId, deletedAt: null },
+      select: { workspaceId: true },
+    });
+    if (!post) throw new NotFoundError('Post');
+
+    const intent = await resolveIntent(db, post.workspaceId, input);
+    assertSchedulable(intent.scheduledFor, clock.now());
+  });
+}
+
+/**
  * Schedule an approved post.
  *
  * The status change runs through `transitionPost`, which checks `post:schedule`

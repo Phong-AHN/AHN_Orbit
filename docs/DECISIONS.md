@@ -5243,6 +5243,55 @@ nothing against it.
 
 - **Date:** 2026-11-17 · **Status:** DECIDED (no change)
 
+## D-127 — The agency's own accounts publish straight from the draft
+
+Asked by the owner (2026-11-18): for AHN's own accounts, skip "Submit for
+internal review" and "Approve", and offer **Publish now** and **Schedule** on
+the post page directly.
+
+D-106 had already made an internal workspace (`requiresClientApproval:
+false`) free of the client and let the author approve and schedule their own
+post. What was left was two clicks that decided nothing: submit, then approve,
+before the schedule control even appeared.
+
+### Decision
+
+- **A draft in an internal workspace shows Schedule and Publish now in "Next
+  step"**, and "Submit for internal review" is not offered beside them. A
+  client's workspace is unchanged.
+- **One endpoint, `POST /posts/{id}/publish-direct`** (`{ mode: 'now' }` or
+  `{ mode: 'schedule', schedule }`), runs the existing steps in order:
+  `transitionPost` to INTERNAL_REVIEW, `decideApproval` APPROVED (recorded
+  with its decider and the note "Approved on publishing…"), then
+  `schedulePost` or `publishNow`. No new transition was added to the state
+  machine, and no new right was created: each step is authorised by the
+  machine as it always was.
+- **Who may:** exactly whoever could take every step by hand. The author of a
+  post in an internal workspace may schedule it (D-106) but not publish now;
+  publishing now still needs `post:publish_now` (Owner, Admin, Account
+  Manager). `directPublishOptions` decides, for the page and the endpoint
+  alike.
+- **Everything that could stop a later step is checked before the first:**
+  the workspace has no client (a workspace that cannot be read counts as a
+  client's), the post is a draft, the person may take every step, publishing
+  now is permitted, and the time is valid (`checkScheduleIntent`). Validation
+  and blocking tasks are checked by the first step before it changes anything.
+  A refusal leaves the post a draft.
+- **No notifications for the steps passed through.** `transitionPost` and
+  `decideApproval` take `notify: false` for them; "this needs your review"
+  about a post approved a second later is a false prompt.
+
+### What it does not do
+
+- The steps are separate transactions. A failure nobody can foresee — a race,
+  an outage — between them leaves the post where it reached (in review or
+  approved), and the page then shows that state's ordinary buttons. The form
+  refreshes the post after a failure so it never shows a stale state.
+- A post that left the draft (changes requested, reopened) gets the shortcut
+  again once it is back in DRAFT; nothing is offered mid-review.
+
+- **Date:** 2026-11-18 · **Status:** IMPLEMENTED (no migration)
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

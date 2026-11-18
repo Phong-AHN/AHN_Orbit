@@ -179,6 +179,7 @@ of clients, accounts or posts (**D-042**).
 | `DELETE` | `/orgs/{orgId}/posts/{id}/schedule` | per the transition table | Unschedule back to `DRAFT`; voids approvals |
 | `GET` | `/orgs/{orgId}/calendar` | `post:read` | `from`, `to`, `timeZone` (display only), plus §12 filters |
 | `POST` | `/orgs/{orgId}/posts/{id}/publish-now` | `post:publish_now` | Scheduling for the present — same key, same job row (**D-028**) |
+| `POST` | `/orgs/{orgId}/posts/{id}/publish-direct` | each step's own (transition table; `post:publish_now` for `now`) | A draft in a workspace with **no client** only: submit, approve and then schedule or publish, in one call. Body `{ mode: 'now' }` or `{ mode: 'schedule', schedule }`. Every step is checked before the first is taken (**D-127**) |
 | `POST` | `/orgs/{orgId}/posts/{id}/retry` | `post:retry_failed` | Retries `FAILED` accounts only; never a published or parked one |
 | `GET` | `/orgs/{orgId}/posts/{id}/publishing` | `post:read` | Per-account state and the attempt timeline |
 | `POST` | `/orgs/{orgId}/posts/{id}/cancel` | `post:cancel_scheduled` | |

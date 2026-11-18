@@ -29,6 +29,11 @@ export interface PublishNowButtonProps {
   accountCount: number;
   disabled?: boolean;
   onPublished: () => void;
+  /**
+   * Publish a draft without review, for the agency's own accounts (D-127):
+   * `/publish-direct` submits, approves and publishes on the server.
+   */
+  direct?: boolean;
 }
 
 export function PublishNowButton({
@@ -37,6 +42,7 @@ export function PublishNowButton({
   accountCount,
   disabled,
   onPublished,
+  direct,
 }: PublishNowButtonProps) {
   const [confirming, setConfirming] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -47,9 +53,11 @@ export function PublishNowButton({
     setError(null);
 
     try {
-      await apiRequest(`/api/v1/orgs/${encodeURIComponent(orgSlug)}/posts/${postId}/publish-now`, {
-        method: 'POST',
-      });
+      const base = `/api/v1/orgs/${encodeURIComponent(orgSlug)}/posts/${postId}`;
+      await apiRequest(
+        direct ? `${base}/publish-direct` : `${base}/publish-now`,
+        direct ? { method: 'POST', body: JSON.stringify({ mode: 'now' }) } : { method: 'POST' },
+      );
 
       setConfirming(false);
       setBusy(false);
@@ -61,6 +69,9 @@ export function PublishNowButton({
           : 'We could not start publishing. Please try again in a moment.',
       );
       setBusy(false);
+      // Straight from a draft, a step may have landed before something
+      // failed; the page shows where the post is now.
+      if (direct) onPublished();
     }
   }
 

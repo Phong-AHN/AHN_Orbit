@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { scheduleSchema } from '@/features/scheduling/contracts';
 
 /**
  * Publishing log and resolution schemas (T1.14).
@@ -87,3 +88,15 @@ export const resolveParkedSchema = z
 
 export type PublishingLogQuery = z.infer<typeof publishingLogQuerySchema>;
 export type ResolveParkedBody = z.infer<typeof resolveParkedSchema>;
+
+/**
+ * Publish a draft now, or schedule it, without the review steps — posts for the
+ * agency's own accounts only (D-127). The service decides whether the post and
+ * the person qualify; this checks only the shape.
+ */
+export const publishDirectSchema = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('now') }).strict(),
+  z.object({ mode: z.literal('schedule'), schedule: scheduleSchema }).strict(),
+]);
+
+export type PublishDirectBody = z.infer<typeof publishDirectSchema>;

@@ -69,6 +69,8 @@ export async function decideApproval(
   approvalId: string,
   input: DecideApprovalInput,
   fingerprint: Pick<AuditInput, 'ip' | 'userAgent'>,
+  /** `notify: false` for a review passed straight through (D-127). */
+  options: { notify?: boolean } = {},
 ) {
   const onBehalfOf = input.onBehalfOf ?? false;
 
@@ -118,6 +120,7 @@ export async function decideApproval(
   // same transaction as the status change, or not at all.
   const updated = await transitionPost(ctx, post.id, to, fingerprint, {
     comment: input.comment,
+    notify: options.notify,
     onTransition: async (db) => {
       const landed = await recordDecision(db, ctx, approvalId, {
         state: input.decision,

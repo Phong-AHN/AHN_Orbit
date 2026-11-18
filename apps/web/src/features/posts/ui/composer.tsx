@@ -90,6 +90,12 @@ export interface ComposerProps {
    * one-step "Approve & schedule"; `null` everywhere else.
    */
   approveAndSchedule: { approvalId: string } | null;
+  /**
+   * Publish or schedule straight from the draft, skipping review — the
+   * agency's own accounts only (D-127). Null where it does not apply; `now`
+   * only for those who may publish immediately.
+   */
+  directPublish: { schedule: boolean; now: boolean } | null;
   /** Team members who can own this post; empty when the viewer cannot see them. */
   members: Array<{ id: string; name: string | null; email: string }>;
   canAssign: boolean;
@@ -486,6 +492,7 @@ export function Composer(props: ComposerProps) {
           workspaceTimezone={props.workspaceTimezone}
           canPublishNow={props.canPublishNow}
           approveAndSchedule={props.approveAndSchedule}
+          directPublish={props.directPublish}
           // Not every account: a partly published post goes only to the rest,
           // and this number is what somebody confirms an irreversible act on.
           accountCount={
@@ -1146,6 +1153,7 @@ function TransitionPanel({
   workspaceTimezone,
   canPublishNow,
   approveAndSchedule,
+  directPublish,
   accountCount,
   onScheduled,
   transitions,
@@ -1158,6 +1166,7 @@ function TransitionPanel({
   workspaceTimezone: string;
   canPublishNow: boolean;
   approveAndSchedule: { approvalId: string } | null;
+  directPublish: { schedule: boolean; now: boolean } | null;
   accountCount: number;
   onScheduled: () => void;
   transitions: PostStatus[];
@@ -1165,7 +1174,7 @@ function TransitionPanel({
   blocked: boolean;
   onTransition: (to: PostStatus) => void;
 }) {
-  if (transitions.length === 0) {
+  if (transitions.length === 0 && !directPublish) {
     return (
       <Card>
         <CardHeader>
@@ -1194,6 +1203,32 @@ function TransitionPanel({
         <CardTitle>Next step</CardTitle>
       </CardHeader>
       <CardBody className="space-y-2">
+        {/* The agency's own accounts: straight from the draft (D-127). One
+            call each, which takes the review steps on the server. */}
+        {directPublish ? (
+          <div className="space-y-2">
+            <ScheduleForm
+              orgSlug={orgSlug}
+              postId={postId}
+              timezone={workspaceTimezone}
+              disabled={busy || blocked}
+              onScheduled={onScheduled}
+              direct
+            />
+            {directPublish.now ? (
+              <PublishNowButton
+                orgSlug={orgSlug}
+                postId={postId}
+                accountCount={accountCount}
+                disabled={busy || blocked}
+                onPublished={onScheduled}
+                direct
+              />
+            ) : null}
+            <p className="text-xs text-ink-muted">Posts for your own accounts skip review.</p>
+          </div>
+        ) : null}
+
         {transitions.map((to, index) =>
           // SCHEDULED is the one forward step that carries data, so it gets a
           // form rather than a button. Everything else is a status change.

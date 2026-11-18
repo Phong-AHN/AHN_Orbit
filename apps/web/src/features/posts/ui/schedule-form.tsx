@@ -44,6 +44,12 @@ export interface ScheduleFormProps {
    * control is what the page then offers.
    */
   approvalId?: string;
+  /**
+   * Schedule a draft without review, for the agency's own accounts (D-127):
+   * one call to `/publish-direct`, which submits, approves and schedules on the
+   * server, and checks every step before taking the first.
+   */
+  direct?: boolean;
 }
 
 export function ScheduleForm({
@@ -53,6 +59,7 @@ export function ScheduleForm({
   disabled,
   onScheduled,
   approvalId,
+  direct,
 }: ScheduleFormProps) {
   const toast = useToast();
   const [open, setOpen] = React.useState(false);
@@ -82,6 +89,32 @@ export function ScheduleForm({
     const [year, month, day] = date.split('-').map(Number);
     const [hour, minute] = time.split(':').map(Number);
     const base = `/api/v1/orgs/${encodeURIComponent(orgSlug)}`;
+
+    if (direct) {
+      try {
+        await apiRequest(`${base}/posts/${postId}/publish-direct`, {
+          method: 'POST',
+          body: JSON.stringify({
+            mode: 'schedule',
+            schedule: { localTime: { year, month, day, hour, minute } },
+          }),
+        });
+        setOpen(false);
+        setBusy(false);
+        onScheduled();
+      } catch (e) {
+        // Usually nothing has moved — every step is checked first — so the
+        // form stays open. The page is refreshed anyway, in case a step did
+        // land before something failed, and the toast survives the refresh.
+        const message =
+          e instanceof ApiError ? e.message : 'We could not schedule this. Please try again.';
+        setError(message);
+        toast.show(`Not scheduled: ${message}`, 'danger');
+        setBusy(false);
+        onScheduled();
+      }
+      return;
+    }
 
     if (approvalId) {
       try {

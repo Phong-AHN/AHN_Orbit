@@ -10,6 +10,7 @@ import {
   statusAfterDecision,
 } from '@orbit/core';
 import { allowedTransitions, canTransition } from '@orbit/rbac';
+import { directPublishOptions } from '@/features/publishing/direct';
 import { Badge, Card, CardBody, PageHeader, PermissionDenied } from '@orbit/ui';
 import { pageCan, requirePageContext } from '@/server/page-context';
 import { ensureProvidersRegistered } from '@/server/providers';
@@ -175,6 +176,17 @@ export default async function ComposerPage({ params }: PageProps) {
       ? { approvalId: pending.id }
       : null;
 
+  // Straight from draft to the calendar, or out now, for the agency's own
+  // accounts — no review step (D-127). Asked the way the endpoint will ask it,
+  // and the endpoint asks again.
+  const direct = directPublishOptions(ctx, {
+    status: post.status,
+    workspaceId: post.workspaceId,
+    brandId: post.brandId,
+    createdById: post.createdById,
+    requiresClientApproval: post.workspace.requiresClientApproval,
+  });
+
   // Relaying a client's decision is an internal-role act by definition.
   const canDecideOnBehalf =
     canDecide &&
@@ -229,7 +241,11 @@ export default async function ComposerPage({ params }: PageProps) {
       <PageHeader
         eyebrow={organization.name}
         title={post.title ?? 'Untitled post'}
-        description="Write once, adjust per account, then send it for review."
+        description={
+          post.workspace.requiresClientApproval
+            ? 'Write once, adjust per account, then send it for review.'
+            : 'Write once, adjust per account, then publish or schedule it.'
+        }
       />
 
       <div className="mt-8">
@@ -249,10 +265,15 @@ export default async function ComposerPage({ params }: PageProps) {
           ]}
           capabilities={capabilities}
           allowedTransitions={allowedTransitions(ctx, post.status, scope).filter(
-            // Approving internally while the client gate applies is refused by
-            // the server with a 409. Offering the button anyway was a click
-            // that could only fail; the way on is "Send to client".
-            (to) => !(post.status === 'INTERNAL_REVIEW' && to === 'APPROVED' && clientGate),
+            (to) =>
+              // Approving internally while the client gate applies is refused
+              // by the server with a 409. Offering the button anyway was a
+              // click that could only fail; the way on is "Send to client".
+              !(post.status === 'INTERNAL_REVIEW' && to === 'APPROVED' && clientGate) &&
+              // The agency's own accounts skip review (D-127): where this person
+              // can publish or schedule straight from the draft, the review
+              // step is not offered beside it.
+              !(direct.schedule && to === 'INTERNAL_REVIEW'),
           )}
           canEdit={pageCan(ctx, 'post:update', scope)}
           canDelete={pageCan(ctx, 'post:delete', scope)}
@@ -261,6 +282,7 @@ export default async function ComposerPage({ params }: PageProps) {
           canPublishNow={pageCan(ctx, 'post:publish_now', scope)}
           publishableStatuses={publishableVariantStatuses()}
           approveAndSchedule={approveAndSchedule}
+          directPublish={direct.schedule ? direct : null}
           members={team}
           canAssign={pageCan(ctx, 'post:assign', scope)}
           canUseAI={pageCan(ctx, 'ai:generate', scope)}
