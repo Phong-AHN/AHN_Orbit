@@ -94,7 +94,7 @@ export function PlatformSettingsPanel({
   );
 
   return (
-    <Card>
+    <Card id="platform-settings" className="scroll-mt-6">
       <CardHeader>
         <CardTitle>
           Platform settings{' '}

@@ -10,6 +10,8 @@ import {
   type VariantDraft,
 } from '@orbit/providers';
 import { ensureProvidersRegistered } from '@/server/providers';
+import { platformName } from '@/features/publishing/ui/links';
+import { missingPlatformSettings } from './ui/platform-settings';
 
 /**
  * Server-side validation of a post's variants (SRS §9, §31).
@@ -238,20 +240,36 @@ export async function validatePost(ctx: TenantContext, postId: string): Promise<
       result.valid = false;
     }
 
-    // The adapter refuses a pin with no board, but only at publish time — long
-    // after the post was approved and scheduled. Refused here, the post cannot
-    // leave DRAFT without one.
-    if (variant.platform === 'PINTEREST') {
-      const options = (variant.platformOptions ?? {}) as Record<string, unknown>;
-      if (typeof options['boardId'] !== 'string' || options['boardId'].trim().length === 0) {
-        result.issues.push({
-          severity: 'ERROR',
-          code: 'PINTEREST_BOARD_REQUIRED',
-          field: 'platformOptions.boardId',
-          message: `Choose which Pinterest board ${variant.socialAccount.displayName}'s pin belongs on, and save the Pinterest settings.`,
-        });
-        result.valid = false;
-      }
+    /**
+     * The settings a platform will not publish without, which Social Square
+     * never chooses on a client's behalf: TikTok's "Who can see this" and its
+     * disclosure, YouTube's made-for-kids, Pinterest's board and video cover.
+     *
+     * Each adapter refuses without them, but only at publish time — long after
+     * the post was approved and scheduled. Checked here, with the same
+     * function the composer warns with, so a post cannot be scheduled,
+     * published now, sent to review or published without review until they
+     * are chosen and saved.
+     */
+    const missingSettings = missingPlatformSettings({
+      platform: variant.platform,
+      options,
+      media: usable.map((m) => ({ kind: m.mediaAsset.kind })),
+    });
+    for (const setting of missingSettings) {
+      result.issues.push({
+        severity: 'ERROR',
+        code: 'PLATFORM_SETTING_REQUIRED',
+        field: `platformOptions.${setting.id}`,
+        message: requiredSettingMessage(
+          setting.id,
+          variant.socialAccount.displayName,
+          platformName(variant.platform),
+          setting.label,
+        ),
+        meta: { setting: setting.id },
+      });
+      result.valid = false;
     }
 
     return {
@@ -268,4 +286,27 @@ export async function validatePost(ctx: TenantContext, postId: string): Promise<
     postIssues.every((i) => i.severity !== 'ERROR') && variants.every((v) => v.result.valid);
 
   return { valid, variants, postIssues };
+}
+
+/** What to tell somebody, in the Checks list, about a setting still to choose. */
+function requiredSettingMessage(
+  id: string,
+  account: string,
+  platform: string,
+  label: string,
+): string {
+  switch (id) {
+    case 'privacyLevel':
+      return `Choose “Who can see this” for ${account} (${platform}) and save the TikTok settings. TikTok requires it, and Social Square never picks it for you.`;
+    case 'commercialDisclosure':
+      return `Say what ${account}'s ${platform} post promotes — your brand, a third party, or both — or turn the disclosure off.`;
+    case 'madeForKids':
+      return `Say whether ${account}'s ${platform} video is made for children, and save the YouTube settings. YouTube requires it.`;
+    case 'boardId':
+      return `Choose which Pinterest board ${account}'s pin belongs on, and save the Pinterest settings.`;
+    case 'coverImage':
+      return `Add a cover image for ${account}'s Pinterest video pin.`;
+    default:
+      return `${account} (${platform}) still needs ${label} before it can be published.`;
+  }
 }

@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import type { PostStatus } from '@orbit/core';
 import {
+  Alert,
   Badge,
   Button,
   Card,
@@ -31,7 +32,12 @@ import { PostPreview } from './preview';
 import { PlatformSettingsPanel } from './platform-settings-panel';
 import { ThreadEditor } from './thread-editor';
 import { joinManualThread, stripThreadBreaks } from '@orbit/providers/thread';
-import { missingPlatformSettings, requiresPlatformSettings } from './platform-settings';
+import {
+  missingPlatformSettings,
+  requiresPlatformSettings,
+  summariseMissingSettings,
+} from './platform-settings';
+import { platformName } from '@/features/publishing/ui/links';
 
 /**
  * The composer (SRS §9, §31).
@@ -504,6 +510,19 @@ export function Composer(props: ComposerProps) {
           transitions={props.allowedTransitions}
           busy={busy}
           blocked={validation !== null && !validation.valid}
+          settingsMissing={summariseMissingSettings(
+            post.variants
+              .filter((variant) => requiresPlatformSettings(variant.platform))
+              .map((variant) => ({
+                platform: variant.platform,
+                accountName: `${variant.socialAccount.displayName} - ${platformName(variant.platform)}`,
+                missing: missingPlatformSettings({
+                  platform: variant.platform,
+                  options: variant.platformOptions,
+                  media,
+                }),
+              })),
+          )}
           onTransition={transition}
         />
       </aside>
@@ -871,7 +890,7 @@ function VariantEditor({
                     : 'bg-surface-sunken text-ink-muted hover:text-ink',
                 )}
               >
-                {variant.socialAccount.displayName}
+                {variant.socialAccount.displayName} - {platformName(variant.platform)}
                 {unfinished ? (
                   <>
                     <span aria-hidden="true" className="text-warning">
@@ -892,7 +911,7 @@ function VariantEditor({
           </p>
         ) : (
           <Field
-            label={`Text for ${active.socialAccount.displayName}`}
+            label={`Text for ${active.socialAccount.displayName} - ${platformName(active.platform)}`}
             hint={
               inherits
                 ? 'Empty means this account uses the main post text.'
@@ -1154,6 +1173,7 @@ function TransitionPanel({
   canPublishNow,
   approveAndSchedule,
   directPublish,
+  settingsMissing,
   accountCount,
   onScheduled,
   transitions,
@@ -1167,6 +1187,12 @@ function TransitionPanel({
   canPublishNow: boolean;
   approveAndSchedule: { approvalId: string } | null;
   directPublish: { schedule: boolean; now: boolean } | null;
+  /**
+   * What a platform still needs before this post may go out — TikTok's "Who
+   * can see this", say — or null. Holds every forward button, as the server
+   * does, and says what to choose.
+   */
+  settingsMissing: string | null;
   accountCount: number;
   onScheduled: () => void;
   transitions: PostStatus[];
@@ -1189,6 +1215,10 @@ function TransitionPanel({
     );
   }
 
+  // Moving forward needs a clean post, with every setting a platform requires
+  // chosen; stepping back or cancelling never does.
+  const held = blocked || settingsMissing !== null;
+
   // Moving forward needs a clean post; stepping back or cancelling never does.
   const forward = new Set<PostStatus>([
     'INTERNAL_REVIEW',
@@ -1203,6 +1233,18 @@ function TransitionPanel({
         <CardTitle>Next step</CardTitle>
       </CardHeader>
       <CardBody className="space-y-2">
+        {settingsMissing ? (
+          <Alert tone="warning" title="Choose these before publishing or scheduling">
+            {settingsMissing}{' '}
+            <a
+              href="#platform-settings"
+              className="font-medium underline underline-offset-2 hover:no-underline"
+            >
+              Go to platform settings
+            </a>
+          </Alert>
+        ) : null}
+
         {/* The agency's own accounts: straight from the draft (D-127). One
             call each, which takes the review steps on the server. */}
         {directPublish ? (
@@ -1211,7 +1253,7 @@ function TransitionPanel({
               orgSlug={orgSlug}
               postId={postId}
               timezone={workspaceTimezone}
-              disabled={busy || blocked}
+              disabled={busy || held}
               onScheduled={onScheduled}
               direct
             />
@@ -1220,7 +1262,7 @@ function TransitionPanel({
                 orgSlug={orgSlug}
                 postId={postId}
                 accountCount={accountCount}
-                disabled={busy || blocked}
+                disabled={busy || held}
                 onPublished={onScheduled}
                 direct
               />
@@ -1238,7 +1280,7 @@ function TransitionPanel({
                 orgSlug={orgSlug}
                 postId={postId}
                 timezone={workspaceTimezone}
-                disabled={busy || blocked}
+                disabled={busy || held}
                 onScheduled={onScheduled}
               />
               {/* Same gate as scheduling: publishing now routes through the
@@ -1249,7 +1291,7 @@ function TransitionPanel({
                   orgSlug={orgSlug}
                   postId={postId}
                   accountCount={accountCount}
-                  disabled={busy || blocked}
+                  disabled={busy || held}
                   onPublished={onScheduled}
                 />
               ) : null}
@@ -1259,7 +1301,7 @@ function TransitionPanel({
               <Button
                 className="w-full"
                 variant={index === 0 ? 'primary' : 'secondary'}
-                disabled={busy || (blocked && forward.has(to))}
+                disabled={busy || (held && forward.has(to))}
                 onClick={() => {
                   onTransition(to);
                 }}
@@ -1273,7 +1315,7 @@ function TransitionPanel({
                   orgSlug={orgSlug}
                   postId={postId}
                   timezone={workspaceTimezone}
-                  disabled={busy || blocked}
+                  disabled={busy || held}
                   onScheduled={onScheduled}
                   approvalId={approveAndSchedule.approvalId}
                 />

@@ -532,6 +532,12 @@ Cách đọc:
   - Mọi điều kiện được kiểm tra **trước** bước đầu tiên (workspace nội bộ, bài đang là nháp, đủ quyền từng bước, giờ lên lịch hợp lệ, nội dung hợp lệ). Thiếu điều kiện nào thì bài giữ nguyên ở bản nháp. Không gửi thông báo "cần duyệt" cho các bước đi qua.
   - Kiểm tra: typecheck, lint, 1816 unit test đạt (12 test mới cho luồng này). Chưa xem được giao diện thật ở máy này.
 - **Chuyển các workspace đang có tài khoản kết nối thành Internal.** Không chạy từ máy này: đây là thay đổi dữ liệu production. Đã đưa anh hai cách: bỏ tick "Client approves posts" ở Settings → Clients (có kiểm quyền và ghi audit), hoặc câu SQL giới hạn trong tổ chức AHN (không ghi audit). Bài đang chờ khách hàng duyệt (`CLIENT_REVIEW`) giữ nguyên trạng thái, cần xử lý tay.
+- **TikTok: bắt buộc chọn "Who can see this" trước khi đăng hoặc lên lịch.** Trước đây chỉ composer cảnh báo; server chỉ kiểm board của Pinterest, nên bài TikTok vẫn lên lịch được (kể cả qua nút đăng thẳng mới) rồi mới hỏng lúc đăng.
+  - **Server chặn:** thiếu lựa chọn này là lỗi trong mục Checks, chặn gửi duyệt, lên lịch, đăng ngay, đăng thẳng và thao tác của agent AI. Dùng cùng hàm với composer, nên áp dụng luôn cho made-for-kids của YouTube, board và ảnh bìa của Pinterest, và phần khai báo quảng cáo của TikTok. Bài gửi sang TikTok để hoàn tất ở app ("Send to TikTok…") không cần chọn.
+  - **Composer nhắc:** ô "Next step" khóa các nút đi tiếp, hiện "Choose these before publishing or scheduling" kèm tên tài khoản còn thiếu và link "Go to platform settings".
+  - Bài đã lên lịch từ trước mà thiếu lựa chọn này không bị đổi; nó vẫn hỏng lúc đăng như trước.
+- **"Per-account text" hiện cả nền tảng:** tab và nhãn ô chữ giờ ghi dạng "AHN - Threads".
+  - Kiểm tra: typecheck, lint, 1820 unit test đạt (4 test mới cho phần chặn).
 
 ---
 

@@ -1854,6 +1854,12 @@ Social Square qua hai địa chỉ công khai (tự phục vụ khi có khoá):
 
 ## Một khoảng trống chung của TikTok, YouTube và Pinterest
 
+> **Đã đóng (18/11/2026).** Bước kiểm tra trên server giờ dùng đúng hàm
+> `missingPlatformSettings` mà composer dùng. Thiếu "Who can see this" của
+> TikTok, made-for-kids của YouTube, hoặc board/ảnh bìa của Pinterest là lỗi
+> chặn: không gửi duyệt, không lên lịch, không đăng ngay, không đăng thẳng
+> được. Phần dưới giữ lại để biết bối cảnh.
+
 Ba nền tảng này có **thiết lập bắt buộc theo từng bài** (quyền riêng tư của
 TikTok, khai báo made-for-kids của YouTube, board của Pinterest). Hiện tại việc
 kiểm tra nằm **ở lúc đăng**, không phải lúc duyệt bài.
