@@ -531,6 +531,7 @@ Cách đọc:
   - **Ai được dùng:** đúng người làm được tất cả các bước bằng tay. Tác giả bài trong workspace nội bộ được lên lịch nhưng không được đăng ngay. Đăng ngay vẫn cần quyền `post:publish_now` (Owner, Admin, Account Manager).
   - Mọi điều kiện được kiểm tra **trước** bước đầu tiên (workspace nội bộ, bài đang là nháp, đủ quyền từng bước, giờ lên lịch hợp lệ, nội dung hợp lệ). Thiếu điều kiện nào thì bài giữ nguyên ở bản nháp. Không gửi thông báo "cần duyệt" cho các bước đi qua.
   - Kiểm tra: typecheck, lint, 1816 unit test đạt (12 test mới cho luồng này). Chưa xem được giao diện thật ở máy này.
+- **Chuyển các workspace đang có tài khoản kết nối thành Internal.** Không chạy từ máy này: đây là thay đổi dữ liệu production. Đã đưa anh hai cách: bỏ tick "Client approves posts" ở Settings → Clients (có kiểm quyền và ghi audit), hoặc câu SQL giới hạn trong tổ chức AHN (không ghi audit). Bài đang chờ khách hàng duyệt (`CLIENT_REVIEW`) giữ nguyên trạng thái, cần xử lý tay.
 
 ---
 
