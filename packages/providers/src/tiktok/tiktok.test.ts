@@ -748,9 +748,34 @@ describe('publishing a video', () => {
     expect(local.called(/video\/init/)).toBe(0);
   });
 
-  it('refuses a direct post with no privacy level at all', async () => {
-    await expect(
-      provider(api).publish(
+  /** D-126, revised at the owner's request: nobody chose, so Everyone. */
+  it('publishes a direct post nobody set a visibility on to Everyone', async () => {
+    const result = await provider(api).publish(
+      publishContext({
+        draft: {
+          body: 'x',
+          hashtags: [],
+          mentions: [],
+          media: [],
+          providerOptions: { postMode: 'DIRECT_POST' },
+        },
+      }),
+    );
+
+    const postInfo = api.bodyOf(/video\/init/)['post_info'] as Record<string, unknown>;
+    expect(postInfo['privacy_level']).toBe('PUBLIC_TO_EVERYONE');
+    expect(result.providerMeta?.['privacyLevel']).toBe('PUBLIC_TO_EVERYONE');
+  });
+
+  it('asks for a visibility where the account offers no public posts', async () => {
+    const local = happyApi().ok(/creator_info\/query/, {
+      creator_username: 'ahn',
+      privacy_level_options: ['FOLLOWER_OF_CREATOR', 'SELF_ONLY'],
+      max_video_post_duration_sec: 300,
+    });
+
+    const error = await provider(local)
+      .publish(
         publishContext({
           draft: {
             body: 'x',
@@ -760,8 +785,12 @@ describe('publishing a video', () => {
             providerOptions: { postMode: 'DIRECT_POST' },
           },
         }),
-      ),
-    ).rejects.toMatchObject({ code: 'PROVIDER_VALIDATION_ERROR' });
+      )
+      .catch((caught: { code?: string; userMessage?: string }) => caught);
+
+    expect(error.code).toBe('PROVIDER_VALIDATION_ERROR');
+    expect(error.userMessage).toMatch(/does not allow public posts/);
+    expect(local.called(/video\/init/)).toBe(0);
   });
 
   /** The per-account ceiling is the only place this number exists. */

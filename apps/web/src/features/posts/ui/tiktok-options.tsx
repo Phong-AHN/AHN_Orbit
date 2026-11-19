@@ -55,11 +55,17 @@ interface CreatorOptions {
 
 /** TikTok's own wording, so what somebody picks matches what they will see. */
 const PRIVACY_LABEL: Record<string, string> = {
-  PUBLIC_TO_EVERYONE: 'Everyone',
+  PUBLIC_TO_EVERYONE: 'Everyone (Public)',
   MUTUAL_FOLLOW_FRIENDS: 'Friends (mutual follows)',
   FOLLOWER_OF_CREATOR: 'Followers',
   SELF_ONLY: 'Only this account',
 };
+
+/**
+ * What "Who can see this" is when nobody chose (D-126, revised 2026-11-19):
+ * the adapter publishes a direct post at this level unless one was picked.
+ */
+const DEFAULT_PRIVACY = 'PUBLIC_TO_EVERYONE';
 
 export interface TikTokOptionsProps {
   orgSlug: string;
@@ -124,6 +130,10 @@ export function TikTokOptionsPanel({
   // Compared field by field rather than by serialising both: key order differs
   // between what the server returns and what this component builds, and a
   // string comparison would report every panel as unsaved on first render.
+  // Whether this account allows public posts, which is when the default applies.
+  const publicOffered = Boolean(creator?.privacyLevels.includes(DEFAULT_PRIVACY));
+  const shownPrivacy = value.privacyLevel ?? (publicOffered ? DEFAULT_PRIVACY : undefined);
+
   const dirty =
     (value.postMode ?? 'DIRECT_POST') !== (saved.postMode ?? 'DIRECT_POST') ||
     (value.privacyLevel ?? '') !== (saved.privacyLevel ?? '') ||
@@ -231,11 +241,17 @@ export function TikTokOptionsPanel({
           <Field
             label="Who can see this"
             htmlFor={`tiktok-privacy-${socialAccountId}`}
-            hint="These are the options this TikTok account currently allows."
+            hint={
+              publicOffered
+                ? 'Everyone (Public) unless you choose otherwise. These are the options this TikTok account currently allows.'
+                : 'This account does not allow public posts, so choose who can see this. These are the options it currently allows.'
+            }
           >
             <Select
               id={`tiktok-privacy-${socialAccountId}`}
-              value={value.privacyLevel ?? ''}
+              // Unset means Everyone wherever the account offers it (D-126):
+              // the post goes out public unless somebody picks otherwise.
+              value={shownPrivacy ?? ''}
               disabled={disabled || saving}
               onChange={(event) => {
                 // The placeholder means "not chosen", and an empty string is
@@ -246,7 +262,7 @@ export function TikTokOptionsPanel({
                 onChange(event.target.value ? { ...rest, privacyLevel: event.target.value } : rest);
               }}
             >
-              <option value="">Choose&hellip;</option>
+              {publicOffered ? null : <option value="">Choose&hellip;</option>}
               {creator.privacyLevels.map((level) => (
                 // TikTok does not allow branded content to be private.
                 <option key={level} value={level} disabled={branded && level === 'SELF_ONLY'}>
@@ -262,7 +278,7 @@ export function TikTokOptionsPanel({
               account" — and it refuses it at publish time, hours after the
               choice was made and long after anyone is still looking. Naming the
               constraint here costs one line and saves a failed post. */}
-          {value.privacyLevel && value.privacyLevel !== 'SELF_ONLY' ? (
+          {shownPrivacy && shownPrivacy !== 'SELF_ONLY' ? (
             <p className="text-xs text-ink-muted">
               If this app is still in TikTok&rsquo;s sandbox or awaiting audit, only{' '}
               <strong className="font-medium">Only this account</strong> will publish — anything

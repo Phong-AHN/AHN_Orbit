@@ -123,9 +123,19 @@ export interface TikTokProviderOptions extends TikTokClientOptions {
 }
 
 /** Fields TikTok requires on a direct post, resolved from the creator. */
+/**
+ * "Who can see this" when nobody chose: Everyone (D-126, revised 2026-11-19 at
+ * the owner's request). TikTok's guidelines ask for no default; the owner
+ * decided otherwise, knowing the audit may object and that an unaudited app
+ * cannot post publicly at all.
+ */
+export const TIKTOK_DEFAULT_PRIVACY: TikTokPrivacyLevel = 'PUBLIC_TO_EVERYONE';
+
 export interface TikTokPostSettings {
   postMode: TikTokPostMode;
   privacyLevel?: TikTokPrivacyLevel | undefined;
+  /** The privacy level is the default, not a choice somebody made. */
+  privacyDefaulted?: boolean | undefined;
   disableComment?: boolean | undefined;
   disableDuet?: boolean | undefined;
   disableStitch?: boolean | undefined;
@@ -1140,12 +1150,17 @@ function readSettings(draft: VariantDraft): TikTokPostSettings {
   const raw = draft.providerOptions ?? {};
 
   const postMode = raw['postMode'] === 'MEDIA_UPLOAD' ? 'MEDIA_UPLOAD' : 'DIRECT_POST';
+  const chosen = typeof raw['privacyLevel'] === 'string';
 
   return {
     postMode,
-    ...(typeof raw['privacyLevel'] === 'string'
+    // A direct post nobody set a visibility on goes to Everyone (D-126).
+    // Upload mode sends none: the creator picks it in TikTok.
+    ...(chosen
       ? { privacyLevel: raw['privacyLevel'] as TikTokPrivacyLevel }
-      : {}),
+      : postMode === 'DIRECT_POST'
+        ? { privacyLevel: TIKTOK_DEFAULT_PRIVACY, privacyDefaulted: true }
+        : {}),
     ...(typeof raw['disableComment'] === 'boolean'
       ? { disableComment: raw['disableComment'] }
       : {}),
@@ -1177,6 +1192,15 @@ function assertSettingsMatchCreator(
       kind: 'VALIDATION',
       message: 'A TikTok direct post requires a privacy level chosen by the creator',
       userMessage: 'Choose who can see this TikTok post before publishing it.',
+    });
+  }
+
+  if (!creator.privacyLevelOptions.includes(settings.privacyLevel) && settings.privacyDefaulted) {
+    throw toAppError('TIKTOK', {
+      kind: 'VALIDATION',
+      message: `The default privacy_level ${settings.privacyLevel} is not among this creator's options (${creator.privacyLevelOptions.join(', ')})`,
+      userMessage:
+        'This TikTok account does not allow public posts, so “Who can see this” has to be chosen for it.',
     });
   }
 

@@ -1,4 +1,4 @@
-export { TikTokProvider, planChunks } from './provider.js';
+export { TIKTOK_DEFAULT_PRIVACY, TikTokProvider, planChunks } from './provider.js';
 export type { TikTokProviderOptions, TikTokPostSettings, TikTokCreatorInfo } from './provider.js';
 export {
   TIKTOK_ANALYTICS_SCOPES,

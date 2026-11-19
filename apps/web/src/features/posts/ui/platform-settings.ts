@@ -83,14 +83,11 @@ export function missingPlatformSettings(input: {
 
   if (platform === 'TIKTOK') {
     /**
-     * Upload mode carries no visibility at all — the creator picks it in
-     * TikTok's own editor — so asking for one here would be asking for
-     * something that is never sent.
+     * "Who can see this" is not asked for: a direct post nobody set it on goes
+     * to Everyone (D-126, revised 2026-11-19 at the owner's request). Upload
+     * mode carries no visibility at all — the creator picks it in TikTok.
      */
     const mode = options['postMode'];
-    if (mode !== 'MEDIA_UPLOAD' && typeof options['privacyLevel'] !== 'string') {
-      missing.push({ id: 'privacyLevel', label: 'who can see this video' });
-    }
     // Disclosure switched on is a question asked and not yet answered.
     if (
       mode !== 'MEDIA_UPLOAD' &&

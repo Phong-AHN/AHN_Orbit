@@ -539,6 +539,14 @@ Cách đọc:
 - **"Per-account text" hiện cả nền tảng:** tab và nhãn ô chữ giờ ghi dạng "AHN - Threads".
   - Kiểm tra: typecheck, lint, 1820 unit test đạt (4 test mới cho phần chặn).
 
+
+### 19/11
+
+- **TikTok: "Who can see this" mặc định Everyone (Public)** theo quyết định của anh (D-126, sửa đổi). Bài "Post it" chưa chọn gì sẽ đăng công khai; panel hiện sẵn "Everyone (Public)" và không còn bắt chọn. Ba ô Allow comments/duets/stitches vẫn để trống.
+  - Tài khoản TikTok không cho đăng công khai (tài khoản riêng tư): panel yêu cầu chọn, adapter từ chối kèm lý do trước khi gửi.
+  - Rủi ro anh đã chấp nhận: quy định TikTok yêu cầu không có giá trị mặc định nên đợt duyệt có thể không đạt; khi app chưa qua audit, TikTok từ chối mọi bài công khai.
+  - Kiểm tra: typecheck đạt; test TikTok và bài đăng đạt (các test cũ về "bắt buộc chọn" đã sửa theo hành vi mới).
+
 ---
 
 ## Nền tảng mạng xã hội — ngày tích hợp

@@ -5243,6 +5243,22 @@ nothing against it.
 
 - **Date:** 2026-11-17 · **Status:** DECIDED (no change)
 
+### Revised 2026-11-19: Everyone by default
+
+Asked again by the owner, who decided to default **"Who can see this" to
+Everyone (Public)** with the risk stated. A direct post nobody set a
+visibility on is published as `PUBLIC_TO_EVERYONE` (`TIKTOK_DEFAULT_PRIVACY`
+in the adapter), the panel shows "Everyone (Public)" selected, and the
+composer no longer asks for it. The interaction boxes stay unticked.
+
+- **Where the account offers no public posts** (a private TikTok account),
+  the default does not apply: the panel asks for a choice, and the adapter
+  refuses the post, naming the reason, before anything is sent.
+- **Risks the owner accepted:** TikTok's guidelines say there should be no
+  default, so the audit may object; and until the app is audited TikTok
+  refuses every public post, so default posts fail at publish time until then.
+- Undoing it is one constant and the panel's display; nothing is stored.
+
 ## D-127 — The agency's own accounts publish straight from the draft
 
 Asked by the owner (2026-11-18): for AHN's own accounts, skip "Submit for

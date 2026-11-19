@@ -6,7 +6,7 @@ import { validatePost } from './validation';
 /**
  * The settings a platform will not publish without block the post on the
  * server, not only in the composer — so it cannot be scheduled, published now
- * or published without review with TikTok's "Who can see this" unanswered.
+ * or published without review with a required choice unanswered.
  */
 
 const fake = vi.hoisted(() => {
@@ -74,18 +74,21 @@ beforeEach(() => {
 });
 
 describe('settings a platform requires', () => {
-  it('blocks a TikTok post until "Who can see this" is chosen, and says so', async () => {
+  it('lets a TikTok post with no visibility chosen through: it goes to Everyone', async () => {
     const result = await validatePost(ctx, 'post-1');
-    const [issue] = settingIssues(result);
+    expect(settingIssues(result)).toHaveLength(0);
+  });
 
-    expect(result.valid).toBe(false);
+  it('blocks a TikTok disclosure that says nothing about what is promoted', async () => {
+    fake.state.platformOptions = { commercialDisclosure: true };
+    const [issue] = settingIssues(await validatePost(ctx, 'post-1'));
+
     expect(issue).toMatchObject({
       severity: 'ERROR',
-      field: 'platformOptions.privacyLevel',
-      meta: { setting: 'privacyLevel' },
+      field: 'platformOptions.commercialDisclosure',
+      meta: { setting: 'commercialDisclosure' },
     });
-    expect(issue?.message).toMatch(/Who can see this/);
-    expect(issue?.message).toMatch(/AHN \(TikTok\)/);
+    expect(issue?.message).toMatch(/AHN's TikTok post promotes/);
   });
 
   it('lets it through once the choice is saved', async () => {

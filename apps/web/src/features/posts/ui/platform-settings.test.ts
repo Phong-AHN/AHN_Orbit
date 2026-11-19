@@ -87,14 +87,15 @@ describe('YouTube', () => {
 });
 
 describe('TikTok', () => {
-  it('asks who can see a direct post', () => {
-    const missing = missingPlatformSettings({
-      platform: 'TIKTOK',
-      options: { postMode: 'DIRECT_POST' },
-      media: noMedia,
-    });
-
-    expect(missing.map((m) => m.id)).toEqual(['privacyLevel']);
+  /** D-126, revised: an unset visibility means Everyone, so nothing is missing. */
+  it('asks nothing about visibility on a direct post, which defaults to Everyone', () => {
+    expect(
+      missingPlatformSettings({
+        platform: 'TIKTOK',
+        options: { postMode: 'DIRECT_POST' },
+        media: noMedia,
+      }),
+    ).toEqual([]);
   });
 
   /**
