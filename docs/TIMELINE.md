@@ -546,6 +546,11 @@ Cách đọc:
   - Tài khoản TikTok không cho đăng công khai (tài khoản riêng tư): panel yêu cầu chọn, adapter từ chối kèm lý do trước khi gửi.
   - Rủi ro anh đã chấp nhận: quy định TikTok yêu cầu không có giá trị mặc định nên đợt duyệt có thể không đạt; khi app chưa qua audit, TikTok từ chối mọi bài công khai.
   - Kiểm tra: typecheck đạt; test TikTok và bài đăng đạt (các test cũ về "bắt buộc chọn" đã sửa theo hành vi mới).
+- **Thread: chia cả ảnh/video theo từng bài (D-124).** Mỗi bài trong thread có attachment riêng, không còn dồn hết vào bài đầu.
+  - **Tự động:** ảnh vượt giới hạn một bài sẽ chuyển sang bài kế tiếp theo thứ tự (X: 8 ảnh thành 4 + 4 thay vì báo lỗi; video/GIF trên X đứng riêng một bài).
+  - **Chỉnh tay:** dưới mỗi bài trong khung xem trước có danh sách attachment, mỗi mục có ô chọn "Post N" để chuyển sang bài khác. Lưu trong `platformOptions.threadMedia`, không cần migration.
+  - Kiểm tra số lượng, video đứng riêng, không trộn loại theo từng bài, báo đúng số bài. X, Bluesky, Threads đều đăng media kèm đúng bài trả lời.
+  - Kiểm tra: typecheck, lint, 1835 unit test đạt (17 test mới).
 
 ---
 

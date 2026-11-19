@@ -9,7 +9,12 @@ import {
   type VariantDraft,
 } from '../validation.js';
 import type { PlatformCapabilities } from '../capabilities.js';
-import { readThreadProgress, threadFingerprint, type ThreadProgress } from '../thread.js';
+import {
+  assignThreadMedia,
+  readThreadProgress,
+  threadFingerprint,
+  type ThreadProgress,
+} from '../thread.js';
 import {
   assertThreadScopes,
   continueThread,
@@ -158,6 +163,12 @@ interface MediaResponse {
 interface MediaRef {
   contentHash: string;
   mediaIds: string[];
+  /**
+   * Which attachments these ids were uploaded for, by media id. A thread puts
+   * only some attachments on its first post (D-124), so the count alone no
+   * longer says the ids belong to the attachments in hand.
+   */
+  mediaKeys?: string[];
   /** The ones FINALIZE said are still processing; a still usually has none. */
   pendingIds: string[];
   /** Epoch ms; the earliest any of them expires. */
@@ -391,8 +402,20 @@ export class XProvider implements SocialProvider {
       await ctx.recordProviderRef?.(ref);
     };
 
+    // A thread spreads its attachments over its posts (D-124); a single post
+    // carries them all.
+    const groups = threaded
+      ? assignThreadMedia(
+          ctx.media,
+          parts.length,
+          ctx.draft.threadMedia,
+          this.capabilityCache.media,
+        )
+      : [ctx.media];
+    const headMedia = groups[0] ?? [];
+
     let id: string;
-    let mediaCount = ctx.media.length;
+    let mediaCount = headMedia.length;
 
     if (progress && progress.posted.length > 0) {
       // The first post went out on an earlier attempt; only the rest is left.
@@ -404,7 +427,7 @@ export class XProvider implements SocialProvider {
        * expires on its own, while a post created first and then failed on media
        * would be public and wrong.
        */
-      const prepared = ctx.media.length > 0 ? await this.prepareMedia(ctx) : undefined;
+      const prepared = headMedia.length > 0 ? await this.prepareMedia(ctx, headMedia) : undefined;
       const mediaIds = prepared?.mediaIds ?? [];
       mediaCount = mediaIds.length;
 
@@ -435,12 +458,19 @@ export class XProvider implements SocialProvider {
         parts,
         progress,
         deadlineMs: startedAt + THREAD_BUDGET_MS,
-        postReply: async ({ text: part, parent }) => ({
-          id: await this.createPost(ctx, {
-            text: part,
-            reply: { in_reply_to_tweet_id: parent.id },
-          }),
-        }),
+        postReply: async ({ text: part, index, parent }) => {
+          // Uploaded fresh for each attempt: an upload no post uses is
+          // invisible and expires, and the part is recorded only once posted.
+          const replyMedia = groups[index] ?? [];
+          const mediaIds = replyMedia.length > 0 ? await this.uploadAll(ctx, replyMedia) : [];
+          return {
+            id: await this.createPost(ctx, {
+              text: part,
+              reply: { in_reply_to_tweet_id: parent.id },
+              ...(mediaIds.length > 0 ? { media: { media_ids: mediaIds } } : {}),
+            }),
+          };
+        },
         record: (next) => save({ thread: next }),
       });
     }
@@ -483,12 +513,20 @@ export class XProvider implements SocialProvider {
    * transcoding when the budget runs out is retried, and the retry has to find
    * the same ids to wait on rather than send the file again.
    */
-  private async prepareMedia(ctx: PublishContext): Promise<MediaRef> {
+  private async prepareMedia(
+    ctx: PublishContext,
+    media: readonly PublishMedia[],
+  ): Promise<MediaRef> {
+    const keys = media.map((item) => item.id);
     const previous = readMediaRef(ctx.previousRef);
+    const sameAttachments = previous?.mediaKeys
+      ? previous.mediaKeys.length === keys.length &&
+        previous.mediaKeys.every((key, index) => key === keys[index])
+      : previous?.mediaIds.length === media.length && media.length === ctx.media.length;
     const reusable =
       previous &&
       previous.contentHash === ctx.contentHash &&
-      previous.mediaIds.length === ctx.media.length &&
+      sameAttachments &&
       previous.expiresAt - clock.nowMs() > MEDIA_REUSE_MARGIN_MS;
 
     let ref: MediaRef;
@@ -497,11 +535,12 @@ export class XProvider implements SocialProvider {
       ref = previous;
     } else {
       const uploaded: Array<{ id: string; expiresAt: number; processing: boolean }> = [];
-      for (const media of ctx.media) uploaded.push(await this.upload(ctx, media));
+      for (const item of media) uploaded.push(await this.upload(ctx, item));
 
       ref = {
         contentHash: ctx.contentHash,
         mediaIds: uploaded.map((item) => item.id),
+        mediaKeys: keys,
         pendingIds: uploaded.filter((item) => item.processing).map((item) => item.id),
         expiresAt: Math.min(...uploaded.map((item) => item.expiresAt)),
       };
@@ -510,6 +549,14 @@ export class XProvider implements SocialProvider {
 
     for (const id of ref.pendingIds) await this.awaitProcessing(ctx, id);
     return { ...ref, pendingIds: [] };
+  }
+
+  /** Upload attachments and wait for any still processing; the ids, in order. */
+  private async uploadAll(ctx: PublishContext, media: readonly PublishMedia[]): Promise<string[]> {
+    const uploaded: Array<{ id: string; processing: boolean }> = [];
+    for (const item of media) uploaded.push(await this.upload(ctx, item));
+    for (const item of uploaded) if (item.processing) await this.awaitProcessing(ctx, item.id);
+    return uploaded.map((item) => item.id);
   }
 
   private async upload(
@@ -913,7 +960,7 @@ function categoryFor(media: PublishMedia): string {
 
 function readMediaRef(ref: Record<string, unknown> | undefined): MediaRef | undefined {
   if (!ref) return undefined;
-  const { contentHash, mediaIds, pendingIds, expiresAt } = ref;
+  const { contentHash, mediaIds, pendingIds, expiresAt, mediaKeys } = ref;
   const strings = (value: unknown): value is string[] =>
     Array.isArray(value) && value.every((id) => typeof id === 'string');
 
@@ -927,7 +974,13 @@ function readMediaRef(ref: Record<string, unknown> | undefined): MediaRef | unde
   ) {
     return undefined;
   }
-  return { contentHash, mediaIds, pendingIds, expiresAt };
+  return {
+    contentHash,
+    mediaIds,
+    pendingIds,
+    expiresAt,
+    ...(strings(mediaKeys) ? { mediaKeys } : {}),
+  };
 }
 
 function withoutLinks(text: string): string {

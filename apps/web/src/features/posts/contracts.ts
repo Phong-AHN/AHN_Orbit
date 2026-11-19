@@ -99,6 +99,11 @@ const platformOptions = z
      * separated by `---` lines. Ignored when the account has no text of its own.
      */
     threadManual: z.boolean().optional(),
+    /**
+     * Which post of a thread an attachment goes with: media asset id → post
+     * index, 0 being the first. Attachments not listed are placed in order.
+     */
+    threadMedia: z.record(z.string().uuid(), z.number().int().min(0).max(49)).optional(),
   })
   .strict();
 

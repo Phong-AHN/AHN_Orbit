@@ -860,3 +860,51 @@ describe('threads (D-124)', () => {
     expect(result.outcome).toBe('INCONCLUSIVE');
   });
 });
+
+describe('attachments in a thread (D-124)', () => {
+  const longBody = Array.from(
+    { length: 24 },
+    (_, i) => `Sentence number ${i + 1} says something useful about the product.`,
+  ).join(' ');
+
+  const replyCredential = {
+    ...credential,
+    scopes: ['threads_basic', 'threads_content_publish', 'threads_manage_replies'],
+  };
+
+  it('posts a reply with its own image, as an image container replying to the post before', async () => {
+    let published = 0;
+    const fake = happyApi()
+      .on(/\/th-user-1\/threads_publish/, () => {
+        published += 1;
+        return { body: { id: `post-${published}` } };
+      })
+      .on(/\/post-\d+/, { body: { permalink: 'https://threads.net/@a/post/1' } });
+
+    await provider(fake, { threadReplies: true }).publish(
+      publishContext({
+        credential: replyCredential,
+        draft: {
+          body: longBody,
+          hashtags: [],
+          mentions: [],
+          media: [],
+          thread: true,
+          threadMedia: { b: 1 },
+        },
+        media: [image('a'), image('b')],
+      }),
+    );
+
+    const forms = fake.calls
+      .filter((call) => call.method === 'POST' && /\/th-user-1\/threads(\?|$)/.test(call.url))
+      .map((call) => new URLSearchParams(call.body ?? ''));
+
+    expect(forms[0]?.get('media_type')).toBe('IMAGE');
+    expect(forms[0]?.get('image_url')).toContain('a.jpg');
+    expect(forms[1]?.get('media_type')).toBe('IMAGE');
+    expect(forms[1]?.get('image_url')).toContain('b.jpg');
+    expect(forms[1]?.get('reply_to_id')).toBe('post-1');
+    expect(forms.slice(2).every((form) => form.get('media_type') === 'TEXT')).toBe(true);
+  });
+});

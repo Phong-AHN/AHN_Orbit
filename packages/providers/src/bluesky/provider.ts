@@ -9,7 +9,12 @@ import {
   type VariantDraft,
 } from '../validation.js';
 import type { PlatformCapabilities } from '../capabilities.js';
-import { readThreadProgress, threadFingerprint, type ThreadProgress } from '../thread.js';
+import {
+  assignThreadMedia,
+  readThreadProgress,
+  threadFingerprint,
+  type ThreadProgress,
+} from '../thread.js';
 import {
   assertThreadScopes,
   continueThread,
@@ -557,6 +562,13 @@ export class BlueskyProvider implements SocialProvider {
         : parts.map((_, index) => newTid(clock.nowMs() + index));
 
     let progress: ThreadProgress = previous ?? { fingerprint, total: parts.length, posted: [] };
+    // Each post carries its own images (D-124).
+    const groups = assignThreadMedia(
+      ctx.media,
+      parts.length,
+      ctx.draft.threadMedia,
+      this.capabilityCache.media,
+    );
     let ref: Record<string, unknown> = {
       rkey: rkeys[0],
       contentHash: ctx.contentHash,
@@ -572,16 +584,7 @@ export class BlueskyProvider implements SocialProvider {
     let imageCount = 0;
     if (progress.posted.length === 0) {
       // Images first, as for a single post: an orphaned blob is collected.
-      const images = [];
-      for (const media of ctx.media) {
-        images.push({
-          image: await this.uploadImage(ctx, session, dpopKey, media),
-          alt: media.altText ?? '',
-          ...(media.width && media.height
-            ? { aspectRatio: { width: media.width, height: media.height } }
-            : {}),
-        });
-      }
+      const images = await this.uploadImages(ctx, session, dpopKey, groups[0] ?? []);
       imageCount = images.length;
 
       // The keys, before anything is written.
@@ -609,11 +612,13 @@ export class BlueskyProvider implements SocialProvider {
       deadlineMs: startedAt + THREAD_BUDGET_MS,
       postReply: async ({ text, index, parent, root }) => {
         const facets = detectFacets(text);
+        const images = await this.uploadImages(ctx, session, dpopKey, groups[index] ?? []);
         const created = await this.createOrAdopt(ctx, session, dpopKey, rkeys[index] as string, {
           $type: POST_COLLECTION,
           text,
           createdAt: clock.now().toISOString(),
           ...(facets.length > 0 ? { facets } : {}),
+          ...(images.length > 0 ? { embed: { $type: 'app.bsky.embed.images', images } } : {}),
           reply: {
             root: { uri: root.id, cid: root.ref },
             parent: { uri: parent.id, cid: parent.ref },
@@ -631,6 +636,26 @@ export class BlueskyProvider implements SocialProvider {
       publishedAt: clock.now(),
       providerMeta: { apiVersion: BLUESKY_API_VERSION, imageCount, threadPosts: parts.length },
     };
+  }
+
+  /** Upload images for one post, as the `app.bsky.embed.images` entries. */
+  private async uploadImages(
+    ctx: PublishContext,
+    session: Session,
+    dpopKey: Es256Key,
+    media: readonly PublishMedia[],
+  ): Promise<Array<Record<string, unknown>>> {
+    const images: Array<Record<string, unknown>> = [];
+    for (const item of media) {
+      images.push({
+        image: await this.uploadImage(ctx, session, dpopKey, item),
+        alt: item.altText ?? '',
+        ...(item.width && item.height
+          ? { aspectRatio: { width: item.width, height: item.height } }
+          : {}),
+      });
+    }
+    return images;
   }
 
   /**

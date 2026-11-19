@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { defineCapabilities } from './capabilities.js';
 import {
+  assignThreadMedia,
   joinManualThread,
+  readThreadMedia,
   readThreadProgress,
   resolveThreadDraft,
   splitIntoThread,
@@ -313,6 +315,105 @@ describe('a thread edited by hand', () => {
   it('shows a split post without its place, ready to edit', () => {
     expect(withoutThreadMarker('Some words. 2/5')).toBe('Some words.');
     expect(withoutThreadMarker('No marker here')).toBe('No marker here');
+  });
+});
+
+describe('attachments across a thread', () => {
+  const xLimits = { maxAttachments: 4, soloKinds: ['VIDEO', 'GIF'] };
+  const img = (id: string) => ({ id, kind: 'IMAGE' });
+  const vid = (id: string) => ({ id, kind: 'VIDEO' });
+  const ids = (groups: Array<Array<{ id: string }>>) => groups.map((g) => g.map((m) => m.id));
+
+  it('keeps every attachment on the first post while it fits', () => {
+    expect(ids(assignThreadMedia([img('a'), img('b')], 3, undefined, xLimits))).toEqual([
+      ['a', 'b'],
+      [],
+      [],
+    ]);
+  });
+
+  it('moves what does not fit on to the next posts, in order', () => {
+    const six = ['a', 'b', 'c', 'd', 'e', 'f'].map(img);
+    expect(ids(assignThreadMedia(six, 3, undefined, xLimits))).toEqual([
+      ['a', 'b', 'c', 'd'],
+      ['e', 'f'],
+      [],
+    ]);
+  });
+
+  it('gives a video a post of its own where the platform says it must be alone', () => {
+    expect(ids(assignThreadMedia([img('a'), vid('v'), img('b')], 3, undefined, xLimits))).toEqual([
+      ['a'],
+      ['v'],
+      ['b'],
+    ]);
+  });
+
+  it('keeps an attachment where somebody put it, on the last post if the thread shrank', () => {
+    const placed = assignThreadMedia([img('a'), img('b'), img('c')], 2, { b: 1, c: 7 }, xLimits);
+    expect(ids(placed)).toEqual([['a'], ['b', 'c']]);
+  });
+
+  it('puts what cannot fit anywhere on the last post, for the validator to name', () => {
+    const nine = Array.from({ length: 9 }, (_, i) => img(`m${i}`));
+    expect(assignThreadMedia(nine, 2, undefined, xLimits).map((g) => g.length)).toEqual([4, 5]);
+  });
+
+  it('reads a stored placement, dropping anything that is not a post index', () => {
+    expect(readThreadMedia({ a: 1, b: -1, c: 1.5, d: '2', e: 0 })).toEqual({ a: 1, e: 0 });
+    expect(readThreadMedia(['a'])).toBeUndefined();
+    expect(readThreadMedia(null)).toBeUndefined();
+  });
+
+  const long = Array.from({ length: 14 }, (_, i) => sentence(i + 1)).join(' ');
+  const image = (id: string) => ({
+    id,
+    kind: 'IMAGE' as const,
+    mimeType: 'image/jpeg',
+    sizeBytes: 200_000,
+    width: 1200,
+    height: 800,
+  });
+  const six = ['a', 'b', 'c', 'd', 'e', 'f'].map(image);
+
+  it('accepts more images than one post allows once they spread over a thread', () => {
+    expect(validateDraft(x, { body: long, media: six }).issues.map((i) => i.code)).toContain(
+      'TOO_MANY_ATTACHMENTS',
+    );
+    expect(
+      validateDraft(x, { body: long, media: six, thread: true }).issues.map((i) => i.code),
+    ).not.toContain('TOO_MANY_ATTACHMENTS');
+  });
+
+  it('names the post somebody overloaded by hand', () => {
+    const result = validateDraft(x, {
+      body: long,
+      media: six,
+      thread: true,
+      threadMedia: { a: 1, b: 1, c: 1, d: 1, e: 1 },
+    });
+    const issue = result.issues.find((i) => i.code === 'TOO_MANY_ATTACHMENTS');
+    expect(issue?.meta).toMatchObject({ part: 2, count: 5 });
+    expect(issue?.message).toMatch(/^Post 2 of the thread:/);
+  });
+
+  it('carries the placement through the draft only while splitting is on', () => {
+    expect(
+      resolveThreadDraft({
+        body: 'x',
+        hasOwnText: false,
+        platformOptions: { threadMedia: { a: 1 } },
+        capabilities: x,
+      }).threadMedia,
+    ).toEqual({ a: 1 });
+    expect(
+      resolveThreadDraft({
+        body: 'x',
+        hasOwnText: false,
+        platformOptions: { thread: false, threadMedia: { a: 1 } },
+        capabilities: x,
+      }).threadMedia,
+    ).toBeUndefined();
   });
 });
 

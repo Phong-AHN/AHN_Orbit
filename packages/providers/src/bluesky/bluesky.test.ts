@@ -723,3 +723,47 @@ describe('threads (D-124)', () => {
     });
   });
 });
+
+describe('attachments in a thread (D-124)', () => {
+  const longBody = Array.from(
+    { length: 16 },
+    (_, i) => `Sentence number ${i + 1} says something useful about the product.`,
+  ).join(' ');
+
+  const picture = (id: string) => ({
+    id,
+    kind: 'IMAGE' as const,
+    mimeType: 'image/jpeg',
+    sizeBytes: 3,
+    url: `https://cdn.test/${id}.jpg`,
+    width: 1200,
+    height: 800,
+  });
+
+  it('embeds each post’s own images, the first post’s and a reply’s', async () => {
+    const fake = happyAtproto().on(/com\.atproto\.repo\.createRecord/, (call) => {
+      const { rkey } = JSON.parse(call.body ?? '{}') as { rkey: string };
+      return { body: { uri: `at://${DID}/app.bsky.feed.post/${rkey}`, cid: `cid-${rkey}` } };
+    });
+
+    await provider(fake).publish({
+      credential,
+      account: { externalId: DID },
+      draft: { body: longBody, media: [], thread: true, threadMedia: { b: 1 } },
+      media: [picture('a'), picture('b')],
+      contentHash: 'h-1',
+      correlationId: 'c',
+    } as never);
+
+    const records = fake
+      .callsTo(/createRecord/)
+      .map((call) => (JSON.parse(call.body ?? '{}') as { record: Record<string, unknown> }).record);
+    const imagesOf = (record: Record<string, unknown> | undefined) =>
+      ((record?.['embed'] as { images?: unknown[] } | undefined)?.images ?? []).length;
+
+    expect(imagesOf(records[0])).toBe(1);
+    expect(imagesOf(records[1])).toBe(1);
+    expect(records.slice(2).every((record) => record['embed'] === undefined)).toBe(true);
+    expect(fake.callsTo(/uploadBlob/)).toHaveLength(2);
+  });
+});

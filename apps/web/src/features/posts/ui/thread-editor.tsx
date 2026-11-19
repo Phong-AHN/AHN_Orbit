@@ -30,6 +30,12 @@ export interface ThreadEditorProps {
   readOnly: boolean;
   onSave: (parts: string[]) => Promise<void>;
   onReset: () => Promise<void>;
+  /** The post's attachments, to name them under the posts they go with. */
+  attachments: ReadonlyArray<{ id: string; name: string; kind: string }>;
+  /** Each post's attachments by media id, as the server places them. */
+  mediaByPart: readonly (readonly string[])[] | undefined;
+  /** Put an attachment on another post (0 is the first). */
+  onMoveMedia: (mediaId: string, part: number) => Promise<void>;
 }
 
 export function ThreadEditor({
@@ -42,6 +48,9 @@ export function ThreadEditor({
   readOnly,
   onSave,
   onReset,
+  attachments,
+  mediaByPart,
+  onMoveMedia,
 }: ThreadEditorProps) {
   const [editing, setEditing] = React.useState<string[] | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -181,14 +190,63 @@ export function ThreadEditor({
       </div>
 
       <ol className="space-y-2">
-        {shown.map((part, index) => (
-          <li
-            key={index}
-            className="whitespace-pre-wrap rounded-md border border-line bg-surface p-2.5 text-sm text-ink"
-          >
-            {part}
-          </li>
-        ))}
+        {shown.map((part, index) => {
+          const here = mediaByPart?.[index] ?? [];
+          return (
+            <li key={index} className="rounded-md border border-line bg-surface p-2.5">
+              <p className="whitespace-pre-wrap text-sm text-ink">{part}</p>
+
+              {/* The attachments this post carries (D-124). Moving one pins it
+                  to that post; the rest keep filling posts in order. */}
+              {here.length > 0 ? (
+                <ul className="mt-2 flex flex-wrap gap-2">
+                  {here.map((id) => {
+                    const item = attachments.find((attachment) => attachment.id === id);
+                    const name = item?.name ?? 'Attachment';
+                    return (
+                      <li
+                        key={id}
+                        className="flex items-center gap-2 rounded border border-line bg-surface-sunken px-2 py-1 text-xs text-ink"
+                      >
+                        <span>
+                          <span className="text-ink-muted">
+                            {item?.kind === 'VIDEO'
+                              ? 'Video'
+                              : item?.kind === 'GIF'
+                                ? 'GIF'
+                                : 'Image'}
+                            :
+                          </span>{' '}
+                          {name}
+                        </span>
+                        {!readOnly && shown.length > 1 ? (
+                          <select
+                            aria-label={`Move ${name} to another post`}
+                            value={index}
+                            disabled={busy}
+                            onChange={(event) => {
+                              void run(
+                                () => onMoveMedia(id, Number(event.target.value)),
+                                'The attachment could not be moved.',
+                              );
+                            }}
+                            className="rounded border border-line bg-surface px-1 py-0.5 text-xs"
+                          >
+                            {shown.map((_, at) => (
+                              <option key={at} value={at}>
+                                Post {at + 1}
+                              </option>
+                            ))}
+                          </select>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+            </li>
+          );
+        })}
       </ol>
 
       {error ? (

@@ -180,6 +180,8 @@ export interface PostValidationResponse {
     result: { valid: boolean; issues: ValidationIssue[] };
     /** The posts a thread will publish as, from the server's split (D-124). */
     threadParts?: string[];
+    /** Each post's attachments, by media asset id, as the server places them. */
+    threadMedia?: string[][];
   }>;
 }
 

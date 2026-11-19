@@ -5097,6 +5097,29 @@ split again.
 - The flag only counts when the account has text of its own: inherited main
   text was never written post by post.
 
+### Attachments across the thread (2026-11-19)
+
+Each post of a thread can carry its own attachments; they no longer all go on
+the first one. `assignThreadMedia` decides, for the validator, the adapters
+and the composer alike:
+
+- An attachment somebody placed on a post stays there (on the last post if
+  the thread has since become shorter). Placements are stored as
+  `platformOptions.threadMedia` (media asset id → post index); no migration.
+- The rest fill the first post first and move on, in order, when a post is
+  full or an attachment must be alone (X's video and GIF). So eight images on
+  X become 4 + 4 instead of a refusal.
+- Each post is checked on its own: count, solo kinds, mixed kinds, named by
+  post number. Anything that fits nowhere lands on the last post, where the
+  check names it.
+- The composer lists each post's attachments under it, with a "Post N" picker
+  to move one. Moving one pins it; the others keep filling in order.
+- X uploads a reply's media just before posting it (fresh on a retry: an unused
+  upload expires on its own) and records the first post's media by id, so a
+  retry never reuses ids uploaded for a different post. Bluesky embeds a
+  reply's images in its record. Threads posts a reply as text, one image or
+  video, or a carousel whose items are waited on like the first post's.
+
 ### Publishing a thread exactly once
 
 A thread is several posts inside one publish call. If a part fails after the

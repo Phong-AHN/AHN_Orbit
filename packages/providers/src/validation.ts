@@ -1,6 +1,6 @@
 import type { MediaKind } from '@orbit/core';
 import type { MediaConstraint, PlatformCapabilities } from './capabilities.js';
-import { splitIntoThread, splitManualThread, threadMarker } from './thread.js';
+import { assignThreadMedia, splitIntoThread, splitManualThread, threadMarker } from './thread.js';
 
 /**
  * Capability-driven validation (SRS §9).
@@ -79,6 +79,11 @@ export interface VariantDraft {
    * place, if numbered — instead of being split automatically.
    */
   threadManual?: boolean | undefined;
+  /**
+   * Which post of a thread an attachment goes with, by media id (0 is the
+   * first post). Attachments not listed are placed by `assignThreadMedia`.
+   */
+  threadMedia?: Readonly<Record<string, number>> | undefined;
   /**
    * Settings that exist on exactly one platform, kept opaque on purpose.
    *
@@ -632,41 +637,17 @@ export function validateDraft(
     );
   }
 
-  if (media.length > capabilities.media.maxAttachments) {
+  // A thread spreads its attachments over its posts, and each post is held to
+  // the platform's rules on its own (D-124).
+  const attachmentSets =
+    threaded && parts.length > 1
+      ? assignThreadMedia(media, parts.length, draft.threadMedia, capabilities.media)
+      : [media];
+  attachmentSets.forEach((set, index) => {
     issues.push(
-      issue('ERROR', 'TOO_MANY_ATTACHMENTS', 'media', 'Too many attachments for this platform.', {
-        count: media.length,
-        maxAttachments: capabilities.media.maxAttachments,
-      }),
+      ...attachmentSetIssues(capabilities, set, attachmentSets.length > 1 ? index + 1 : undefined),
     );
-  }
-
-  const solo = media.find((m) => capabilities.media.soloKinds.includes(m.kind));
-  if (solo && media.length > 1) {
-    issues.push(
-      issue(
-        'ERROR',
-        'SOLO_MEDIA_KIND',
-        'media',
-        solo.kind === 'VIDEO'
-          ? 'A video has to be the only attachment on this platform.'
-          : 'A GIF has to be the only attachment on this platform.',
-        { kind: solo.kind },
-      ),
-    );
-  }
-
-  const kinds = new Set(media.map((m) => m.kind));
-  if (kinds.size > 1 && !capabilities.media.allowsMixedKinds) {
-    issues.push(
-      issue(
-        'ERROR',
-        'MIXED_MEDIA_UNSUPPORTED',
-        'media',
-        'Images and video cannot be combined here.',
-      ),
-    );
-  }
+  });
 
   media.forEach((item, index) => {
     const field = `media[${index}]`;
@@ -779,6 +760,63 @@ export function validateDraft(
   }
 
   return { valid: !issues.some((i) => i.severity === 'ERROR'), issues };
+}
+
+/**
+ * The rules for what one post may carry, applied to one set of attachments:
+ * how many, which kinds must be alone, and whether kinds may be mixed. `part`
+ * names the post of a thread the set belongs to.
+ */
+function attachmentSetIssues(
+  capabilities: PlatformCapabilities,
+  media: readonly DraftMedia[],
+  part?: number,
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const where = part === undefined ? '' : `Post ${part} of the thread: `;
+  const partMeta: Record<string, number> = part === undefined ? {} : { part };
+
+  if (media.length > capabilities.media.maxAttachments) {
+    issues.push(
+      issue(
+        'ERROR',
+        'TOO_MANY_ATTACHMENTS',
+        'media',
+        `${where}Too many attachments for this platform.`,
+        { count: media.length, maxAttachments: capabilities.media.maxAttachments, ...partMeta },
+      ),
+    );
+  }
+
+  const solo = media.find((m) => capabilities.media.soloKinds.includes(m.kind));
+  if (solo && media.length > 1) {
+    issues.push(
+      issue(
+        'ERROR',
+        'SOLO_MEDIA_KIND',
+        'media',
+        solo.kind === 'VIDEO'
+          ? `${where}A video has to be the only attachment on this platform.`
+          : `${where}A GIF has to be the only attachment on this platform.`,
+        { kind: solo.kind, ...partMeta },
+      ),
+    );
+  }
+
+  const kinds = new Set(media.map((m) => m.kind));
+  if (kinds.size > 1 && !capabilities.media.allowsMixedKinds) {
+    issues.push(
+      issue(
+        'ERROR',
+        'MIXED_MEDIA_UNSUPPORTED',
+        'media',
+        `${where}Images and video cannot be combined here.`,
+        partMeta,
+      ),
+    );
+  }
+
+  return issues;
 }
 
 /** Whether an existing post may be edited, given who created it. */

@@ -26,6 +26,10 @@ export {
 
 export {
   THREAD_BREAK,
+  assignThreadMedia,
+  readThreadMedia,
+  type ThreadMediaItem,
+  type ThreadMediaLimits,
   joinManualThread,
   readThreadProgress,
   resolveThreadDraft,

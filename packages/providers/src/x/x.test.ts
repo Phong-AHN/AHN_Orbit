@@ -1092,3 +1092,68 @@ describe('threads (D-124)', () => {
     });
   });
 });
+
+describe('attachments in a thread (D-124)', () => {
+  const longBody = Array.from(
+    { length: 14 },
+    (_, i) => `Sentence number ${i + 1} says something useful about the product.`,
+  ).join(' ');
+
+  function threadApi(): { api: FakeX; posts: Array<Record<string, unknown>> } {
+    const posts: Array<Record<string, unknown>> = [];
+    const fake = happyApi()
+      .tap((call) => {
+        if (call.method === 'POST' && /\/2\/tweets$/.test(call.url) && call.body) {
+          posts.push(JSON.parse(call.body) as Record<string, unknown>);
+        }
+      })
+      .on(
+        /\/2\/tweets$/,
+        () => ({ status: 201, body: { data: { id: `t-${posts.length}` } } }),
+        'POST',
+      );
+    return { api: fake, posts };
+  }
+
+  const mediaIdsOf = (post: Record<string, unknown> | undefined) =>
+    (post?.['media'] as { media_ids?: string[] } | undefined)?.media_ids ?? [];
+
+  it('spreads what one post cannot carry over the next posts', async () => {
+    const { api: fake, posts } = threadApi();
+    const five = ['a', 'b', 'c', 'd', 'e'].map((id) => image({ id }));
+
+    await provider(fake).publish(
+      publishContext({
+        draft: { body: longBody, hashtags: [], mentions: [], media: [], thread: true },
+        media: five,
+      }),
+    );
+
+    expect(mediaIdsOf(posts[0])).toHaveLength(4);
+    expect(mediaIdsOf(posts[1])).toHaveLength(1);
+    expect(posts.slice(2).every((post) => post['media'] === undefined)).toBe(true);
+  });
+
+  it('puts an attachment on the post it was placed on', async () => {
+    const { api: fake, posts } = threadApi();
+
+    await provider(fake).publish(
+      publishContext({
+        draft: {
+          body: longBody,
+          hashtags: [],
+          mentions: [],
+          media: [],
+          thread: true,
+          threadMedia: { b: 2 },
+        },
+        media: [image({ id: 'a' }), image({ id: 'b' })],
+      }),
+    );
+
+    expect(mediaIdsOf(posts[0])).toHaveLength(1);
+    expect(posts[1]?.['media']).toBeUndefined();
+    expect(mediaIdsOf(posts[2])).toHaveLength(1);
+    expect(posts[2]?.['reply']).toEqual({ in_reply_to_tweet_id: 't-2' });
+  });
+});

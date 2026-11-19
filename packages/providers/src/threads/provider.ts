@@ -8,7 +8,12 @@ import {
   type VariantDraft,
 } from '../validation.js';
 import type { PlatformCapabilities } from '../capabilities.js';
-import { readThreadProgress, threadFingerprint, type ThreadProgress } from '../thread.js';
+import {
+  assignThreadMedia,
+  readThreadProgress,
+  threadFingerprint,
+  type ThreadProgress,
+} from '../thread.js';
 import {
   assertThreadScopes,
   continueThread,
@@ -494,6 +499,18 @@ export class ThreadsProvider implements SocialProvider {
       progress = previous ?? { fingerprint, total: parts.length, posted: [] };
     }
 
+    // A thread spreads its attachments over its posts (D-124); a single post
+    // carries them all.
+    const groups = threaded
+      ? assignThreadMedia(
+          ctx.media,
+          parts.length,
+          ctx.draft.threadMedia,
+          this.capabilityCache.media,
+        )
+      : [ctx.media];
+    const headMedia = groups[0] ?? [];
+
     // Written whole every time: the engine keeps only the latest write.
     let ref: Record<string, unknown> = {};
     const save = async (patch: Record<string, unknown>) => {
@@ -533,11 +550,11 @@ export class ThreadsProvider implements SocialProvider {
 
       containerId =
         resumable ??
-        (ctx.media.length === 0
+        (headMedia.length === 0
           ? await this.createTextContainer(ctx, userId, text)
-          : ctx.media.length === 1
-            ? await this.createSingleContainer(ctx, userId, ctx.media[0]!, text)
-            : await this.createCarouselContainer(ctx, userId, ctx.media, text, {
+          : headMedia.length === 1
+            ? await this.createSingleContainer(ctx, userId, headMedia[0]!, text)
+            : await this.createCarouselContainer(ctx, userId, headMedia, text, {
                 record: save,
                 waitUntil: startedAt + CONTAINER_WAIT_LIMIT_MS,
               }));
@@ -570,12 +587,29 @@ export class ThreadsProvider implements SocialProvider {
         parts,
         progress,
         deadlineMs: startedAt + THREAD_BUDGET_MS,
-        postReply: async ({ text: part, parent }) => {
-          const reply = await this.container(ctx, userId, {
-            media_type: 'TEXT',
-            text: part,
-            reply_to_id: parent.id,
-          });
+        postReply: async ({ text: part, index, parent }) => {
+          // Each reply carries its own attachments (D-124): text alone, one
+          // image or video, or a carousel — always as a reply to the part
+          // before.
+          const replyMedia = groups[index] ?? [];
+          const waitUntil = startedAt + CONTAINER_WAIT_LIMIT_MS;
+          const reply =
+            replyMedia.length === 0
+              ? await this.container(ctx, userId, {
+                  media_type: 'TEXT',
+                  text: part,
+                  reply_to_id: parent.id,
+                })
+              : replyMedia.length === 1
+                ? await this.createSingleContainer(ctx, userId, replyMedia[0]!, part, {
+                    reply_to_id: parent.id,
+                  })
+                : await this.createCarouselContainer(ctx, userId, replyMedia, part, {
+                    record: async () => undefined,
+                    waitUntil,
+                    resume: false,
+                    extra: { reply_to_id: parent.id },
+                  });
           // Never waits past the point the engine would cut the call off:
           // running out here is a plain retry, cut off would be "unknown".
           await this.awaitContainer(
@@ -642,11 +676,13 @@ export class ThreadsProvider implements SocialProvider {
     userId: string,
     item: PublishMedia,
     text: string,
+    extra: Record<string, string> = {},
   ): Promise<string> {
     return this.container(ctx, userId, {
       media_type: item.kind === 'VIDEO' ? 'VIDEO' : 'IMAGE',
       ...(item.kind === 'VIDEO' ? { video_url: item.url } : { image_url: item.url }),
       text,
+      ...extra,
     });
   }
 
@@ -676,10 +712,19 @@ export class ThreadsProvider implements SocialProvider {
     options: {
       record: (patch: Record<string, unknown>) => Promise<void>;
       waitUntil: number;
+      /**
+       * Reuse the children an earlier attempt recorded. The first post's only:
+       * a reply's carousel is built fresh, and must never pick up the first
+       * post's children.
+       */
+      resume?: boolean;
+      /** Extra fields for the carousel container itself — a reply's `reply_to_id`. */
+      extra?: Record<string, string>;
     },
   ): Promise<string> {
     const recorded = ctx.previousRef?.['children'];
     const reusable =
+      options.resume !== false &&
       ctx.previousRef?.['contentHash'] === ctx.contentHash &&
       Array.isArray(recorded) &&
       recorded.length === media.length &&
@@ -712,6 +757,7 @@ export class ThreadsProvider implements SocialProvider {
       media_type: 'CAROUSEL',
       children: children.join(','),
       text,
+      ...(options.extra ?? {}),
     });
   }
 

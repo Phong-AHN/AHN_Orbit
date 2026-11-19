@@ -284,9 +284,11 @@ export function resolveThreadDraft(input: {
   thread?: true;
   threadNumbering?: false;
   threadManual?: true;
+  threadMedia?: Record<string, number>;
 } {
   const thread = threadRequested(input.platformOptions, input.capabilities);
   const manual = threadIsManual(input.platformOptions, input.hasOwnText);
+  const placement = thread ? readThreadMedia(input.platformOptions?.['threadMedia']) : undefined;
 
   return {
     body: manual && !thread ? stripThreadBreaks(input.body) : input.body,
@@ -295,12 +297,84 @@ export function resolveThreadDraft(input: {
       ? { threadNumbering: false as const }
       : {}),
     ...(thread && manual ? { threadManual: true as const } : {}),
+    ...(placement ? { threadMedia: placement } : {}),
   };
 }
 
 /** A part as shown to be edited: without the " 2/5" the split adds. */
 export function withoutThreadMarker(part: string): string {
   return part.replace(/ \d+\/\d+$/, '');
+}
+
+// ── Attachments across a thread ────────────────────────────────────────────
+
+/** An attachment as the split sees it. */
+export interface ThreadMediaItem {
+  id: string;
+  kind: string;
+}
+
+/** What one post of the platform may carry. */
+export interface ThreadMediaLimits {
+  maxAttachments: number;
+  /** Kinds that must be a post's only attachment (X's video and GIF). */
+  soloKinds: readonly string[];
+}
+
+/**
+ * Which post of a thread each attachment goes with (D-124).
+ *
+ * An attachment somebody placed on a post stays there (on the last post if the
+ * thread has since become shorter). The rest fill the first post first and move
+ * on only when a post is full — or when the attachment must be alone, or a post
+ * already holds one that must — so a thread with more images than one post
+ * allows spreads them over the following posts, in order, instead of being
+ * refused. Anything that still does not fit lands on the last post, where the
+ * validator names it.
+ *
+ * The validator, the adapters and the composer all ask this one function.
+ */
+export function assignThreadMedia<M extends ThreadMediaItem>(
+  media: readonly M[],
+  partCount: number,
+  assignment: Readonly<Record<string, number>> | null | undefined,
+  limits: ThreadMediaLimits,
+): M[][] {
+  const groups: M[][] = Array.from({ length: Math.max(1, partCount) }, () => []);
+  const last = groups.length - 1;
+  const unplaced: M[] = [];
+
+  for (const item of media) {
+    const at = assignment?.[item.id];
+    if (typeof at === 'number' && Number.isInteger(at) && at >= 0) {
+      (groups[Math.min(at, last)] as M[]).push(item);
+    } else {
+      unplaced.push(item);
+    }
+  }
+
+  const solo = (item: M) => limits.soloKinds.includes(item.kind);
+  const fits = (group: readonly M[], item: M) =>
+    group.length < limits.maxAttachments &&
+    (group.length === 0 || (!solo(item) && !group.some(solo)));
+
+  let cursor = 0;
+  for (const item of unplaced) {
+    while (cursor < last && !fits(groups[cursor] as M[], item)) cursor += 1;
+    (groups[cursor] as M[]).push(item);
+  }
+
+  return groups;
+}
+
+/** A stored placement, kept to what it can mean: attachment id → post index. */
+export function readThreadMedia(value: unknown): Record<string, number> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const entries = Object.entries(value as Record<string, unknown>).filter(
+    (entry): entry is [string, number] =>
+      typeof entry[1] === 'number' && Number.isInteger(entry[1]) && entry[1] >= 0,
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 // ── Progress, for resuming a thread that stopped part-way ──────────────────

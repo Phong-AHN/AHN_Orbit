@@ -1,6 +1,7 @@
 import type { Platform, TenantContext } from '@orbit/core';
 import { withTenant } from '@orbit/db';
 import {
+  assignThreadMedia,
   capabilitiesFor,
   missingThreadScopes,
   resolveThreadDraft,
@@ -38,6 +39,11 @@ export interface VariantValidation {
    * shows exactly what will go out rather than its own guess.
    */
   threadParts?: string[] | undefined;
+  /**
+   * The attachments of each post of that thread, by media asset id, as the
+   * adapter will place them (D-124).
+   */
+  threadMedia?: string[][] | undefined;
 }
 
 export interface PostValidation {
@@ -279,6 +285,16 @@ export async function validatePost(ctx: TenantContext, postId: string): Promise<
       platform: variant.platform,
       result,
       ...(parts.length > 1 ? { threadParts: parts } : {}),
+      ...(parts.length > 1 && usable.length > 0
+        ? {
+            threadMedia: assignThreadMedia(
+              usable.map((m) => ({ id: m.mediaAsset.id, kind: m.mediaAsset.kind })),
+              parts.length,
+              draft.threadMedia,
+              capabilities.media,
+            ).map((group) => group.map((item) => item.id)),
+          }
+        : {}),
     };
   });
 

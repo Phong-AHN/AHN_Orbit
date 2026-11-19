@@ -825,6 +825,26 @@ function VariantEditor({
     onSaved(variant);
   }
 
+  /**
+   * Put an attachment on a post of the thread (D-124). Saved at once, like the
+   * other thread settings; placements of attachments no longer on the post are
+   * dropped on the way.
+   */
+  async function moveThreadMedia(mediaId: string, part: number) {
+    if (!active) return;
+    const stored = (active.platformOptions ?? {})['threadMedia'];
+    const placement =
+      stored && typeof stored === 'object' && !Array.isArray(stored)
+        ? (stored as Record<string, number>)
+        : {};
+    const attached = new Set(media.map((item) => item.mediaAssetId));
+    const kept = Object.fromEntries(Object.entries(placement).filter(([id]) => attached.has(id)));
+    const { variant } = await api.updateVariant(post.id, active.id, {
+      platformOptions: { threadMedia: { ...kept, [mediaId]: part } },
+    });
+    onSaved(variant);
+  }
+
   /** Back to automatic splitting, keeping the wording that was edited. */
   async function resetThreadParts() {
     if (!active) return;
@@ -1009,6 +1029,15 @@ function VariantEditor({
                 readOnly={readOnly}
                 onSave={saveThreadParts}
                 onReset={resetThreadParts}
+                attachments={media.map((item) => ({
+                  id: item.mediaAssetId,
+                  name: item.originalFilename ?? 'Attachment',
+                  kind: item.kind,
+                }))}
+                mediaByPart={
+                  validation?.variants.find((v) => v.variantId === active.id)?.threadMedia
+                }
+                onMoveMedia={moveThreadMedia}
               />
             ) : null}
           </div>
