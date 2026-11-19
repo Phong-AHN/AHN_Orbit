@@ -1,4 +1,5 @@
 import type { ErrorCode } from './errors.js';
+import { THREAD_CONTINUES } from './publishing.js';
 
 /**
  * How a publishing failure is explained to a person (SRS §14, §37).
@@ -174,6 +175,14 @@ export function presentFailure(code: string | null | undefined): FailurePresenta
         summary: 'Someone decided not to publish this account.',
         action: 'REVIEW',
         retryable: false,
+      };
+    case THREAD_CONTINUES:
+      // Not a failure: posts of the thread are live and the rest follow on
+      // their own, without spending a retry (D-124).
+      return {
+        summary: 'Part of this thread is live; the rest is on its way.',
+        action: 'WAIT',
+        retryable: true,
       };
     default:
       break;

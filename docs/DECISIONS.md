@@ -5106,14 +5106,18 @@ and the composer alike:
 - An attachment somebody placed on a post stays there (on the last post if
   the thread has since become shorter). Placements are stored as
   `platformOptions.threadMedia` (media asset id → post index); no migration.
-- The rest fill the first post first and move on, in order, when a post is
-  full or an attachment must be alone (X's video and GIF). So eight images on
-  X become 4 + 4 instead of a refusal.
+- The rest are spread over the posts evenly, in order: n attachments over p
+  posts give the first n mod p posts one more — one each while n ≤ p. An
+  attachment moves on to a later post when its post is full or it must be
+  alone (X's video and GIF). So eight images on X become 4 + 4 instead of a
+  refusal. *Revised the same day:* the first version filled the first post
+  first, which on Threads (up to 20 a post) put all five images of a
+  five-post thread on the first post and none on the replies.
 - Each post is checked on its own: count, solo kinds, mixed kinds, named by
   post number. Anything that fits nowhere lands on the last post, where the
   check names it.
 - The composer lists each post's attachments under it, with a "Post N" picker
-  to move one. Moving one pins it; the others keep filling in order.
+  to move one. Moving one pins it; the others stay spread in order.
 - X uploads a reply's media just before posting it (fresh on a retry: an unused
   upload expires on its own) and records the first post's media by id, so a
   retry never reuses ids uploaded for a different post. Bluesky embeds a
@@ -5173,6 +5177,42 @@ first one is live, retrying must not post the thread a second time.
   key is chosen up front and recorded before the first write. A part an earlier
   attempt wrote is then refused for its key and adopted, so a partial Bluesky
   thread is always safe to retry.
+
+### A pause between posts is progress, not a retry (2026-11-19)
+
+Reported in production: a five-post Threads thread published its first post,
+paused ("Paused the thread after post 1 of 5 to stay inside the publish
+budget"), and the attempt was shown as **Failed**. The pause went the way of
+any retryable error: one of the four attempts spent, then the 30s → 2m → 8m
+backoff. Threads asks for about 30 seconds per container, so a long thread
+could take tens of minutes, or run out of attempts and end FAILED with its
+first post already live.
+
+- **A pause after progress is free.** Once an attempt has put at least one post
+  live — the first post, or a reply — `continueThread` marks the pause
+  `threadContinues`. The engine closes the attempt with code
+  `THREAD_CONTINUES` (logged at info, kept out of the provider-error metric),
+  the processor throws a continuation, and `decideRetry` reschedules it in
+  2 seconds **without consuming an attempt** (`reason: 'CONTINUATION'`).
+- **Every free pause is paid for by a post.** An attempt that posted nothing
+  stops as an ordinary retry. A thread of n posts therefore pauses for free at
+  most n − 1 times; it cannot loop.
+- **A reply still being prepared is a pause too.** A Threads container or an X
+  upload that is not ready by the wait limit is marked `stillPreparing`; after
+  progress that becomes a free pause instead of a retry.
+- **Threads resumes the reply container.** Each reply's container (and a
+  carousel reply's children) is recorded as `pendingReply` — thread
+  fingerprint, part index, parent post id — before it is waited on or
+  published, and cleared once the part is live. The next run publishes that
+  same container, usually ready by then, instead of starting Meta's wait over.
+  A recorded container for another part or another parent is never used.
+- **Threads polls sooner.** Container status is checked after 1, 1, 2, 3 and
+  then every 5 seconds, instead of every 5: a text container is often ready in
+  a couple of seconds, and a thread waits on one per post.
+- **The trail says "Continued".** The attempt row keeps the `FAILED` state in
+  the database (no migration), but the publishing page shows a code of
+  `THREAD_CONTINUES` as **Continued**, with "Nothing to do — the next posts
+  follow automatically".
 
 ### Threads needs a permission, so it is switched off for now
 

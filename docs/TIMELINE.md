@@ -558,6 +558,14 @@ Cách đọc:
   - Kiểm tra: typecheck, lint, 1842 unit test đạt (7 test mới).
 - **Số bài: không bao giờ cắt giữa câu.** Theo yêu cầu của anh, ô "Number of posts" chỉ đưa ra các số bài mà mọi bài đều kết thúc ở chỗ hết câu; bỏ các lựa chọn "some end mid-sentence". Với đoạn văn Threads ở trên: chọn được 5–10, không còn 4. Muốn cắt ở chỗ khác thì dùng "Edit posts". Câu nào dài hơn cả một bài thì không có lựa chọn số bài (chỉ Auto). Kiểm tra: typecheck, lint, 1843 unit test đạt.
 - **Số bài: cho chọn tới số bài ít nhất có thể, cố gắng cắt ở chỗ hết câu** (quyết định cuối của anh, thay dòng trên). Ô "Number of posts" giờ bắt đầu từ số bài ít nhất mà đoạn văn vừa (1.946 ký tự trên Threads: 4; ~600 ký tự: 2; ~1.200 ký tự: 3). Hệ thống cắt giữa câu ít nhất có thể, rồi chia đều; bài nào phải cắt giữa câu thì người dùng tự chỉnh bằng "Edit posts" (gợi ý dưới ô chọn nói rõ). Auto vẫn luôn cắt ở chỗ hết câu. Kiểm tra: typecheck, lint, 1843 unit test đạt.
+- **Thread dừng giữa chừng không còn bị tính là thất bại (D-124).** Sự cố anh gửi: thread 5 bài trên Threads đăng xong bài 1 rồi dừng ("Paused the thread after post 1 of 5…"), attempt hiện **Failed**. Lần dừng bị tính như một lần retry (mất 1 trong 4 lượt, chờ 30s → 2m → 8m), nên thread dài có thể mất hàng chục phút hoặc kết thúc FAILED trong khi bài đầu đã lên.
+  - Dừng **sau khi đã đăng được ít nhất một bài trong lần chạy đó** thì không tốn lượt retry, và chạy tiếp sau 2 giây. Lần chạy chưa đăng được bài nào thì vẫn retry như cũ, nên thread n bài dừng miễn phí tối đa n − 1 lần, không thể lặp vô hạn.
+  - Bài trả lời mà Threads chưa xử lý xong container (hoặc X chưa xử lý xong media) cũng được tính là dừng miễn phí nếu đã có tiến triển.
+  - Threads lưu lại container của bài trả lời đang chờ (`pendingReply`), lần sau dùng lại đúng container đó thay vì tạo mới và chờ lại từ đầu. Chỉ dùng lại khi đúng thread, đúng vị trí bài, đúng bài cha.
+  - Threads kiểm tra trạng thái container sau 1, 1, 2, 3 rồi mỗi 5 giây, thay vì cố định 5 giây.
+  - Trang Publishing hiện attempt đó là **Continued**, kèm dòng "Nothing to do — the next posts follow automatically". Không cần migration.
+- **Ảnh trong thread được chia đều cho các bài (D-124, sửa lại).** Anh báo: Threads dồn cả 5 ảnh vào bài đầu, các bài trả lời không có ảnh. Nguyên nhân: cách cũ xếp ảnh vào bài đầu cho tới khi đầy, mà Threads cho tới 20 ảnh một bài. Giờ ảnh chưa được xếp tay được chia đều theo thứ tự: 5 ảnh cho 5 bài thì mỗi bài 1 ảnh; 7 ảnh cho 3 bài thì 3 + 2 + 2. Ảnh đã chuyển tay sang bài nào vẫn giữ nguyên. Video/GIF trên X vẫn đứng riêng một bài.
+  - Kiểm tra cho cả hai mục: typecheck, lint, 1860 unit test đạt (17 test mới, 2 test cũ sửa theo cách chia mới).
 
 ---
 

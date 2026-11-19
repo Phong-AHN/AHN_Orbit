@@ -95,9 +95,16 @@ import {
 /** Refresh once the token is within this of expiring. */
 const REFRESH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** How long publishing waits for a container, and how often it asks. */
+/** How long publishing waits for a container. */
 const CONTAINER_POLL_BUDGET_MS = 45_000;
-const CONTAINER_POLL_INTERVAL_MS = 5_000;
+/**
+ * How often it asks: soon at first, then every five seconds.
+ *
+ * A text container is often ready within a couple of seconds, and a thread
+ * waits on one per post — a fixed five-second step cost up to five seconds a
+ * post for nothing (2026-11-19).
+ */
+const CONTAINER_POLL_STEPS_MS = [1_000, 1_000, 2_000, 3_000, 5_000] as const;
 /**
  * A thread's further parts (D-124): none is started after this long.
  */
@@ -116,6 +123,7 @@ export interface ThreadsProviderOptions extends ThreadsClientOptions {
    * seconds of real waiting is a path that ends up untested.
    */
   pollBudgetMs?: number | undefined;
+  /** A fixed step in place of the schedule above. */
   pollIntervalMs?: number | undefined;
   /**
    * Threads switched on (`THREADS_REPLIES_ENABLED`, D-124): the connect flow
@@ -520,6 +528,8 @@ export class ThreadsProvider implements SocialProvider {
 
     let postId: string;
     let containerId: string | undefined;
+    // Whether the first post went out on this attempt, rather than an earlier one.
+    let headPostedNow = false;
 
     if (progress && progress.posted.length > 0) {
       // The first post went out on an earlier attempt; only the rest is left.
@@ -577,49 +587,67 @@ export class ThreadsProvider implements SocialProvider {
       if (progress) {
         progress = { ...progress, posted: [{ id: postId }] };
         await save({ thread: progress });
+        headPostedNow = true;
       }
     }
 
     if (progress) {
+      const thread = progress;
       await continueThread({
         platform: 'THREADS',
         label: 'Threads',
         parts,
-        progress,
+        progress: thread,
         deadlineMs: startedAt + THREAD_BUDGET_MS,
+        progressMade: headPostedNow,
         postReply: async ({ text: part, index, parent }) => {
           // Each reply carries its own attachments (D-124): text alone, one
           // image or video, or a carousel — always as a reply to the part
           // before.
           const replyMedia = groups[index] ?? [];
           const waitUntil = startedAt + CONTAINER_WAIT_LIMIT_MS;
-          const reply =
-            replyMedia.length === 0
-              ? await this.container(ctx, userId, {
-                  media_type: 'TEXT',
-                  text: part,
-                  reply_to_id: parent.id,
-                })
-              : replyMedia.length === 1
-                ? await this.createSingleContainer(ctx, userId, replyMedia[0]!, part, {
+          const at = { fingerprint: thread.fingerprint, index, parentId: parent.id };
+
+          /**
+           * Resume rather than restart, as for the first post.
+           *
+           * A reply container left preparing when the last run paused is
+           * seconds from ready; a new one starts Meta's wait over. Reused only
+           * for this same part of this same thread, replying to this same post.
+           * It is recorded before it is waited on or published, and cleared
+           * once the part is live.
+           */
+          const pending = pendingReplyAt(ref, at);
+          let reply = pending?.containerId;
+          if (!reply) {
+            reply =
+              replyMedia.length === 0
+                ? await this.container(ctx, userId, {
+                    media_type: 'TEXT',
+                    text: part,
                     reply_to_id: parent.id,
                   })
-                : await this.createCarouselContainer(ctx, userId, replyMedia, part, {
-                    record: async () => undefined,
-                    waitUntil,
-                    resume: false,
-                    extra: { reply_to_id: parent.id },
-                  });
+                : replyMedia.length === 1
+                  ? await this.createSingleContainer(ctx, userId, replyMedia[0]!, part, {
+                      reply_to_id: parent.id,
+                    })
+                  : await this.createCarouselContainer(ctx, userId, replyMedia, part, {
+                      record: async (patch) =>
+                        save({ pendingReply: { ...at, children: patch['children'] } }),
+                      waitUntil,
+                      resume: false,
+                      ...(pending?.children ? { children: pending.children } : {}),
+                      extra: { reply_to_id: parent.id },
+                    });
+            await save({ pendingReply: { ...at, containerId: reply } });
+          }
+
           // Never waits past the point the engine would cut the call off:
           // running out here is a plain retry, cut off would be "unknown".
-          await this.awaitContainer(
-            ctx,
-            reply,
-            Math.max(0, startedAt + CONTAINER_WAIT_LIMIT_MS - clock.nowMs()),
-          );
+          await this.awaitContainer(ctx, reply, Math.max(0, waitUntil - clock.nowMs()));
           return { id: await this.publishContainer(ctx, userId, reply) };
         },
-        record: (next) => save({ thread: next }),
+        record: (next) => save({ thread: next, pendingReply: null }),
       });
     }
 
@@ -714,18 +742,18 @@ export class ThreadsProvider implements SocialProvider {
       waitUntil: number;
       /**
        * Reuse the children an earlier attempt recorded. The first post's only:
-       * a reply's carousel is built fresh, and must never pick up the first
-       * post's children.
+       * a reply's carousel must never pick up the first post's children.
        */
       resume?: boolean;
+      /** A reply's own children, recorded by an earlier attempt for that reply. */
+      children?: readonly string[];
       /** Extra fields for the carousel container itself — a reply's `reply_to_id`. */
       extra?: Record<string, string>;
     },
   ): Promise<string> {
-    const recorded = ctx.previousRef?.['children'];
+    const recorded = options.resume === false ? options.children : ctx.previousRef?.['children'];
     const reusable =
-      options.resume !== false &&
-      ctx.previousRef?.['contentHash'] === ctx.contentHash &&
+      (options.resume === false || ctx.previousRef?.['contentHash'] === ctx.contentHash) &&
       Array.isArray(recorded) &&
       recorded.length === media.length &&
       recorded.every((id) => typeof id === 'string' && id.length > 0)
@@ -801,10 +829,10 @@ export class ThreadsProvider implements SocialProvider {
   ): Promise<void> {
     const configured = this.options.pollBudgetMs ?? CONTAINER_POLL_BUDGET_MS;
     const budgetMs = limitMs === undefined ? configured : Math.min(configured, limitMs);
-    const intervalMs = this.options.pollIntervalMs ?? CONTAINER_POLL_INTERVAL_MS;
+    const fixed = this.options.pollIntervalMs;
     const deadline = clock.nowMs() + budgetMs;
 
-    for (;;) {
+    for (let look = 0; ; look += 1) {
       const container = await this.client.request<StatusResponse>({
         path: `/${containerId}`,
         accessToken: ctx.credential.accessToken,
@@ -850,11 +878,21 @@ export class ThreadsProvider implements SocialProvider {
           message: `Threads is still preparing container ${containerId}; nothing has been published`,
           userMessage: 'Threads is still preparing this post. We will try again shortly.',
           retryAfterSeconds: 60,
-          meta: { containerId, lastStatus: container.status ?? 'unknown' },
+          meta: {
+            containerId,
+            lastStatus: container.status ?? 'unknown',
+            // Nothing of it is live: a thread may pause here for free (D-124).
+            stillPreparing: true,
+          },
         });
       }
 
-      await sleep(intervalMs, ctx.signal);
+      const step =
+        fixed ??
+        CONTAINER_POLL_STEPS_MS[Math.min(look, CONTAINER_POLL_STEPS_MS.length - 1)] ??
+        5_000;
+      // One last look at the deadline itself, rather than a step past it.
+      await sleep(Math.min(step, Math.max(0, deadline - clock.nowMs())), ctx.signal);
     }
   }
 
@@ -1103,6 +1141,39 @@ export class ThreadsProvider implements SocialProvider {
  */
 function composeText(draft: VariantDraft): string {
   return composePublishedText({ body: draft.body, hashtags: draft.hashtags });
+}
+
+/**
+ * The reply container an earlier attempt left for this part, if any.
+ *
+ * Only for the same thread (fingerprint), the same part, replying to the same
+ * post. A carousel reply may have recorded its children before its own
+ * container existed.
+ */
+function pendingReplyAt(
+  ref: Record<string, unknown>,
+  at: { fingerprint: string; index: number; parentId: string },
+): { containerId?: string; children?: string[] } | undefined {
+  const raw = ref['pendingReply'];
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+
+  const pending = raw as Record<string, unknown>;
+  if (
+    pending['fingerprint'] !== at.fingerprint ||
+    pending['index'] !== at.index ||
+    pending['parentId'] !== at.parentId
+  ) {
+    return undefined;
+  }
+
+  const containerId = pending['containerId'];
+  const children = pending['children'];
+  return {
+    ...(typeof containerId === 'string' && containerId.length > 0 ? { containerId } : {}),
+    ...(Array.isArray(children) && children.every((id) => typeof id === 'string')
+      ? { children: children as string[] }
+      : {}),
+  };
 }
 
 function sleep(ms: number, signal?: AbortSignal | undefined): Promise<void> {

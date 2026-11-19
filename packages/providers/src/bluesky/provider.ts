@@ -582,6 +582,8 @@ export class BlueskyProvider implements SocialProvider {
     };
 
     let imageCount = 0;
+    // Whether the first post went out on this attempt, rather than an earlier one.
+    let headPostedNow = false;
     if (progress.posted.length === 0) {
       // Images first, as for a single post: an orphaned blob is collected.
       const images = await this.uploadImages(ctx, session, dpopKey, groups[0] ?? []);
@@ -602,6 +604,7 @@ export class BlueskyProvider implements SocialProvider {
 
       progress = { ...progress, posted: [{ id: head.uri, ref: head.cid }] };
       await save({ thread: progress });
+      headPostedNow = true;
     }
 
     await continueThread({
@@ -610,6 +613,7 @@ export class BlueskyProvider implements SocialProvider {
       parts,
       progress,
       deadlineMs: startedAt + THREAD_BUDGET_MS,
+      progressMade: headPostedNow,
       postReply: async ({ text, index, parent, root }) => {
         const facets = detectFacets(text);
         const images = await this.uploadImages(ctx, session, dpopKey, groups[index] ?? []);

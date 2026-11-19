@@ -2,6 +2,7 @@ import {
   HEALTH_CONFIRM_DELAY_MS,
   PublishingTimeoutError,
   RECONCILE_WINDOW_MS,
+  THREAD_CONTINUES,
   accountStatusForErrorCode,
   clock,
   isClientStandingFailure,
@@ -24,7 +25,7 @@ import {
   withLock,
   type JobContext,
 } from '@orbit/queue';
-import { capabilitiesFor, getProvider } from '@orbit/providers';
+import { capabilitiesFor, getProvider, isThreadContinuation } from '@orbit/providers';
 import { workerBuild } from '../build-info.js';
 import { claimVariant, releaseClaim, settleClaim, type Claim } from './claim.js';
 import { closeAttempt, findInFlightAttempt, openAttempt, updateJobState } from './attempts.js';
@@ -336,6 +337,8 @@ async function classifyAndMaybeReconcile(
 ): Promise<AttemptOutcome> {
   const ambiguous = error instanceof PublishingTimeoutError || isAbortError(error);
 
+  if (isThreadContinuation(error)) return closeThreadPause(run, subject, attempt, error);
+
   if (!ambiguous) {
     const code = isAppError(error) ? error.code : 'INTERNAL_ERROR';
     const retryable = isAppError(error) ? error.retryable : true;
@@ -399,6 +402,41 @@ async function classifyAndMaybeReconcile(
   });
 
   return reconciled;
+}
+
+/**
+ * A thread that stopped between two parts after putting a post live (D-124).
+ *
+ * Progress, not failure: the adapter only marks a pause this way once the
+ * attempt posted something, and recorded it, so the next run continues from
+ * the next part. Closed with its own code so the trail reads "continuing";
+ * kept out of the provider-error metric and the error log, where a thread
+ * moving along would look like an outage.
+ */
+async function closeThreadPause(
+  run: ClaimedRun,
+  subject: PublishSubject,
+  attempt: Awaited<ReturnType<typeof openAttempt>>,
+  error: unknown,
+): Promise<AttemptOutcome> {
+  const outcome: AttemptOutcome = { kind: 'RETRYABLE', code: THREAD_CONTINUES };
+  const context = isAppError(error) ? error.context : {};
+
+  await closeAttempt(attempt, outcome, {
+    message: isAppError(error) ? error.userMessage : undefined,
+    retryable: true,
+    providerMeta: { ...scrubMeta(context), ...workerBuild() },
+  });
+
+  logger.info('thread paused between posts; continuing', {
+    variantId: subject.variantId,
+    organizationId: run.organizationId,
+    platform: subject.platform,
+    threadPosted: context['threadPosted'],
+    threadTotal: context['threadTotal'],
+  });
+
+  return outcome;
 }
 
 /**

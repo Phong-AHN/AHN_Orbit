@@ -416,6 +416,8 @@ export class XProvider implements SocialProvider {
 
     let id: string;
     let mediaCount = headMedia.length;
+    // Whether the first post went out on this attempt, rather than an earlier one.
+    let headPostedNow = false;
 
     if (progress && progress.posted.length > 0) {
       // The first post went out on an earlier attempt; only the rest is left.
@@ -448,6 +450,7 @@ export class XProvider implements SocialProvider {
       if (progress) {
         progress = { ...progress, posted: [{ id }] };
         await save({ thread: progress });
+        headPostedNow = true;
       }
     }
 
@@ -458,6 +461,7 @@ export class XProvider implements SocialProvider {
         parts,
         progress,
         deadlineMs: startedAt + THREAD_BUDGET_MS,
+        progressMade: headPostedNow,
         postReply: async ({ text: part, index, parent }) => {
           // Uploaded fresh for each attempt: an upload no post uses is
           // invisible and expires, and the part is recorded only once posted.
@@ -689,7 +693,8 @@ export class XProvider implements SocialProvider {
           message: `X is still processing media ${mediaId}; no post has been created`,
           userMessage: 'X is still processing this video. We will try again shortly.',
           retryAfterSeconds: 60,
-          meta: { mediaId, lastState: processing.state ?? 'unknown' },
+          // Nothing of it is posted: a thread may pause here for free (D-124).
+          meta: { mediaId, lastState: processing.state ?? 'unknown', stillPreparing: true },
         });
       }
 

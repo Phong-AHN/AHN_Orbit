@@ -1118,7 +1118,7 @@ describe('attachments in a thread (D-124)', () => {
   const mediaIdsOf = (post: Record<string, unknown> | undefined) =>
     (post?.['media'] as { media_ids?: string[] } | undefined)?.media_ids ?? [];
 
-  it('spreads what one post cannot carry over the next posts', async () => {
+  it('spreads attachments evenly over the posts, in order', async () => {
     const { api: fake, posts } = threadApi();
     const five = ['a', 'b', 'c', 'd', 'e'].map((id) => image({ id }));
 
@@ -1129,9 +1129,12 @@ describe('attachments in a thread (D-124)', () => {
       }),
     );
 
-    expect(mediaIdsOf(posts[0])).toHaveLength(4);
-    expect(mediaIdsOf(posts[1])).toHaveLength(1);
-    expect(posts.slice(2).every((post) => post['media'] === undefined)).toBe(true);
+    const counts = posts.map((post) => mediaIdsOf(post).length);
+    expect(posts.length).toBeGreaterThan(1);
+    expect(counts.reduce((sum, count) => sum + count, 0)).toBe(5);
+    // Not four on the first and one on the second: as even as the posts allow.
+    expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
+    expect(counts[1]).toBeGreaterThan(0);
   });
 
   it('puts an attachment on the post it was placed on', async () => {

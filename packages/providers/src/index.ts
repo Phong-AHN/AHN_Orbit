@@ -52,7 +52,7 @@ export {
   type ThreadProgress,
 } from './thread.js';
 
-export { missingThreadScopes } from './thread-publish.js';
+export { isThreadContinuation, missingThreadScopes } from './thread-publish.js';
 
 export {
   ProviderErrorMap,

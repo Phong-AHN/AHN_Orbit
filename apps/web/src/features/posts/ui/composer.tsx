@@ -998,8 +998,8 @@ function VariantEditor({
               <span>
                 Split into a thread when the text is too long
                 <span className="block text-xs text-ink-muted">
-                  Breaks only where a sentence ends. Images go on the first post; each later post
-                  replies to the one before
+                  Breaks only where a sentence ends. Images are spread over the posts in order; each
+                  later post replies to the one before
                   {cap.maxThreadPosts ? `, up to ${cap.maxThreadPosts} posts` : ''}.
                 </span>
               </span>

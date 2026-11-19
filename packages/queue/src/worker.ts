@@ -131,13 +131,24 @@ export async function runAttempt<Q extends QueueName>(
       const decision = decideRetry(error, attempt, maxAttempts);
       const failure = describeFailure(error);
 
+      // Work continuing after progress is not a failure, and logging it as
+      // one would page somebody for a thread moving along.
+      const continuing = decision.action === 'RESCHEDULE' && decision.reason === 'CONTINUATION';
+
       // The full error goes to the log (which redacts); only the safe summary
       // travels onward into the job record and the dead-letter set.
-      logError('job attempt failed', error, {
-        durationMs: Date.now() - startedAt,
-        errorCode: errorCodeOf(error),
-        decision: decision.action,
-      });
+      if (continuing) {
+        logger.info('job continues in a new run', {
+          durationMs: Date.now() - startedAt,
+          delayMs: decision.delayMs,
+        });
+      } else {
+        logError('job attempt failed', error, {
+          durationMs: Date.now() - startedAt,
+          errorCode: errorCodeOf(error),
+          decision: decision.action,
+        });
+      }
 
       if (decision.action === 'FAIL') {
         await (options.deadLetter ?? recordDeadLetter)({
@@ -173,12 +184,14 @@ export async function runAttempt<Q extends QueueName>(
 
       await reenqueue(nextPayload, decision.delayMs);
 
-      logger.warn('job re-enqueued', {
-        action: decision.action,
-        delayMs: decision.delayMs,
-        nextAttempt,
-        errorCode: failure.code,
-      });
+      if (!continuing) {
+        logger.warn('job re-enqueued', {
+          action: decision.action,
+          delayMs: decision.delayMs,
+          nextAttempt,
+          errorCode: failure.code,
+        });
+      }
 
       const outcome = decision.action === 'RESCHEDULE' ? 'RESCHEDULED' : 'RETRYING';
       recordJobOutcome(queue, outcome);

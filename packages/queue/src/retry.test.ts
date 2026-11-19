@@ -127,6 +127,29 @@ describe('decideRetry', () => {
     }
   });
 
+  it('continues work that made progress within seconds, without consuming an attempt', () => {
+    // A thread with posts already live (D-124): pausing between posts must
+    // not walk the backoff schedule or run out of attempts.
+    const continuation = new ProviderUnavailableError('thread continues', {
+      retryAfterSeconds: 2,
+      context: { continuation: true },
+    });
+
+    for (const attempt of [1, MAX_ATTEMPTS]) {
+      expect(decideRetry(continuation, attempt)).toEqual({
+        action: 'RESCHEDULE',
+        delayMs: 2_000,
+        consumesAttempt: false,
+        reason: 'CONTINUATION',
+      });
+    }
+  });
+
+  it('never continues a non-retryable error, whatever its context says', () => {
+    const refused = new ProviderValidationError('no', { context: { continuation: true } });
+    expect(decideRetry(refused, 1)).toEqual({ action: 'FAIL', reason: 'NOT_RETRYABLE' });
+  });
+
   it('honours a custom attempt ceiling', () => {
     expect(decideRetry(new ProviderUnavailableError('down'), 2, 2)).toEqual({
       action: 'FAIL',

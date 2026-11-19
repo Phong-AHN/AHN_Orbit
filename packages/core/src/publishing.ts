@@ -49,6 +49,19 @@ export function isClaimAbandoned(claimedAt: Date, now: Date, ttlMs = CLAIM_TTL_M
 // ── Attempt outcomes ────────────────────────────────────────────────────────
 
 /**
+ * The code an attempt closes with when it stopped part-way through a thread
+ * after putting at least one post live (D-124).
+ *
+ * Not a failure: the rest of the thread follows within seconds, the retry
+ * budget is untouched, and the attempt is shown as continuing rather than
+ * failed. Outside the §37 taxonomy, like the human-resolution markers.
+ */
+export const THREAD_CONTINUES = 'THREAD_CONTINUES';
+
+/** How soon the next part of a paused thread is attempted. */
+export const THREAD_CONTINUE_DELAY_MS = 2_000;
+
+/**
  * What happened on one attempt, in terms the engine acts on.
  *
  * `AMBIGUOUS` is deliberately distinct from `FAILED`: it means the provider

@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { fixedClock, setClock } from '@orbit/core';
 import { ThreadsProvider } from './provider.js';
 import type { FetchLike } from './client.js';
+import { threadFingerprint } from '../thread.js';
+import { threadPartsFor } from '../validation.js';
 
 /**
  * The Threads adapter against recorded responses.
@@ -818,6 +820,125 @@ describe('threads (D-124)', () => {
     } finally {
       restore();
     }
+  });
+
+  it('pauses for free after a slow first post, and records the reply it was waiting on', async () => {
+    const ticking = fixedClock(Date.UTC(2026, 10, 19, 9, 0, 0));
+    const restore = setClock(ticking);
+    try {
+      const refs: Array<Record<string, unknown>> = [];
+      const fake = threadApi().on(/\/container-([2-9]|\d\d)/, () => {
+        ticking.advance(10_000);
+        return { body: { status: 'IN_PROGRESS' } };
+      });
+
+      const error = await provider(fake, { threadReplies: true, pollBudgetMs: 60_000 })
+        .publish(
+          publishContext({
+            credential: replyCredential,
+            draft: { body: longBody, hashtags: [], mentions: [], media: [], thread: true },
+            recordProviderRef: async (ref: Record<string, unknown>) => {
+              refs.push(ref);
+            },
+          }),
+        )
+        .catch((caught: { context?: Record<string, unknown> }) => caught);
+
+      // A post went live on this attempt, so the pause costs no retry.
+      expect(error.context?.['threadContinues']).toBe(true);
+      expect(refs.at(-1)?.['pendingReply']).toMatchObject({
+        index: 1,
+        parentId: 'post-1',
+        containerId: 'container-2',
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it('pauses for free when the first post alone used up the budget', async () => {
+    const ticking = fixedClock(Date.UTC(2026, 10, 19, 9, 0, 0));
+    const restore = setClock(ticking);
+    try {
+      // Meta took 40 seconds over the first post's container.
+      const fake = threadApi().on(/\/container-1(\?|$)/, () => {
+        ticking.advance(40_000);
+        return { body: { status: 'FINISHED' } };
+      });
+
+      const error = await provider(fake, { threadReplies: true, pollBudgetMs: 60_000 })
+        .publish(
+          publishContext({
+            credential: replyCredential,
+            draft: { body: longBody, hashtags: [], mentions: [], media: [], thread: true },
+          }),
+        )
+        .catch((caught: { context?: Record<string, unknown>; userMessage?: string }) => caught);
+
+      expect(error.context?.['threadContinues']).toBe(true);
+      expect(error.userMessage).toMatch(/^1 of \d+ posts in this thread are live on Threads/);
+      expect(fake.called(/threads_publish/)).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it('resumes the reply container the last run left, rather than starting a new one', async () => {
+    const draft = { body: longBody, hashtags: [], mentions: [], media: [], thread: true };
+    const on = provider(threadApi(), { threadReplies: true });
+    const parts = threadPartsFor(draft as never, on.capabilities());
+    const fingerprint = threadFingerprint(parts);
+
+    const fake = threadApi();
+    await provider(fake, { threadReplies: true }).publish(
+      publishContext({
+        credential: replyCredential,
+        draft,
+        previousRef: {
+          contentHash: 'hash-1',
+          thread: { fingerprint, total: parts.length, posted: [{ id: 'post-1' }] },
+          pendingReply: { fingerprint, index: 1, parentId: 'post-1', containerId: 'container-77' },
+        },
+      }),
+    );
+
+    const published = fake.calls
+      .filter((call) => /threads_publish/.test(call.url))
+      .map((call) => new URLSearchParams(call.body ?? '').get('creation_id'));
+    expect(published[0]).toBe('container-77');
+    // One container fewer than the replies left: the second post's was reused.
+    const created = fake.calls.filter(
+      (call) => call.method === 'POST' && /\/th-user-1\/threads(\?|$)/.test(call.url),
+    );
+    expect(created).toHaveLength(parts.length - 2);
+  });
+
+  it('ignores a recorded reply container for another post', async () => {
+    const draft = { body: longBody, hashtags: [], mentions: [], media: [], thread: true };
+    const parts = threadPartsFor(
+      draft as never,
+      provider(threadApi(), { threadReplies: true }).capabilities(),
+    );
+    const fingerprint = threadFingerprint(parts);
+
+    const fake = threadApi();
+    await provider(fake, { threadReplies: true }).publish(
+      publishContext({
+        credential: replyCredential,
+        draft,
+        previousRef: {
+          contentHash: 'hash-1',
+          thread: { fingerprint, total: parts.length, posted: [{ id: 'post-1' }] },
+          // Made as a reply to a different post: never published in its place.
+          pendingReply: { fingerprint, index: 1, parentId: 'post-9', containerId: 'container-77' },
+        },
+      }),
+    );
+
+    const published = fake.calls
+      .filter((call) => /threads_publish/.test(call.url))
+      .map((call) => new URLSearchParams(call.body ?? '').get('creation_id'));
+    expect(published).not.toContain('container-77');
   });
 
   it('keeps the reply permission across a refresh only where the connection had it', async () => {

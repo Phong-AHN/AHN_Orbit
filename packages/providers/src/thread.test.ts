@@ -326,20 +326,34 @@ describe('attachments across a thread', () => {
   const vid = (id: string) => ({ id, kind: 'VIDEO' });
   const ids = (groups: Array<Array<{ id: string }>>) => groups.map((g) => g.map((m) => m.id));
 
-  it('keeps every attachment on the first post while it fits', () => {
+  it('gives each post one attachment, in order, while there are no more than posts', () => {
     expect(ids(assignThreadMedia([img('a'), img('b')], 3, undefined, xLimits))).toEqual([
-      ['a', 'b'],
-      [],
+      ['a'],
+      ['b'],
       [],
     ]);
   });
 
-  it('moves what does not fit on to the next posts, in order', () => {
-    const six = ['a', 'b', 'c', 'd', 'e', 'f'].map(img);
-    expect(ids(assignThreadMedia(six, 3, undefined, xLimits))).toEqual([
-      ['a', 'b', 'c', 'd'],
-      ['e', 'f'],
-      [],
+  it('spreads five images over a five-post Threads thread, not all on the first', () => {
+    // Threads takes up to twenty on one post; filling the first post first put
+    // all five there and left the replies bare (2026-11-19).
+    const threadsLimits = { maxAttachments: 20, soloKinds: [] };
+    const five = ['a', 'b', 'c', 'd', 'e'].map(img);
+    expect(ids(assignThreadMedia(five, 5, undefined, threadsLimits))).toEqual([
+      ['a'],
+      ['b'],
+      ['c'],
+      ['d'],
+      ['e'],
+    ]);
+  });
+
+  it('spreads more attachments than posts evenly, the first posts taking the extra', () => {
+    const seven = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(img);
+    expect(ids(assignThreadMedia(seven, 3, undefined, xLimits))).toEqual([
+      ['a', 'b', 'c'],
+      ['d', 'e'],
+      ['f', 'g'],
     ]);
   });
 

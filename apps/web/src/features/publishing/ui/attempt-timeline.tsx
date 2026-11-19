@@ -1,4 +1,4 @@
-import { presentFailure } from '@orbit/core';
+import { THREAD_CONTINUES, presentFailure } from '@orbit/core';
 import { Badge, Card, CardBody, CardHeader, CardTitle, cn } from '@orbit/ui';
 import { ACTION_LABEL, ATTEMPT_STATE_LABEL, ATTEMPT_STATE_TONE, type AttemptState } from './status';
 
@@ -44,6 +44,9 @@ export function AttemptTimeline({ attempts }: { attempts: AttemptRow[] }) {
               const state = attempt.state as AttemptState;
               const presentation = presentFailure(attempt.errorCode);
               const failed = state !== 'SUCCEEDED' && state !== 'RECONCILED';
+              // A thread that stopped between posts after putting some live
+              // (D-124): stored as a closed attempt, read as progress.
+              const continuing = attempt.errorCode === THREAD_CONTINUES;
 
               return (
                 <li key={attempt.id} className="flex gap-3">
@@ -53,7 +56,7 @@ export function AttemptTimeline({ attempts }: { attempts: AttemptRow[] }) {
                       'mt-1.5 size-2 shrink-0 rounded-full',
                       state === 'SUCCEEDED' && 'bg-success',
                       state === 'RECONCILED' && 'bg-success',
-                      state === 'FAILED' && 'bg-danger',
+                      state === 'FAILED' && (continuing ? 'bg-accent' : 'bg-danger'),
                       state === 'INCONCLUSIVE' && 'bg-warning',
                       state === 'IN_FLIGHT' && 'bg-accent',
                     )}
@@ -62,8 +65,10 @@ export function AttemptTimeline({ attempts }: { attempts: AttemptRow[] }) {
                   <div className="min-w-0 flex-1">
                     <p className="flex flex-wrap items-center gap-2 text-sm">
                       <span className="font-medium text-ink">Attempt {attempt.attemptNumber}</span>
-                      <Badge tone={ATTEMPT_STATE_TONE[state] ?? 'neutral'}>
-                        {ATTEMPT_STATE_LABEL[state] ?? state}
+                      <Badge
+                        tone={continuing ? 'accent' : (ATTEMPT_STATE_TONE[state] ?? 'neutral')}
+                      >
+                        {continuing ? 'Continued' : (ATTEMPT_STATE_LABEL[state] ?? state)}
                       </Badge>
                       {attempt.durationMs !== null ? (
                         <span className="font-mono text-xs text-ink-muted">
@@ -93,8 +98,11 @@ export function AttemptTimeline({ attempts }: { attempts: AttemptRow[] }) {
                           {attempt.errorMessage ?? presentation.summary}
                         </p>
                         <p className="mt-0.5 text-xs text-ink-muted">
-                          {ACTION_LABEL[presentation.action]}
-                          {attempt.errorRetryable ? ' · retried automatically' : ''}
+                          {continuing
+                            ? 'Nothing to do — the next posts follow automatically'
+                            : `${ACTION_LABEL[presentation.action]}${
+                                attempt.errorRetryable ? ' · retried automatically' : ''
+                              }`}
                         </p>
                       </div>
                     ) : null}

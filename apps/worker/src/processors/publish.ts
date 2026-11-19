@@ -1,4 +1,9 @@
-import { ProviderRateLimitError, ProviderUnavailableError } from '@orbit/core';
+import {
+  ProviderRateLimitError,
+  ProviderUnavailableError,
+  THREAD_CONTINUES,
+  THREAD_CONTINUE_DELAY_MS,
+} from '@orbit/core';
 import { logger } from '@orbit/observability';
 import type { JobContext } from '@orbit/queue';
 import { publishVariant } from '../publishing/engine.js';
@@ -18,6 +23,9 @@ import { publishVariant } from '../publishing/engine.js';
  *     the queue's job and `decideRetry` owns the backoff.
  *   • a **rate limit** throws `ProviderRateLimitError`, which the retry policy
  *     reschedules *without consuming an attempt* (T1.11).
+ *   • a **thread continuing** — posts already live, the rest to follow —
+ *     throws a continuation, rescheduled within seconds, also without
+ *     consuming an attempt (D-124).
  *
  * Nothing here can cause a second publish: by the time an outcome reaches this
  * function the claim has already been settled or released.
@@ -40,6 +48,16 @@ export async function processPublish(job: JobContext<'publish'>): Promise<void> 
         // untouched — a busy queue must not become a failed post.
         throw new ProviderRateLimitError('Account is over its publishing rate limit', {
           retryAfterSeconds: Math.ceil((result.requeueAfterMs ?? 60_000) / 1_000),
+        });
+      }
+
+      if (result.reason === THREAD_CONTINUES) {
+        // Progress, not failure: the engine only defers this way after a post
+        // went live this run, so the attempt budget is left alone and the next
+        // part follows in seconds instead of after a backoff.
+        throw new ProviderUnavailableError('Thread continues in a new run', {
+          retryAfterSeconds: Math.ceil(THREAD_CONTINUE_DELAY_MS / 1_000),
+          context: { continuation: true, variantId: result.variantId },
         });
       }
 

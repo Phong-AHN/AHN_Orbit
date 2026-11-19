@@ -330,12 +330,14 @@ export interface ThreadMediaLimits {
  * Which post of a thread each attachment goes with (D-124).
  *
  * An attachment somebody placed on a post stays there (on the last post if the
- * thread has since become shorter). The rest fill the first post first and move
- * on only when a post is full — or when the attachment must be alone, or a post
- * already holds one that must — so a thread with more images than one post
- * allows spreads them over the following posts, in order, instead of being
- * refused. Anything that still does not fit lands on the last post, where the
- * validator names it.
+ * thread has since become shorter). The rest are spread over the posts evenly,
+ * in order: five images on a five-post thread go one to each post, seven on
+ * three go 3 + 2 + 2 (2026-11-19 — filling the first post first put all five
+ * on a Threads thread's first post, which takes up to twenty, and left the
+ * replies bare). An attachment moves on to a later post when its post is full,
+ * when it must be alone, or when the post already holds one that must be.
+ * Anything that still does not fit lands on the last post, where the validator
+ * names it.
  *
  * The validator, the adapters and the composer all ask this one function.
  */
@@ -363,11 +365,22 @@ export function assignThreadMedia<M extends ThreadMediaItem>(
     group.length < limits.maxAttachments &&
     (group.length === 0 || (!solo(item) && !group.some(solo)));
 
+  // The post each attachment is aimed at: n over p posts gives the first
+  // n mod p posts one more than the rest — one each while n ≤ p.
+  const base = Math.floor(unplaced.length / groups.length);
+  const extra = unplaced.length % groups.length;
+  const aims: number[] = [];
+  groups.forEach((_, post) => {
+    for (let k = 0; k < base + (post < extra ? 1 : 0); k += 1) aims.push(post);
+  });
+
+  // Never earlier than the one before, so the order holds when one moves on.
   let cursor = 0;
-  for (const item of unplaced) {
+  unplaced.forEach((item, i) => {
+    cursor = Math.max(cursor, aims[i] ?? last);
     while (cursor < last && !fits(groups[cursor] as M[], item)) cursor += 1;
     (groups[cursor] as M[]).push(item);
-  }
+  });
 
   return groups;
 }

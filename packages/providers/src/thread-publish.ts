@@ -20,6 +20,16 @@ import type { ThreadLink, ThreadProgress } from './thread.js';
  * call instead would leave a part that may or may not exist — the one state
  * this design exists to avoid.
  *
+ * A pause is not a failure. Once this attempt has put at least one post live,
+ * stopping — at the deadline, or because the next part is still being prepared
+ * — is marked `threadContinues`, and the engine sends it straight back to the
+ * queue without spending a retry or waiting out a backoff (2026-11-19: a
+ * five-post Threads thread paused after post 1 and sat in the 30s → 2m → 8m
+ * schedule, which could end FAILED with the first post already live). An
+ * attempt that has posted nothing stops as an ordinary retry instead, so every
+ * free pause is paid for by a post: a thread of n parts pauses at most n − 1
+ * times for free.
+ *
  * A part the platform refuses is reported with how far the thread got, so the
  * failure on screen says "3 of 5 are live" rather than implying nothing went
  * out. Retrying it — automatically or by hand — continues from part 4.
@@ -35,6 +45,11 @@ export interface ContinueThreadInput {
   progress: ThreadProgress;
   /** Epoch ms after which no further part is started. */
   deadlineMs: number;
+  /**
+   * Whether this attempt has already put a post live — the first, just
+   * before. Only an attempt that has moved the thread on may pause for free.
+   */
+  progressMade?: boolean;
   /** Post one part as a reply. Returns how to point at it. */
   postReply: (input: {
     text: string;
@@ -57,15 +72,11 @@ export async function continueThread(input: ContinueThreadInput): Promise<Thread
     throw new Error('continueThread needs the first post of the thread to be live already');
   }
 
+  let moved = input.progressMade ?? false;
+
   for (let index = posted.length; index < total; index += 1) {
     if (clock.nowMs() >= input.deadlineMs) {
-      throw toAppError(platform, {
-        kind: 'UNAVAILABLE',
-        message: `Paused the thread after post ${index} of ${total} to stay inside the publish budget`,
-        userMessage: `${index} of ${total} posts in this thread are live on ${label}. The rest will follow shortly.`,
-        retryAfterSeconds: 5,
-        meta: { threadPosted: index, threadTotal: total },
-      });
+      throw threadPause(platform, label, { posted: index, total, free: moved });
     }
 
     const parent = posted[index - 1] as ThreadLink;
@@ -73,14 +84,60 @@ export async function continueThread(input: ContinueThreadInput): Promise<Thread
     try {
       link = await input.postReply({ text: parts[index] as string, index, parent, root });
     } catch (error) {
+      // The next part is not ready yet — nothing of it is live. After a post
+      // this attempt, that is a pause like the deadline, not a failure.
+      if (moved && isStillPreparing(error)) {
+        throw threadPause(platform, label, { posted: index, total, free: true });
+      }
       throw withThreadProgress(error, { posted: index, total, label });
     }
 
     posted.push(link);
     await input.record({ fingerprint: input.progress.fingerprint, total, posted: [...posted] });
+    moved = true;
   }
 
   return { fingerprint: input.progress.fingerprint, total, posted };
+}
+
+/**
+ * Stopping between two parts, with nothing in flight.
+ *
+ * `free` marks it `threadContinues` — the engine's signal to continue at once
+ * without spending a retry. Only an attempt that posted something gets that;
+ * otherwise this is the same retryable stop as any other.
+ */
+function threadPause(
+  platform: Platform,
+  label: string,
+  progress: { posted: number; total: number; free: boolean },
+): AppError {
+  const { posted, total, free } = progress;
+  return toAppError(platform, {
+    kind: 'UNAVAILABLE',
+    message: `Paused the thread after post ${posted} of ${total} to stay inside the publish budget`,
+    userMessage: `${posted} of ${total} posts in this thread are live on ${label}. The rest are on their way.`,
+    retryAfterSeconds: free ? 2 : 5,
+    meta: {
+      threadPosted: posted,
+      threadTotal: total,
+      ...(free ? { threadContinues: true } : {}),
+    },
+  });
+}
+
+/**
+ * A part that could not go out yet because the platform is still preparing
+ * it — a Threads container or an X upload still processing. Nothing of it is
+ * live; adapters mark these with `stillPreparing`.
+ */
+function isStillPreparing(error: unknown): boolean {
+  return isAppError(error) && error.retryable && error.context['stillPreparing'] === true;
+}
+
+/** Whether an error is a thread pausing between parts after progress (D-124). */
+export function isThreadContinuation(error: unknown): boolean {
+  return isAppError(error) && error.retryable && error.context['threadContinues'] === true;
 }
 
 /**

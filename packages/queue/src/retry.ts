@@ -9,11 +9,16 @@ import { isAppError, type AppError } from '@orbit/core';
  * error therefore gets correct retry behaviour by declaring `retryable` on
  * itself, with nothing to update in the queue layer.
  *
- * Three cases are not plain "retry or don't":
+ * Four cases are not plain "retry or don't":
  *
  *   • **Rate limits** reschedule at the provider's `retryAfter` and do **not**
  *     consume an attempt. Burning the budget on a queue that was simply too
  *     busy would turn a delay into a failure.
+ *   • **Continuations** — work that stopped part-way *after making progress*,
+ *     such as a thread with posts already live (D-124) — reschedule within
+ *     seconds and do not consume an attempt either. The processor marks them
+ *     with `context.continuation`, and only for progress it can bound: a
+ *     thread of n posts continues at most n − 1 times.
  *   • **Timeouts** are non-retryable *here*. `PublishingTimeoutError` is
  *     ambiguous — the post may or may not exist — so the publish engine must
  *     reconcile before deciding (layer 4). Letting the queue retry it blindly is
@@ -29,7 +34,12 @@ export const MAX_ATTEMPTS = BACKOFF_SCHEDULE_MS.length;
 
 export type RetryDecision =
   | { action: 'RETRY'; delayMs: number; consumesAttempt: true }
-  | { action: 'RESCHEDULE'; delayMs: number; consumesAttempt: false; reason: 'RATE_LIMIT' }
+  | {
+      action: 'RESCHEDULE';
+      delayMs: number;
+      consumesAttempt: false;
+      reason: 'RATE_LIMIT' | 'CONTINUATION';
+    }
   | { action: 'FAIL'; reason: RetryRefusal };
 
 export type RetryRefusal =
@@ -69,6 +79,15 @@ export function decideRetry(
       delayMs: retryAfterMs,
       consumesAttempt: false,
       reason: 'RATE_LIMIT',
+    };
+  }
+
+  if (isAppError(error) && error.retryable && error.context['continuation'] === true) {
+    return {
+      action: 'RESCHEDULE',
+      delayMs: (error.retryAfterSeconds ?? 2) * 1_000,
+      consumesAttempt: false,
+      reason: 'CONTINUATION',
     };
   }
 

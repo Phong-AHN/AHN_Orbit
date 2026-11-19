@@ -197,7 +197,7 @@ export function ThreadEditor({
               <p className="whitespace-pre-wrap text-sm text-ink">{part}</p>
 
               {/* The attachments this post carries (D-124). Moving one pins it
-                  to that post; the rest keep filling posts in order. */}
+                  to that post; the rest stay spread over the posts in order. */}
               {here.length > 0 ? (
                 <ul className="mt-2 flex flex-wrap gap-2">
                   {here.map((id) => {

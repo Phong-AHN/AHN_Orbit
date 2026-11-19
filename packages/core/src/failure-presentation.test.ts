@@ -62,6 +62,15 @@ describe('presentFailure', () => {
     expect(presentFailure('ABANDONED_BY_HUMAN').action).toBe('REVIEW');
   });
 
+  it('explains a thread continuing between posts as progress, not failure', () => {
+    // D-124: posts of the thread are live and the rest follow on their own.
+    expect(presentFailure('THREAD_CONTINUES')).toEqual({
+      summary: 'Part of this thread is live; the rest is on its way.',
+      action: 'WAIT',
+      retryable: true,
+    });
+  });
+
   it('handles an absent code', () => {
     expect(presentFailure(null).action).toBe('WAIT');
     expect(presentFailure(undefined).summary).toContain('not been attempted');
