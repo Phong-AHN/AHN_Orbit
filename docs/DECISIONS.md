@@ -5130,15 +5130,17 @@ can be — the split was already the shortest possible.
   fewest at sentence ends, as before). Stored as
   `platformOptions.threadPosts`; `null` is Auto. Ignored for a thread edited
   by hand.
-- **Every count offered ends every post at a sentence** (`threadCountRange`):
-  from the fewest posts at sentence ends to one per sentence, capped at the
-  platform's ceiling. A first version also offered fewer posts that cut a
-  sentence; the owner ruled that out the same day — a post never ends
-  mid-sentence, and breaking anywhere else is what "Edit posts" is for. So
-  the text above offers 5–10, not 4. Where a sentence is longer than a whole
-  post, no count is offered at all.
-- **A chosen count is split by `splitIntoThreadCount`** at sentence ends only,
-  as evenly as possible — five similar posts, not four full ones and a stub.
+- **Counts offered: from the fewest the text fits in at all**
+  (`threadCountRange`) to one post per sentence, capped at the platform's
+  ceiling. The owner settled this after two rounds on 2026-11-19: 1,946
+  characters at 500 a post is offered as 4 (not only the 5 it takes at
+  sentence ends), 600 as 2, 1,200 as 3. Below the fewest at sentence ends a
+  post may have to end between words, and the person adjusts it with "Edit
+  posts"; the hint under the picker says so. Auto keeps ending every post at a
+  sentence.
+- **A chosen count is split by `splitIntoThreadCount`:** as few posts ending
+  mid-sentence as the count allows (none whenever it can), then the posts as
+  even as possible.
 - **A count the text can no longer be** (it was edited since) is refused with
   `THREAD_COUNT_UNREACHABLE`, naming the range, rather than quietly split
   differently. The preview shows the Auto split meanwhile.

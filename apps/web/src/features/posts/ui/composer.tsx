@@ -1029,16 +1029,19 @@ function VariantEditor({
               </label>
             ) : null}
 
-            {/* How many posts (D-124): only counts this text can be on this
-                platform with every post ending at a sentence. Breaking
-                anywhere else is what "Edit posts" is for. */}
+            {/* How many posts (D-124): any count this text fits in on this
+                platform, down to the fewest. Posts end at sentences wherever
+                the count allows; where it does not, the person adjusts them
+                with "Edit posts". */}
             {threadOn && !manual && (threadRange || chosenPosts !== null) ? (
               <Field
                 label="Number of posts"
                 htmlFor={`variant-thread-posts-${active.id}`}
                 hint={
                   threadRange
-                    ? `Every post ends at a sentence, so at least ${threadRange.min}. To break somewhere else, use “Edit posts”.`
+                    ? threadRange.sentenceMin !== null && threadRange.min < threadRange.sentenceMin
+                      ? `Posts end at a sentence wherever they can. With fewer than ${threadRange.sentenceMin}, some end between words — adjust them with “Edit posts”.`
+                      : 'Every post ends at a sentence. To break somewhere else, use “Edit posts”.'
                     : 'The text no longer needs splitting.'
                 }
               >

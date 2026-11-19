@@ -557,6 +557,7 @@ Cách đọc:
   - Sửa chữ làm số bài đã chọn không còn khả thi: bài bị chặn kèm thông báo khoảng hợp lệ, không âm thầm đổi.
   - Kiểm tra: typecheck, lint, 1842 unit test đạt (7 test mới).
 - **Số bài: không bao giờ cắt giữa câu.** Theo yêu cầu của anh, ô "Number of posts" chỉ đưa ra các số bài mà mọi bài đều kết thúc ở chỗ hết câu; bỏ các lựa chọn "some end mid-sentence". Với đoạn văn Threads ở trên: chọn được 5–10, không còn 4. Muốn cắt ở chỗ khác thì dùng "Edit posts". Câu nào dài hơn cả một bài thì không có lựa chọn số bài (chỉ Auto). Kiểm tra: typecheck, lint, 1843 unit test đạt.
+- **Số bài: cho chọn tới số bài ít nhất có thể, cố gắng cắt ở chỗ hết câu** (quyết định cuối của anh, thay dòng trên). Ô "Number of posts" giờ bắt đầu từ số bài ít nhất mà đoạn văn vừa (1.946 ký tự trên Threads: 4; ~600 ký tự: 2; ~1.200 ký tự: 3). Hệ thống cắt giữa câu ít nhất có thể, rồi chia đều; bài nào phải cắt giữa câu thì người dùng tự chỉnh bằng "Edit posts" (gợi ý dưới ô chọn nói rõ). Auto vẫn luôn cắt ở chỗ hết câu. Kiểm tra: typecheck, lint, 1843 unit test đạt.
 
 ---
 
