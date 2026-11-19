@@ -556,6 +556,7 @@ Cách đọc:
   - Khi chọn số bài: cắt giữa câu ít nhất có thể, rồi chia cho các bài dài đều nhau.
   - Sửa chữ làm số bài đã chọn không còn khả thi: bài bị chặn kèm thông báo khoảng hợp lệ, không âm thầm đổi.
   - Kiểm tra: typecheck, lint, 1842 unit test đạt (7 test mới).
+- **Số bài: không bao giờ cắt giữa câu.** Theo yêu cầu của anh, ô "Number of posts" chỉ đưa ra các số bài mà mọi bài đều kết thúc ở chỗ hết câu; bỏ các lựa chọn "some end mid-sentence". Với đoạn văn Threads ở trên: chọn được 5–10, không còn 4. Muốn cắt ở chỗ khác thì dùng "Edit posts". Câu nào dài hơn cả một bài thì không có lựa chọn số bài (chỉ Auto). Kiểm tra: typecheck, lint, 1843 unit test đạt.
 
 ---
 

@@ -1030,17 +1030,15 @@ function VariantEditor({
             ) : null}
 
             {/* How many posts (D-124): only counts this text can be on this
-                platform are offered, and those that need a post to end
-                mid-sentence say so. Hand-edited threads are what they are. */}
+                platform with every post ending at a sentence. Breaking
+                anywhere else is what "Edit posts" is for. */}
             {threadOn && !manual && (threadRange || chosenPosts !== null) ? (
               <Field
                 label="Number of posts"
                 htmlFor={`variant-thread-posts-${active.id}`}
                 hint={
                   threadRange
-                    ? threadRange.sentenceMin !== null
-                      ? `At least ${threadRange.sentenceMin} posts if every post ends at a sentence${threadRange.min < threadRange.sentenceMin ? `; ${threadRange.min} at the fewest` : ''}.`
-                      : `At least ${threadRange.min} posts.`
+                    ? `Every post ends at a sentence, so at least ${threadRange.min}. To break somewhere else, use “Edit posts”.`
                     : 'The text no longer needs splitting.'
                 }
               >
@@ -1064,9 +1062,6 @@ function VariantEditor({
                       ).map((count) => (
                         <option key={count} value={count}>
                           {count} posts
-                          {threadRange.sentenceMin === null || count < threadRange.sentenceMin
-                            ? ' — some end mid-sentence'
-                            : ''}
                         </option>
                       ))
                     : null}

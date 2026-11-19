@@ -387,15 +387,14 @@ export function readThreadMedia(value: unknown): Record<string, number> | undefi
 /**
  * How many posts this text can become, for offering a choice (D-124).
  *
- * `auto` is the split with no count asked for. `sentenceMin` is the fewest
- * posts with every post ending where a sentence ends — null when a sentence is
- * longer than a post. `min` is the fewest at all, breaking between any two
- * words: fewer than `sentenceMin` means some posts end mid-sentence. `max` is
- * the most worth offering: one per sentence, capped by the platform's ceiling.
+ * Every count in the range ends every post where a sentence ends — the owner
+ * asked that a chosen count never cut a sentence (2026-11-19); breaking
+ * anywhere else is what editing the posts by hand is for. `auto` is the split
+ * with no count asked for; `min` the fewest posts at sentence ends; `max` one
+ * post per sentence, capped by the platform's ceiling.
  */
 export interface ThreadCountRange {
   auto: number;
-  sentenceMin: number | null;
   min: number;
   max: number;
 }
@@ -447,30 +446,28 @@ export function threadCountRange(
   // width, and a count of ten or more is checked exactly when it is chosen.
   const budget = budgetFor(maxLength, measure, 9, numbered);
 
-  const min = fewestPosts(tokens, budget, measure, 1);
-  if (!Number.isFinite(min)) return null; // a single word longer than a post
-
+  // A sentence longer than a whole post cannot end a post at all: no count is
+  // offered, and the automatic split (which has to cut it) is all there is.
   const sentences = fewestPosts(tokens, budget, measure, 2);
+  if (!Number.isFinite(sentences)) return null;
+
   const boundaries = tokens.slice(0, -1).filter((token) => breakQuality(token) >= 2).length;
   const auto = splitIntoThread(clean, maxLength, measure, { numbered }).length;
 
   return {
     auto,
-    sentenceMin: Number.isFinite(sentences) ? sentences : null,
-    min: Math.max(2, min),
-    max: Math.min(
-      options.maxPosts,
-      Number.isFinite(sentences) ? Math.max(boundaries + 1, sentences) : auto,
-    ),
+    min: Math.max(2, sentences),
+    max: Math.min(options.maxPosts, Math.max(boundaries + 1, sentences)),
   };
 }
 
 /**
- * Split into exactly `count` posts, or null if the text cannot be.
+ * Split into exactly `count` posts, every one ending where a sentence ends, or
+ * null if the text cannot be.
  *
- * Breaks are chosen to cut as few sentences as possible — none, whenever the
- * count allows — and then to make the posts as even as possible, so a thread
- * of four is four similar posts rather than three full ones and a stub.
+ * Among the ways to do it, the posts are made as even as possible, so a thread
+ * of five is five similar posts rather than four full ones and a stub. A
+ * sentence is never cut: a count that would need it is not possible.
  */
 export function splitIntoThreadCount(
   text: string,
@@ -500,12 +497,10 @@ export function splitIntoThreadCount(
     (prefix[last + 1] as number) - (prefix[first] as number) - (gaps[last] as number);
 
   interface Cell {
-    cuts: number;
     longest: number;
     from: number;
   }
-  const better = (a: Cell, b: Cell | undefined) =>
-    !b || a.cuts < b.cuts || (a.cuts === b.cuts && a.longest < b.longest);
+  const better = (a: Cell, b: Cell | undefined) => !b || a.longest < b.longest;
 
   // best[n][last]: the first `n` posts end with token `last`.
   const best: Array<Array<Cell | undefined>> = Array.from(
@@ -515,7 +510,7 @@ export function splitIntoThreadCount(
   for (let last = 0; last < total; last += 1) {
     const length = cost(0, last);
     if (length > budget) break;
-    best[1]![last] = { cuts: 0, longest: length, from: -1 };
+    best[1]![last] = { longest: length, from: -1 };
   }
 
   for (let n = 2; n <= count; n += 1) {
@@ -523,10 +518,11 @@ export function splitIntoThreadCount(
       for (let first = last; first >= n - 1; first -= 1) {
         const length = cost(first, last);
         if (length > budget) break;
+        // A post may only begin after one that ended a sentence.
+        if (!sentenceEnd[first - 1]) continue;
         const previous = best[n - 1]![first - 1];
         if (!previous) continue;
         const candidate: Cell = {
-          cuts: previous.cuts + (sentenceEnd[first - 1] ? 0 : 1),
           longest: Math.max(previous.longest, length),
           from: first,
         };

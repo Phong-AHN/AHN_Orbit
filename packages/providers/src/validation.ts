@@ -625,8 +625,8 @@ export function validateDraft(
           !range
             ? `This text cannot be ${wanted} posts here. Set "Number of posts" back to Auto.`
             : wanted < range.min
-              ? `This text cannot fit into ${wanted} posts here — it needs at least ${range.min}. Choose another number of posts.`
-              : `This text cannot be split into ${wanted} posts here — at most ${range.max}. Choose another number of posts.`,
+              ? `This text cannot be ${wanted} posts here with every post ending at a sentence — it needs at least ${range.min}. Choose another number of posts, or edit the posts by hand.`
+              : `This text cannot be split into ${wanted} posts here — it has ${range.max} at most, one per sentence. Choose another number of posts.`,
           { wanted, ...(range ? { min: range.min, max: range.max } : {}) },
         ),
       );

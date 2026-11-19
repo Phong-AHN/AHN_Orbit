@@ -426,11 +426,11 @@ describe('a chosen number of posts', () => {
     (_, i) => `Sentence ${String(i + 1).padStart(2, '0')} carries exactly enough words to matter.`,
   ).join(' ');
 
-  it('says how many posts the text can be, at sentence ends and at all', () => {
+  it('says how many posts the text can be, every post ending at a sentence', () => {
     const range = threadCountRange(twelve, 200, plain, { maxPosts: 10 });
     expect(range).not.toBeNull();
-    expect(range!.sentenceMin).toBe(range!.auto);
-    expect(range!.min).toBeLessThanOrEqual(range!.sentenceMin!);
+    // The automatic split is already the fewest at sentence ends.
+    expect(range!.min).toBe(range!.auto);
     expect(range!.max).toBe(10);
   });
 
@@ -440,7 +440,7 @@ describe('a chosen number of posts', () => {
 
   it('splits into exactly the count asked for, evenly, at sentence ends when it can', () => {
     const range = threadCountRange(twelve, 200, plain, { maxPosts: 10 })!;
-    const count = range.sentenceMin! + 1;
+    const count = range.min + 1;
     const parts = splitIntoThreadCount(twelve, 200, plain, count)!;
 
     expect(parts).toHaveLength(count);
@@ -454,25 +454,24 @@ describe('a chosen number of posts', () => {
     expect(Math.max(...lengths)).toBeLessThanOrEqual(average + 62);
   });
 
-  it('cuts mid-sentence only when fewer posts than sentence ends allow are asked for', () => {
-    // Three long sentences of ~150: two at sentence ends would be 300 each.
+  /** The owner, 2026-11-19: a chosen count never cuts a sentence. */
+  it('never offers, nor splits into, fewer posts than sentence ends allow', () => {
+    // Three long sentences of ~150: two posts would mean cutting one.
     const three = Array.from(
       { length: 3 },
       (_, i) => `Opening ${i} ${'word '.repeat(28).trim()}.`,
     ).join(' ');
     const range = threadCountRange(three, 260, plain, { maxPosts: 10 })!;
-    expect(range.min).toBe(2);
-    expect(range.sentenceMin).toBe(3);
+    expect(range.min).toBe(3);
+    expect(splitIntoThreadCount(three, 260, plain, 2)).toBeNull();
 
-    const parts = splitIntoThreadCount(three, 260, plain, 2)!;
-    expect(parts).toHaveLength(2);
-    for (const part of parts) expect(plain(part)).toBeLessThanOrEqual(260);
-    expect(
-      parts
-        .join(' ')
-        .replace(/ \d+\/\d+/g, '')
-        .split(/\s+/),
-    ).toEqual(three.split(/\s+/));
+    const parts = splitIntoThreadCount(three, 260, plain, 3)!;
+    for (const part of parts) expect(part.replace(/ \d+\/\d+$/, '')).toMatch(/\.$/);
+  });
+
+  it('offers no count where a sentence is longer than a whole post', () => {
+    const endless = `${'word '.repeat(120).trim()}.`;
+    expect(threadCountRange(endless, 200, plain, { maxPosts: 10 })).toBeNull();
   });
 
   it('refuses a count the text cannot be', () => {
@@ -491,7 +490,7 @@ describe('a chosen number of posts', () => {
     const result = validateDraft(x, { body, thread: true, threadPosts: 2 });
     const issue = result.issues.find((i) => i.code === 'THREAD_COUNT_UNREACHABLE');
     expect(result.valid).toBe(false);
-    expect(issue?.message).toMatch(/cannot fit into 2 posts/);
+    expect(issue?.message).toMatch(/cannot be 2 posts here with every post ending at a sentence/);
     // The preview still shows a split: the automatic one.
     expect(threadPartsFor({ body, thread: true, threadPosts: 2 }, x)).toHaveLength(auto);
   });

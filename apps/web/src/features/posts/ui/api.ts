@@ -183,11 +183,10 @@ export interface PostValidationResponse {
     /** Each post's attachments, by media asset id, as the server places them. */
     threadMedia?: string[][];
     /**
-     * How many posts the text can be split into here: `auto` with no count
-     * chosen, `sentenceMin` the fewest with every post ending at a sentence
-     * (null when impossible), `min`/`max` the counts worth offering.
+     * How many posts the text can be split into here, every post ending at a
+     * sentence: `auto` with no count chosen, `min`/`max` the counts offered.
      */
-    threadRange?: { auto: number; sentenceMin: number | null; min: number; max: number };
+    threadRange?: { auto: number; min: number; max: number };
   }>;
 }
 
