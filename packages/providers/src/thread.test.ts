@@ -7,7 +7,9 @@ import {
   readThreadProgress,
   resolveThreadDraft,
   splitIntoThread,
+  splitIntoThreadCount,
   splitManualThread,
+  threadCountRange,
   stripThreadBreaks,
   threadFingerprint,
   threadNumbered,
@@ -413,6 +415,111 @@ describe('attachments across a thread', () => {
         platformOptions: { thread: false, threadMedia: { a: 1 } },
         capabilities: x,
       }).threadMedia,
+    ).toBeUndefined();
+  });
+});
+
+describe('a chosen number of posts', () => {
+  // Twelve sentences of 60 characters: at 200 a post, three fit with a marker.
+  const twelve = Array.from(
+    { length: 12 },
+    (_, i) => `Sentence ${String(i + 1).padStart(2, '0')} carries exactly enough words to matter.`,
+  ).join(' ');
+
+  it('says how many posts the text can be, at sentence ends and at all', () => {
+    const range = threadCountRange(twelve, 200, plain, { maxPosts: 10 });
+    expect(range).not.toBeNull();
+    expect(range!.sentenceMin).toBe(range!.auto);
+    expect(range!.min).toBeLessThanOrEqual(range!.sentenceMin!);
+    expect(range!.max).toBe(10);
+  });
+
+  it('offers nothing for text that fits in one post', () => {
+    expect(threadCountRange('Short.', 200, plain, { maxPosts: 10 })).toBeNull();
+  });
+
+  it('splits into exactly the count asked for, evenly, at sentence ends when it can', () => {
+    const range = threadCountRange(twelve, 200, plain, { maxPosts: 10 })!;
+    const count = range.sentenceMin! + 1;
+    const parts = splitIntoThreadCount(twelve, 200, plain, count)!;
+
+    expect(parts).toHaveLength(count);
+    for (const part of parts) {
+      expect(plain(part)).toBeLessThanOrEqual(200);
+      expect(part.replace(/ \d+\/\d+$/, '')).toMatch(/\.$/);
+    }
+    // Even: the longest post is within one sentence (~60) of the average.
+    const lengths = parts.map(plain);
+    const average = lengths.reduce((sum, length) => sum + length, 0) / lengths.length;
+    expect(Math.max(...lengths)).toBeLessThanOrEqual(average + 62);
+  });
+
+  it('cuts mid-sentence only when fewer posts than sentence ends allow are asked for', () => {
+    // Three long sentences of ~150: two at sentence ends would be 300 each.
+    const three = Array.from(
+      { length: 3 },
+      (_, i) => `Opening ${i} ${'word '.repeat(28).trim()}.`,
+    ).join(' ');
+    const range = threadCountRange(three, 260, plain, { maxPosts: 10 })!;
+    expect(range.min).toBe(2);
+    expect(range.sentenceMin).toBe(3);
+
+    const parts = splitIntoThreadCount(three, 260, plain, 2)!;
+    expect(parts).toHaveLength(2);
+    for (const part of parts) expect(plain(part)).toBeLessThanOrEqual(260);
+    expect(
+      parts
+        .join(' ')
+        .replace(/ \d+\/\d+/g, '')
+        .split(/\s+/),
+    ).toEqual(three.split(/\s+/));
+  });
+
+  it('refuses a count the text cannot be', () => {
+    expect(splitIntoThreadCount(twelve, 200, plain, 2)).toBeNull();
+    expect(splitIntoThreadCount(twelve, 200, plain, 1)).toBeNull();
+  });
+
+  it('publishes the chosen count, and refuses one the text can no longer be', () => {
+    const body = Array.from({ length: 14 }, (_, i) => sentence(i + 1)).join(' ');
+    const auto = threadPartsFor({ body, thread: true }, x).length;
+
+    const more = threadPartsFor({ body, thread: true, threadPosts: auto + 1 }, x);
+    expect(more).toHaveLength(auto + 1);
+    expect(validateDraft(x, { body, thread: true, threadPosts: auto + 1 }).valid).toBe(true);
+
+    const result = validateDraft(x, { body, thread: true, threadPosts: 2 });
+    const issue = result.issues.find((i) => i.code === 'THREAD_COUNT_UNREACHABLE');
+    expect(result.valid).toBe(false);
+    expect(issue?.message).toMatch(/cannot fit into 2 posts/);
+    // The preview still shows a split: the automatic one.
+    expect(threadPartsFor({ body, thread: true, threadPosts: 2 }, x)).toHaveLength(auto);
+  });
+
+  it('applies a count to the automatic split only, never to posts edited by hand', () => {
+    expect(
+      resolveThreadDraft({
+        body: 'x',
+        hasOwnText: false,
+        platformOptions: { threadPosts: 4 },
+        capabilities: x,
+      }).threadPosts,
+    ).toBe(4);
+    expect(
+      resolveThreadDraft({
+        body: joinManualThread(['A.', 'B.']),
+        hasOwnText: true,
+        platformOptions: { threadPosts: 4, threadManual: true },
+        capabilities: x,
+      }).threadPosts,
+    ).toBeUndefined();
+    expect(
+      resolveThreadDraft({
+        body: 'x',
+        hasOwnText: false,
+        platformOptions: { threadPosts: null },
+        capabilities: x,
+      }).threadPosts,
     ).toBeUndefined();
   });
 });

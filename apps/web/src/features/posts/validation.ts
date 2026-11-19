@@ -5,7 +5,9 @@ import {
   capabilitiesFor,
   missingThreadScopes,
   resolveThreadDraft,
+  threadCountRangeFor,
   threadPartsFor,
+  type ThreadCountRange,
   validateDraft,
   type ValidationResult,
   type VariantDraft,
@@ -44,6 +46,8 @@ export interface VariantValidation {
    * adapter will place them (D-124).
    */
   threadMedia?: string[][] | undefined;
+  /** How many posts the text can be split into here, for the count picker. */
+  threadRange?: ThreadCountRange | undefined;
 }
 
 export interface PostValidation {
@@ -211,6 +215,7 @@ export async function validatePost(ctx: TenantContext, postId: string): Promise<
     const result = validateDraft(capabilities, draft);
 
     const parts = thread ? threadPartsFor(draft, capabilities) : [];
+    const range = thread ? threadCountRangeFor(draft, capabilities) : null;
 
     /**
      * A thread on a connection that cannot reply (D-124). The capability layer
@@ -285,6 +290,7 @@ export async function validatePost(ctx: TenantContext, postId: string): Promise<
       platform: variant.platform,
       result,
       ...(parts.length > 1 ? { threadParts: parts } : {}),
+      ...(range ? { threadRange: range } : {}),
       ...(parts.length > 1 && usable.length > 0
         ? {
             threadMedia: assignThreadMedia(

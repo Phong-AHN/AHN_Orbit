@@ -5120,6 +5120,30 @@ and the composer alike:
   reply's images in its record. Threads posts a reply as text, one image or
   video, or a carousel whose items are waited on like the first post's.
 
+### Choosing the number of posts (2026-11-19)
+
+Asked by the owner: 1,946 characters on Threads (500) came out as 5 posts and
+they wanted 4. Splitting only at sentence ends, 5 is the fewest that text
+can be — the split was already the shortest possible — so 4 is only possible
+if some posts end mid-sentence.
+
+- **"Number of posts"** in the per-account settings, default **Auto** (the
+  fewest at sentence ends, as before). Stored as
+  `platformOptions.threadPosts`; `null` is Auto. Ignored for a thread edited
+  by hand.
+- **Only counts the text can be are offered** (`threadCountRange`): from the
+  fewest posts that fit at all (breaking between any two words) to one per
+  sentence, capped at the platform's ceiling. Counts below the fewest at
+  sentence ends are labelled "some end mid-sentence". 1,900 characters on
+  Threads is never offered as 3.
+- **A chosen count is split by `splitIntoThreadCount`:** as few mid-sentence
+  cuts as the count allows (none whenever it can), then the posts as even as
+  possible — four similar posts, not three full ones and a stub.
+- **A count the text can no longer be** (it was edited since) is refused with
+  `THREAD_COUNT_UNREACHABLE`, naming the range, rather than quietly split
+  differently: what goes out is what was chosen. The preview shows the Auto
+  split meanwhile.
+
 ### Publishing a thread exactly once
 
 A thread is several posts inside one publish call. If a part fails after the

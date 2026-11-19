@@ -104,6 +104,12 @@ const platformOptions = z
      * index, 0 being the first. Attachments not listed are placed in order.
      */
     threadMedia: z.record(z.string().uuid(), z.number().int().min(0).max(49)).optional(),
+    /**
+     * Split into exactly this many posts rather than the fewest at sentence
+     * ends; `null` goes back to automatic. Whether the text can be that many
+     * is the validator's to say.
+     */
+    threadPosts: z.number().int().min(2).max(50).nullable().optional(),
   })
   .strict();
 

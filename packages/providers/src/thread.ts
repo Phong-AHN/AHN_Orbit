@@ -285,10 +285,14 @@ export function resolveThreadDraft(input: {
   threadNumbering?: false;
   threadManual?: true;
   threadMedia?: Record<string, number>;
+  threadPosts?: number;
 } {
   const thread = threadRequested(input.platformOptions, input.capabilities);
   const manual = threadIsManual(input.platformOptions, input.hasOwnText);
   const placement = thread ? readThreadMedia(input.platformOptions?.['threadMedia']) : undefined;
+  // A count applies to the automatic split; posts edited by hand are what they are.
+  const posts =
+    thread && !manual ? readThreadPosts(input.platformOptions?.['threadPosts']) : undefined;
 
   return {
     body: manual && !thread ? stripThreadBreaks(input.body) : input.body,
@@ -298,6 +302,7 @@ export function resolveThreadDraft(input: {
       : {}),
     ...(thread && manual ? { threadManual: true as const } : {}),
     ...(placement ? { threadMedia: placement } : {}),
+    ...(posts !== undefined ? { threadPosts: posts } : {}),
   };
 }
 
@@ -375,6 +380,180 @@ export function readThreadMedia(value: unknown): Record<string, number> | undefi
       typeof entry[1] === 'number' && Number.isInteger(entry[1]) && entry[1] >= 0,
   );
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+// ── A chosen number of posts ────────────────────────────────────────────────
+
+/**
+ * How many posts this text can become, for offering a choice (D-124).
+ *
+ * `auto` is the split with no count asked for. `sentenceMin` is the fewest
+ * posts with every post ending where a sentence ends — null when a sentence is
+ * longer than a post. `min` is the fewest at all, breaking between any two
+ * words: fewer than `sentenceMin` means some posts end mid-sentence. `max` is
+ * the most worth offering: one per sentence, capped by the platform's ceiling.
+ */
+export interface ThreadCountRange {
+  auto: number;
+  sentenceMin: number | null;
+  min: number;
+  max: number;
+}
+
+function budgetFor(maxLength: number, measure: Measure, count: number, numbered: boolean): number {
+  return numbered
+    ? Math.max(MIN_BUDGET, maxLength - measure(threadMarker(count, count)))
+    : maxLength;
+}
+
+/** The fewest posts, breaking only where `quality` allows; Infinity if impossible. */
+function fewestPosts(
+  tokens: readonly Token[],
+  budget: number,
+  measure: Measure,
+  quality: number,
+): number {
+  let count = 0;
+  let start = 0;
+  while (start < tokens.length) {
+    let used = 0;
+    let lastBreak = -1;
+    for (let index = start; index < tokens.length; index += 1) {
+      const token = tokens[index] as Token;
+      const before = index > start ? measure((tokens[index - 1] as Token).gap) : 0;
+      used += before + measure(token.word);
+      if (used > budget) break;
+      if (index === tokens.length - 1 || breakQuality(token) >= quality) lastBreak = index;
+    }
+    if (lastBreak < start) return Number.POSITIVE_INFINITY;
+    count += 1;
+    start = lastBreak + 1;
+  }
+  return count;
+}
+
+export function threadCountRange(
+  text: string,
+  maxLength: number,
+  measure: Measure,
+  options: { numbered?: boolean | undefined; maxPosts: number },
+): ThreadCountRange | null {
+  const clean = text.trim();
+  if (clean.length === 0 || measure(clean) <= maxLength) return null;
+
+  const numbered = options.numbered !== false;
+  const tokens = tokenize(clean);
+  // Counts below ten carry a one-digit marker; the range is worked out at that
+  // width, and a count of ten or more is checked exactly when it is chosen.
+  const budget = budgetFor(maxLength, measure, 9, numbered);
+
+  const min = fewestPosts(tokens, budget, measure, 1);
+  if (!Number.isFinite(min)) return null; // a single word longer than a post
+
+  const sentences = fewestPosts(tokens, budget, measure, 2);
+  const boundaries = tokens.slice(0, -1).filter((token) => breakQuality(token) >= 2).length;
+  const auto = splitIntoThread(clean, maxLength, measure, { numbered }).length;
+
+  return {
+    auto,
+    sentenceMin: Number.isFinite(sentences) ? sentences : null,
+    min: Math.max(2, min),
+    max: Math.min(
+      options.maxPosts,
+      Number.isFinite(sentences) ? Math.max(boundaries + 1, sentences) : auto,
+    ),
+  };
+}
+
+/**
+ * Split into exactly `count` posts, or null if the text cannot be.
+ *
+ * Breaks are chosen to cut as few sentences as possible — none, whenever the
+ * count allows — and then to make the posts as even as possible, so a thread
+ * of four is four similar posts rather than three full ones and a stub.
+ */
+export function splitIntoThreadCount(
+  text: string,
+  maxLength: number,
+  measure: Measure,
+  count: number,
+  options: { numbered?: boolean | undefined } = {},
+): string[] | null {
+  const clean = text.trim();
+  if (!Number.isInteger(count) || count < 2) return null;
+
+  const numbered = options.numbered !== false;
+  const budget = budgetFor(maxLength, measure, count, numbered);
+  const tokens = tokenize(clean);
+  const total = tokens.length;
+  if (count > total) return null;
+
+  const words = tokens.map((token) => measure(token.word));
+  const gaps = tokens.map((token) => measure(token.gap));
+  const sentenceEnd = tokens.map((token) => breakQuality(token) >= 2);
+  const prefix = [0];
+  for (let index = 0; index < total; index += 1) {
+    prefix.push((prefix[index] as number) + (words[index] as number) + (gaps[index] as number));
+  }
+  // Tokens first..last as one post: their words and the gaps between them.
+  const cost = (first: number, last: number) =>
+    (prefix[last + 1] as number) - (prefix[first] as number) - (gaps[last] as number);
+
+  interface Cell {
+    cuts: number;
+    longest: number;
+    from: number;
+  }
+  const better = (a: Cell, b: Cell | undefined) =>
+    !b || a.cuts < b.cuts || (a.cuts === b.cuts && a.longest < b.longest);
+
+  // best[n][last]: the first `n` posts end with token `last`.
+  const best: Array<Array<Cell | undefined>> = Array.from(
+    { length: count + 1 },
+    () => new Array<Cell | undefined>(total),
+  );
+  for (let last = 0; last < total; last += 1) {
+    const length = cost(0, last);
+    if (length > budget) break;
+    best[1]![last] = { cuts: 0, longest: length, from: -1 };
+  }
+
+  for (let n = 2; n <= count; n += 1) {
+    for (let last = n - 1; last < total; last += 1) {
+      for (let first = last; first >= n - 1; first -= 1) {
+        const length = cost(first, last);
+        if (length > budget) break;
+        const previous = best[n - 1]![first - 1];
+        if (!previous) continue;
+        const candidate: Cell = {
+          cuts: previous.cuts + (sentenceEnd[first - 1] ? 0 : 1),
+          longest: Math.max(previous.longest, length),
+          from: first,
+        };
+        if (better(candidate, best[n]![last])) best[n]![last] = candidate;
+      }
+    }
+  }
+
+  if (!best[count]![total - 1]) return null;
+
+  const chunks: string[] = [];
+  let last = total - 1;
+  for (let n = count; n >= 1; n -= 1) {
+    const cell = best[n]![last] as Cell;
+    const first = cell.from === -1 ? 0 : cell.from;
+    chunks.unshift(joinTokens(tokens, first, last));
+    last = first - 1;
+  }
+
+  return numbered
+    ? chunks.map((chunk, index) => `${chunk}${threadMarker(index + 1, chunks.length)}`)
+    : chunks;
+}
+
+/** A stored count, kept to what it can mean: two posts or more. */
+export function readThreadPosts(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 2 ? value : undefined;
 }
 
 // ── Progress, for resuming a thread that stopped part-way ──────────────────

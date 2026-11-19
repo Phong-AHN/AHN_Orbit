@@ -15,6 +15,7 @@ import {
   Field,
   Input,
   PermissionDenied,
+  Select,
   Spinner,
   Textarea,
   cn,
@@ -793,9 +794,20 @@ function VariantEditor({
   const threadParts = threadOn
     ? validation?.variants.find((v) => v.variantId === active.id)?.threadParts
     : undefined;
+  const threadRange = threadOn
+    ? validation?.variants.find((v) => v.variantId === active.id)?.threadRange
+    : undefined;
+  const chosenPosts = (() => {
+    const value = (active.platformOptions ?? {})['threadPosts'];
+    return typeof value === 'number' && Number.isInteger(value) ? value : null;
+  })();
 
   /** Saved at once, like the platform settings: it changes what the checks say. */
-  async function saveThread(next: { thread?: boolean; threadNumbering?: boolean }) {
+  async function saveThread(next: {
+    thread?: boolean;
+    threadNumbering?: boolean;
+    threadPosts?: number | null;
+  }) {
     if (!active) return;
     setThreadSaving(true);
     setError(null);
@@ -1015,6 +1027,60 @@ function VariantEditor({
                   </span>
                 </span>
               </label>
+            ) : null}
+
+            {/* How many posts (D-124): only counts this text can be on this
+                platform are offered, and those that need a post to end
+                mid-sentence say so. Hand-edited threads are what they are. */}
+            {threadOn && !manual && (threadRange || chosenPosts !== null) ? (
+              <Field
+                label="Number of posts"
+                htmlFor={`variant-thread-posts-${active.id}`}
+                hint={
+                  threadRange
+                    ? threadRange.sentenceMin !== null
+                      ? `At least ${threadRange.sentenceMin} posts if every post ends at a sentence${threadRange.min < threadRange.sentenceMin ? `; ${threadRange.min} at the fewest` : ''}.`
+                      : `At least ${threadRange.min} posts.`
+                    : 'The text no longer needs splitting.'
+                }
+              >
+                <Select
+                  id={`variant-thread-posts-${active.id}`}
+                  value={chosenPosts === null ? '' : String(chosenPosts)}
+                  disabled={readOnly || threadSaving}
+                  onChange={(event) => {
+                    void saveThread({
+                      threadPosts: event.target.value ? Number(event.target.value) : null,
+                    });
+                  }}
+                >
+                  <option value="">
+                    Auto{threadRange ? ` — ${threadRange.auto} posts, ending at sentences` : ''}
+                  </option>
+                  {threadRange
+                    ? Array.from(
+                        { length: threadRange.max - threadRange.min + 1 },
+                        (_, at) => threadRange.min + at,
+                      ).map((count) => (
+                        <option key={count} value={count}>
+                          {count} posts
+                          {threadRange.sentenceMin === null || count < threadRange.sentenceMin
+                            ? ' — some end mid-sentence'
+                            : ''}
+                        </option>
+                      ))
+                    : null}
+                  {/* A count chosen earlier that the text can no longer be:
+                      still shown, so the picker says what is saved, and the
+                      checks say why it is refused. */}
+                  {chosenPosts !== null &&
+                  (!threadRange ||
+                    chosenPosts < threadRange.min ||
+                    chosenPosts > threadRange.max) ? (
+                    <option value={chosenPosts}>{chosenPosts} posts — no longer possible</option>
+                  ) : null}
+                </Select>
+              </Field>
             ) : null}
 
             {threadOn ? (

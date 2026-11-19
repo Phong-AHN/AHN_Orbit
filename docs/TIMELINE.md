@@ -551,6 +551,11 @@ Cách đọc:
   - **Chỉnh tay:** dưới mỗi bài trong khung xem trước có danh sách attachment, mỗi mục có ô chọn "Post N" để chuyển sang bài khác. Lưu trong `platformOptions.threadMedia`, không cần migration.
   - Kiểm tra số lượng, video đứng riêng, không trộn loại theo từng bài, báo đúng số bài. X, Bluesky, Threads đều đăng media kèm đúng bài trả lời.
   - Kiểm tra: typecheck, lint, 1835 unit test đạt (17 test mới).
+- **Thread: chọn số bài (D-124).** Ô **Number of posts** trong "Per-account text", mặc định Auto (ít bài nhất mà vẫn cắt ở chỗ hết câu).
+  - Chỉ hiện các số bài **khả thi** với đoạn văn và giới hạn của nền tảng đó. Số ít hơn mức tối thiểu khi cắt ở chỗ hết câu được ghi chú "some end mid-sentence". Ví dụ đoạn 1.946 ký tự trên Threads: Auto là 5 bài; chọn được 4 (có bài cắt giữa câu, các bài dài 479/492/494/494) đến 10; không có lựa chọn 3.
+  - Khi chọn số bài: cắt giữa câu ít nhất có thể, rồi chia cho các bài dài đều nhau.
+  - Sửa chữ làm số bài đã chọn không còn khả thi: bài bị chặn kèm thông báo khoảng hợp lệ, không âm thầm đổi.
+  - Kiểm tra: typecheck, lint, 1842 unit test đạt (7 test mới).
 
 ---
 

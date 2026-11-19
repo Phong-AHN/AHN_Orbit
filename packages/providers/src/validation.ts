@@ -1,6 +1,14 @@
 import type { MediaKind } from '@orbit/core';
 import type { MediaConstraint, PlatformCapabilities } from './capabilities.js';
-import { assignThreadMedia, splitIntoThread, splitManualThread, threadMarker } from './thread.js';
+import {
+  assignThreadMedia,
+  splitIntoThread,
+  splitIntoThreadCount,
+  splitManualThread,
+  threadCountRange,
+  threadMarker,
+  type ThreadCountRange,
+} from './thread.js';
 
 /**
  * Capability-driven validation (SRS §9).
@@ -84,6 +92,11 @@ export interface VariantDraft {
    * first post). Attachments not listed are placed by `assignThreadMedia`.
    */
   threadMedia?: Readonly<Record<string, number>> | undefined;
+  /**
+   * Split into exactly this many posts instead of the fewest at sentence ends.
+   * Refused when the text cannot be that many; ignored for posts edited by hand.
+   */
+  threadPosts?: number | undefined;
   /**
    * Settings that exist on exactly one platform, kept opaque on purpose.
    *
@@ -190,7 +203,7 @@ export function publishedTextFor(
 export function threadPartsFor(
   draft: Pick<
     VariantDraft,
-    'body' | 'hashtags' | 'linkUrl' | 'thread' | 'threadNumbering' | 'threadManual'
+    'body' | 'hashtags' | 'linkUrl' | 'thread' | 'threadNumbering' | 'threadManual' | 'threadPosts'
   >,
   capabilities: PlatformCapabilities,
 ): string[] {
@@ -200,11 +213,21 @@ export function threadPartsFor(
 
   if (draft.threadManual === true) return manualThreadParts(draft, capabilities);
 
-  const source = composePublishedText({
-    body: draft.body,
-    hashtags: draft.hashtags,
-    linkUrl: capabilities.text.composedText ? draft.linkUrl : null,
-  });
+  const source = threadSource(draft, capabilities);
+  const measure = (text: string) => countCharacters(text, capabilities);
+
+  // A count somebody chose, where the text can be that many posts. Where it
+  // cannot, the automatic split stands and the validator says why.
+  if (draft.threadPosts !== undefined) {
+    const counted = splitIntoThreadCount(
+      source,
+      capabilities.text.maxLength,
+      measure,
+      draft.threadPosts,
+      { numbered: draft.threadNumbering !== false },
+    );
+    if (counted && countFits(draft, capabilities)) return counted;
+  }
 
   return splitIntoThread(
     source,
@@ -212,6 +235,57 @@ export function threadPartsFor(
     (text) => countCharacters(text, capabilities),
     { numbered: draft.threadNumbering !== false },
   );
+}
+
+/** What a thread splits: body, hashtags, and the link where it is written in. */
+function threadSource(
+  draft: Pick<VariantDraft, 'body' | 'hashtags' | 'linkUrl'>,
+  capabilities: PlatformCapabilities,
+): string {
+  return composePublishedText({
+    body: draft.body,
+    hashtags: draft.hashtags,
+    linkUrl: capabilities.text.composedText ? draft.linkUrl : null,
+  });
+}
+
+/**
+ * How many posts this draft's text can become on this platform, for offering
+ * a choice; null when it fits in one post, is edited by hand, or cannot be
+ * split between words at all.
+ */
+export function threadCountRangeFor(
+  draft: Pick<
+    VariantDraft,
+    'body' | 'hashtags' | 'linkUrl' | 'thread' | 'threadNumbering' | 'threadManual'
+  >,
+  capabilities: PlatformCapabilities,
+): ThreadCountRange | null {
+  if (draft.thread !== true || !capabilities.thread.supported || draft.threadManual === true) {
+    return null;
+  }
+  return threadCountRange(
+    threadSource(draft, capabilities),
+    capabilities.text.maxLength,
+    (text) => countCharacters(text, capabilities),
+    {
+      numbered: draft.threadNumbering !== false,
+      maxPosts: capabilities.thread.maxPosts ?? 1,
+    },
+  );
+}
+
+/** Whether the chosen count is one the range offers. */
+function countFits(
+  draft: Pick<
+    VariantDraft,
+    'body' | 'hashtags' | 'linkUrl' | 'thread' | 'threadNumbering' | 'threadManual' | 'threadPosts'
+  >,
+  capabilities: PlatformCapabilities,
+): boolean {
+  const range = threadCountRangeFor(draft, capabilities);
+  const wanted = draft.threadPosts;
+  return Boolean(range && wanted !== undefined && wanted >= range.min && wanted <= range.max);
 }
 
 /**
@@ -529,6 +603,34 @@ export function validateDraft(
     issues.push(
       issue('ERROR', 'THREAD_UNSUPPORTED', 'thread', 'This platform cannot publish a thread.'),
     );
+  }
+
+  // A count somebody chose that this text cannot be — it changed since, say.
+  // Refused rather than quietly split differently: what goes out has to be
+  // what was chosen.
+  if (
+    capabilities.text.supported &&
+    threaded &&
+    draft.threadPosts !== undefined &&
+    draft.threadManual !== true
+  ) {
+    const range = threadCountRangeFor(draft, capabilities);
+    const wanted = draft.threadPosts;
+    if (!range || wanted < range.min || wanted > range.max || parts.length !== wanted) {
+      issues.push(
+        issue(
+          'ERROR',
+          'THREAD_COUNT_UNREACHABLE',
+          'thread',
+          !range
+            ? `This text cannot be ${wanted} posts here. Set "Number of posts" back to Auto.`
+            : wanted < range.min
+              ? `This text cannot fit into ${wanted} posts here — it needs at least ${range.min}. Choose another number of posts.`
+              : `This text cannot be split into ${wanted} posts here — at most ${range.max}. Choose another number of posts.`,
+          { wanted, ...(range ? { min: range.min, max: range.max } : {}) },
+        ),
+      );
+    }
   }
 
   if (capabilities.text.supported && threaded) {
