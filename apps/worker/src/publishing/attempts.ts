@@ -132,6 +132,21 @@ export async function findInFlightAttempt(publishingJobId: string): Promise<{
 }
 
 /** Move the job row alongside the attempt, so the two never disagree. */
+/**
+ * When the queue will run this publish again.
+ *
+ * Written by the processor before every retry or deferral, so the stuck-job
+ * sweep can tell a publish that is waiting — on a backoff, a rate limit, a
+ * held claim — from one whose queue job is gone. `updateMany`: a job row that
+ * is not there is nothing to record against, not an error.
+ */
+export async function recordNextAttempt(publishingJobId: string, at: Date): Promise<void> {
+  await platformDb.publishingJob.updateMany({
+    where: { id: publishingJobId },
+    data: { nextAttemptAt: at },
+  });
+}
+
 export async function updateJobState(
   publishingJobId: string,
   state: 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'DEAD_LETTER' | 'PENDING',

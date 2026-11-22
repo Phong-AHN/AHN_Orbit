@@ -505,42 +505,136 @@ async function failUnconfigured(
   run: ClaimedRun,
   variant: { platform: Platform; postId: string; workspaceId: string; brandId: string },
 ): Promise<PublishRunResult> {
+  const label = PLATFORM_LABEL[variant.platform] ?? variant.platform;
+
+  logger.error('platform is not set up on this worker; failed the publish without calling it', {
+    platform: variant.platform,
+    variantId: run.claim.variantId,
+    organizationId: run.organizationId,
+  });
+
+  return failWithoutPublishing(run, variant, {
+    code: PROVIDER_NOT_CONFIGURED,
+    message: `${label} isn't set up on the publishing service yet, so nothing was sent. Once an administrator has finished setting it up there, retry this post.`,
+    recordAttempt: true,
+  });
+}
+
+/**
+ * Settle a claimed variant as FAILED without calling the platform.
+ *
+ * The same record a failed publish leaves — variant, job, audit, post roll-up,
+ * notification — so the post shows why, and offers a retry. `recordAttempt`
+ * adds an attempt row carrying the message, for a failure that happened before
+ * any attempt could say so.
+ */
+async function failWithoutPublishing(
+  run: ClaimedRun,
+  variant: { postId: string; workspaceId: string; brandId: string },
+  failure: { code: string; message: string; recordAttempt: boolean },
+): Promise<PublishRunResult> {
   const subject = {
     variantId: run.claim.variantId,
     workspaceId: variant.workspaceId,
     brandId: variant.brandId,
   };
-  const label = PLATFORM_LABEL[variant.platform] ?? variant.platform;
-  const message = `${label} isn't set up on the publishing service yet, so nothing was sent. Once an administrator has finished setting it up there, retry this post.`;
-  const outcome: AttemptOutcome = { kind: 'FAILED', code: PROVIDER_NOT_CONFIGURED };
 
+  // The post moves through PUBLISHING to be rolled up, as for any publish.
   await markPostPublishing(variant.postId);
 
-  const attempt = await openAttempt({
-    organizationId: run.organizationId,
-    publishingJobId: run.publishingJobId,
-    correlationId: run.correlationId,
-  });
-  await closeAttempt(attempt, outcome, { message, retryable: false });
+  if (failure.recordAttempt) {
+    const attempt = await openAttempt({
+      organizationId: run.organizationId,
+      publishingJobId: run.publishingJobId,
+      correlationId: run.correlationId,
+    });
+    await closeAttempt(
+      attempt,
+      { kind: 'FAILED', code: failure.code },
+      { message: failure.message, retryable: false },
+    );
+  }
 
   await settleClaim(run.claim, {
     status: 'FAILED',
-    lastError: { code: PROVIDER_NOT_CONFIGURED, message },
+    lastError: { code: failure.code, message: failure.message },
   });
-  await updateJobState(run.publishingJobId, 'FAILED', { lastErrorCode: PROVIDER_NOT_CONFIGURED });
-  await auditPublish(run, subject, 'post_variant.publish_failed', {
-    errorCode: PROVIDER_NOT_CONFIGURED,
-  });
+  await updateJobState(run.publishingJobId, 'FAILED', { lastErrorCode: failure.code });
+  await auditPublish(run, subject, 'post_variant.publish_failed', { errorCode: failure.code });
   await rollUpPost(variant.postId);
-
-  logger.error('platform is not set up on this worker; failed the publish without calling it', {
-    platform: variant.platform,
-    variantId: subject.variantId,
-    organizationId: run.organizationId,
-  });
-
   await raiseNotification(run, subject, 'publishing.failed');
-  return { kind: 'FAILED', variantId: subject.variantId, reason: PROVIDER_NOT_CONFIGURED };
+
+  return { kind: 'FAILED', variantId: subject.variantId, reason: failure.code };
+}
+
+/**
+ * Fail a variant the queue is giving up on, so it does not sit "Scheduled"
+ * with no job left to run it.
+ *
+ * Before 2026-11-23, a publish whose retries ran out — or that hit an error no
+ * retry can fix — had already been handed back as `SCHEDULED` by the engine,
+ * and the queue dead-lettered its job. Nothing marked it failed, and the
+ * scheduler would not queue it again (its job row already existed), so the
+ * post said "Scheduled" for ever.
+ *
+ * Only a `SCHEDULED` variant of the same tenant is touched, and it is claimed
+ * first like any publish: one in flight, published or parked is left exactly
+ * as it is. Nothing is sent. Returns whether it failed the variant.
+ */
+export async function giveUpPublish(input: {
+  postVariantId: string;
+  publishingJobId: string;
+  organizationId: string;
+  correlationId: string;
+  code: string;
+  message: string;
+}): Promise<boolean> {
+  const row = await platformDb.postVariant.findUnique({
+    where: { id: input.postVariantId },
+    select: {
+      organizationId: true,
+      postId: true,
+      post: { select: { workspaceId: true, brandId: true } },
+    },
+  });
+  // A mismatch is the publish path's to report as a security event; here it
+  // only means there is nothing of this tenant's to settle.
+  if (!row || row.organizationId !== input.organizationId) return false;
+
+  const claimResult = await claimVariant(input.postVariantId);
+  if (claimResult.status !== 'CLAIMED') return false;
+
+  const run: ClaimedRun = {
+    ctx: systemContext({
+      organizationId: row.organizationId,
+      actorName: 'publish-worker',
+      capabilities: PUBLISH_WORKER_CAPABILITIES,
+      correlationId: input.correlationId,
+    }),
+    organizationId: row.organizationId,
+    claim: claimResult.claim,
+    publishingJobId: input.publishingJobId,
+    correlationId: input.correlationId,
+    mustReconcileFirst: false,
+  };
+
+  try {
+    await failWithoutPublishing(
+      run,
+      { postId: row.postId, workspaceId: row.post.workspaceId, brandId: row.post.brandId },
+      { code: input.code, message: input.message, recordAttempt: false },
+    );
+  } catch (error) {
+    await releaseClaim(claimResult.claim).catch(() => false);
+    throw error;
+  }
+
+  logger.warn('publishing gave up; the variant is failed rather than left scheduled', {
+    variantId: input.postVariantId,
+    organizationId: row.organizationId,
+    errorCode: input.code,
+  });
+  return true;
 }
 
 /**

@@ -176,6 +176,14 @@ export function presentFailure(code: string | null | undefined): FailurePresenta
         action: 'REVIEW',
         retryable: false,
       };
+    case 'PUBLISH_STALLED':
+      // Its queue job was lost and it is now too late to publish unattended
+      // (D-128). Nothing was sent by the sweep that failed it.
+      return {
+        summary: 'Publishing stopped before this went out.',
+        action: 'RETRY',
+        retryable: true,
+      };
     case 'PROVIDER_NOT_CONFIGURED':
       // The publishing service has no adapter for the platform: its
       // credentials are not set there. Nothing was sent.

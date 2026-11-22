@@ -69,6 +69,11 @@ describe('presentFailure', () => {
     expect(isRetryOffered('PROVIDER_NOT_CONFIGURED')).toBe(true);
   });
 
+  it('offers a retry for a publish whose queue job was lost', () => {
+    expect(presentFailure('PUBLISH_STALLED').summary).toMatch(/stopped before this went out/);
+    expect(isRetryOffered('PUBLISH_STALLED')).toBe(true);
+  });
+
   it('explains a thread continuing between posts as progress, not failure', () => {
     // D-124: posts of the thread are live and the rest follow on their own.
     expect(presentFailure('THREAD_CONTINUES')).toEqual({

@@ -5426,6 +5426,30 @@ out, but which began more than two hours ago (`STALE_SCHEDULE_MS`, the same
 line the scheduler draws), is parked for review instead of published days
 late. Found is published; unknown is parked, as before.
 
+### Scheduled for ever (added the same day)
+
+The worker's logs then showed the shape of "LinkedIn stays Scheduled": the
+scheduler found due variants and queued none of them (`due 4, enqueued 0,
+duplicate 3`). The engine hands a variant back as `SCHEDULED` whenever a
+publish is to be tried again and leaves the trying to the queue. When the
+queue gave up — retries spent, or an error no retry fixes — it dead-lettered
+the job and nothing marked the variant failed; the scheduler never queues the
+same publish twice, and skips a post already marked PUBLISHING. So:
+
+- **The processor writes down what the queue is about to do**, asking the same
+  `decideRetry` with the same attempt number: when the publish runs next
+  (`PublishingJob.nextAttemptAt`), or — when the queue is giving up — the
+  variant failed with the last reason (`giveUpPublish`: claimed first, so
+  only a `SCHEDULED` variant of the same tenant is touched; nothing is sent).
+  An unknown outcome is left to the engine to park, as always.
+- **The stuck-job sweep revives a scheduled publish whose job is gone**: one
+  quiet for ten minutes past `nextAttemptAt` (or since its last update when
+  that was never written). A publish waiting out a rate limit or a backoff is
+  therefore left alone. Only the job for the variant's current schedule and
+  content counts — an older one must never publish a rescheduled variant.
+  Still on time, it is queued again and the claim decides; more than two hours
+  late it is failed as `PUBLISH_STALLED`, and one click retries it.
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

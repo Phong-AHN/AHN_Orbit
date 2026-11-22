@@ -586,6 +586,12 @@ Cách đọc:
   - **Worker thiếu cấu hình nền tảng:** trước đây bài đứng ở "Scheduled" mãi mà không có lý do. Giờ bài được đánh Failed, kèm dòng "LinkedIn isn't set up on the publishing service yet, so nothing was sent", và gửi thông báo. Cấu hình xong thì bấm Retry là đăng được.
   - Nguyên nhân riêng của LinkedIn chưa xác nhận được (không đọc được DB production và log Railway). Hai khả năng: worker trên Railway thiếu `LINKEDIN_CLIENT_ID`/`LINKEDIN_CLIENT_SECRET`, hoặc worker còn chạy code LinkedIn cũ nên kiểm tra sức khỏe đánh tài khoản là "Needs reconnect", và scheduler bỏ qua bài của tài khoản đó. Đã gửi anh câu SQL chỉ đọc để xác nhận.
   - Kiểm tra: typecheck, lint, 1871 unit test đạt (5 test mới). Test tích hợp của engine đã sửa theo hành vi mới nhưng chưa chạy (cần Postgres/Redis local).
+- **Nguyên nhân bài LinkedIn "luôn ở Schedule" (D-128, phần 2).** Log Railway anh gửi: worker đã có LinkedIn (`providers registered` có `LINKEDIN`), nên không phải thiếu biến môi trường. Nhưng sweep có `due 4, enqueued 0, duplicate 3`.
+  - Khi đăng lỗi có thể retry, engine trả bài về SCHEDULED và để queue tự retry. Hết 4 lượt (hoặc gặp lỗi không retry được) thì queue bỏ job, nhưng **không có gì đánh bài là FAILED**. Scheduler thì không xếp lại cùng một lần đăng, và bỏ qua post đã sang PUBLISHING. Vậy là bài đứng "Scheduled" mãi.
+  - Sửa: trước khi giao lỗi cho queue, processor ghi lại kết cục. Nếu còn chạy lại thì ghi `nextAttemptAt`; nếu queue sắp bỏ cuộc thì đánh bài **Failed** kèm lý do lần cuối (ví dụ "Publishing gave up after 4 attempts. The platform was unreachable.") và có nút Retry.
+  - Job dọn dẹp (5 phút một lần) tìm bài SCHEDULED có job im lặng quá 10 phút sau `nextAttemptAt`: còn kịp giờ thì xếp lại; trễ quá 2 giờ thì đánh **Failed** (`PUBLISH_STALLED`, "Publishing stopped before this went out"), anh bấm Retry để đăng. Bài đang chờ rate limit hoặc backoff không bị đụng. Job của lịch cũ (bài đã đổi lịch) không bao giờ được chạy lại.
+  - Sau khi deploy, bài LinkedIn hiện tại và 3 bài "duplicate" sẽ chuyển sang Failed kèm lý do trong vòng 5 phút. Lý do thật của lần đăng LinkedIn thất bại sẽ hiện ở thẻ Attempts của bài.
+  - Kiểm tra: typecheck, lint, 1882 unit test đạt (11 test mới).
 
 ---
 

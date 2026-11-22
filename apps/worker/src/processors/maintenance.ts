@@ -1,4 +1,4 @@
-import { clock } from '@orbit/core';
+import { clock, isStale, publishIdempotencyKey } from '@orbit/core';
 import { platformDb } from '@orbit/db';
 import { logger } from '@orbit/observability';
 import { enqueue, type JobContext } from '@orbit/queue';
@@ -10,6 +10,7 @@ import { sweepWebhookEvents } from '../messaging/webhooks.js';
 import { sweepRetention } from '../maintenance/retention.js';
 import { drainEmailOutbox } from '../notifications/outbox.js';
 import { mailer } from '../notifications/mailer.js';
+import { giveUpPublish } from '../publishing/engine.js';
 
 /**
  * Housekeeping (SRS §13, §40).
@@ -31,6 +32,12 @@ import { mailer } from '../notifications/mailer.js';
 
 /** How long a claim may be held before it is considered abandoned. */
 const STUCK_CLAIM_MS = 15 * 60 * 1_000;
+
+/**
+ * How long a scheduled publish's job may sit with nothing happening — past
+ * the time it was due to run next — before the job is treated as gone.
+ */
+const STALLED_JOB_MS = 10 * 60 * 1_000;
 
 /** Staged OAuth accounts that were never confirmed (T1.6). */
 const STAGED_ACCOUNT_TTL_MS = 60 * 60 * 1_000;
@@ -110,6 +117,11 @@ export async function processMaintenance({ payload }: JobContext<'maintenance'>)
  * over and stuck again gets a new one.
  */
 export async function reconcileStuckJobs(correlationId: string): Promise<void> {
+  await requeueAbandonedClaims(correlationId);
+  await reviveStalledSchedules(correlationId);
+}
+
+async function requeueAbandonedClaims(correlationId: string): Promise<void> {
   const cutoff = new Date(clock.now().getTime() - STUCK_CLAIM_MS);
 
   const stuck = await platformDb.postVariant.findMany({
@@ -170,6 +182,107 @@ export async function reconcileStuckJobs(correlationId: string): Promise<void> {
     ...(unqueued.length > 0 ? { unqueued } : {}),
     note: 'queued for reconciliation with the platform before any retry',
   });
+}
+
+/**
+ * Scheduled publishes whose queue job is gone (D-128).
+ *
+ * The engine hands a variant back as `SCHEDULED` whenever a publish is to be
+ * tried again, and leaves the trying to the queue. If that job is lost — a
+ * worker stopped, retries ran out before 2026-11-23, Redis lost it — nothing
+ * comes back: the scheduler will not queue the same publish twice, and skips
+ * a post already marked PUBLISHING. The post says "Scheduled" for ever.
+ *
+ * A job is gone when nothing has happened to it for a while *and* it is past
+ * the time the processor said it would run next (`nextAttemptAt`): a publish
+ * waiting out a rate limit or a backoff is left alone. Only the job for the
+ * variant's current schedule and content is considered — an older one must
+ * never publish a variant that has been rescheduled since.
+ *
+ * Still on time, it is queued again, and the engine's claim decides as always.
+ * More than two hours late — the line the scheduler draws — it is failed with
+ * a reason instead of published late; one click retries it.
+ */
+async function reviveStalledSchedules(correlationId: string): Promise<void> {
+  const now = clock.now();
+  const quietSince = new Date(now.getTime() - STALLED_JOB_MS);
+
+  const stalled = await platformDb.publishingJob.findMany({
+    where: {
+      state: { in: ['PENDING', 'QUEUED', 'RUNNING'] },
+      canceledAt: null,
+      updatedAt: { lt: quietSince },
+      OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lt: quietSince } }],
+      postVariant: { status: 'SCHEDULED', deletedAt: null, scheduledFor: { lt: quietSince } },
+    },
+    select: {
+      id: true,
+      organizationId: true,
+      postVariantId: true,
+      idempotencyKey: true,
+      updatedAt: true,
+      postVariant: { select: { scheduledFor: true, contentHash: true } },
+    },
+    orderBy: { updatedAt: 'asc' },
+    take: 200,
+  });
+
+  let revived = 0;
+  let failed = 0;
+  for (const job of stalled) {
+    const { scheduledFor, contentHash } = job.postVariant;
+    if (!scheduledFor || !contentHash) continue;
+
+    const current = publishIdempotencyKey({
+      postVariantId: job.postVariantId,
+      scheduledFor,
+      contentHash,
+    });
+    if (current !== job.idempotencyKey) continue;
+
+    try {
+      if (isStale(scheduledFor, now)) {
+        const gaveUp = await giveUpPublish({
+          postVariantId: job.postVariantId,
+          publishingJobId: job.id,
+          organizationId: job.organizationId,
+          correlationId,
+          code: 'PUBLISH_STALLED',
+          message:
+            'Publishing stopped before this went out, and it is now too late to publish it unattended. Retry it to publish now.',
+        });
+        if (gaveUp) failed += 1;
+      } else {
+        await enqueue(
+          'publish',
+          {
+            organizationId: job.organizationId,
+            correlationId,
+            postVariantId: job.postVariantId,
+            idempotencyKey: job.idempotencyKey,
+            publishingJobId: job.id,
+          },
+          // The same quiet job gives the same id, so sweeps do not stack.
+          { jobId: `revive-${job.id}-${job.updatedAt.getTime()}` },
+        );
+        revived += 1;
+      }
+    } catch (error) {
+      logger.error('could not settle a stalled scheduled publish', {
+        variantId: job.postVariantId,
+        organizationId: job.organizationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  if (revived > 0 || failed > 0) {
+    logger.warn('scheduled publishes had lost their queue job', {
+      revived,
+      failed,
+      variantIds: stalled.map((job) => job.postVariantId),
+    });
+  }
 }
 
 /**
