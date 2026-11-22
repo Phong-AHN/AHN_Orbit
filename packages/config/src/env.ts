@@ -76,6 +76,18 @@ export const serverEnvSchema = z.object({
   // ── Data ──────────────────────────────────────────────────────────────────
   DATABASE_URL: z.string().url(),
   DIRECT_URL: z.string().url().optional(),
+  /**
+   * This process's database pool, in place of `connection_limit` in
+   * `DATABASE_URL` — which holds the password, so it is not the place to tune.
+   *
+   * Set it on the **worker** (10 is plenty): Supabase's pooled URL carries
+   * `connection_limit=1`, right for a Vercel function and far too small for a
+   * process running eight publishes at once beside every sweep. With one
+   * connection, queries timed out waiting for it (P2024) and publishes stuck
+   * in "Publishing" with no attempt made (2026-11-23). Leave it unset on
+   * Vercel, where one per function is the point.
+   */
+  DATABASE_CONNECTION_LIMIT: z.coerce.number().int().min(1).max(100).optional(),
   REDIS_URL: z.string().url(),
 
   // ── Worker (docs/ARCHITECTURE.md §5) ──────────────────────────────────────

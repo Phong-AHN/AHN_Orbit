@@ -1,7 +1,8 @@
 import { serverEnv, workerHealthPort } from '@orbit/config';
 import { logger } from '@orbit/observability';
-import { platformDb } from '@orbit/db';
+import { databaseConnectionLimit, platformDb } from '@orbit/db';
 import {
+  QUEUE_DEFINITIONS,
   assertWorkerProcess,
   installShutdownHandlers,
   queueFor,
@@ -53,6 +54,25 @@ async function main(): Promise<void> {
 
   // Fail at boot rather than on the first job if the database is unreachable.
   await platformDb.$queryRaw`SELECT 1`;
+
+  // A pool smaller than the work the worker runs at once starves it: queries
+  // time out waiting for a connection, and a publish that has claimed its
+  // variant can neither load it nor give it back (2026-11-23). Said at boot,
+  // where it is one line, rather than as timeouts scattered through every job.
+  const pool = databaseConnectionLimit();
+  const publishConcurrency =
+    env.WORKER_PUBLISH_CONCURRENCY ?? QUEUE_DEFINITIONS.publish.concurrency;
+  const wanted = publishConcurrency + 2;
+  if (pool !== undefined && pool < wanted) {
+    logger.error('the database pool is too small for this worker', {
+      connectionLimit: pool,
+      publishConcurrency,
+      recommended: wanted,
+      fix: `set DATABASE_CONNECTION_LIMIT=${Math.max(10, wanted)} on the worker`,
+    });
+  } else {
+    logger.info('database pool', { connectionLimit: pool ?? 'prisma default' });
+  }
 
   // Adapters must exist before the publish worker takes a job.
   ensureProvidersRegistered();

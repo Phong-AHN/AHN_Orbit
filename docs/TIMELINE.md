@@ -592,6 +592,11 @@ Cách đọc:
   - Job dọn dẹp (5 phút một lần) tìm bài SCHEDULED có job im lặng quá 10 phút sau `nextAttemptAt`: còn kịp giờ thì xếp lại; trễ quá 2 giờ thì đánh **Failed** (`PUBLISH_STALLED`, "Publishing stopped before this went out"), anh bấm Retry để đăng. Bài đang chờ rate limit hoặc backoff không bị đụng. Job của lịch cũ (bài đã đổi lịch) không bao giờ được chạy lại.
   - Sau khi deploy, bài LinkedIn hiện tại và 3 bài "duplicate" sẽ chuyển sang Failed kèm lý do trong vòng 5 phút. Lý do thật của lần đăng LinkedIn thất bại sẽ hiện ở thẻ Attempts của bài.
   - Kiểm tra: typecheck, lint, 1882 unit test đạt (11 test mới).
+- **Nguyên nhân gốc: worker chỉ có 1 kết nối DB.** Log anh gửi: `could not record what happens next to a publish` với lỗi Prisma P2024 "Timed out fetching a new connection from the connection pool (connection limit: 1)". Bài LinkedIn `01a2043a…` ở PUBLISHING, post vẫn APPROVED, job `attemptCount 0` và không có attempt nào.
+  - Giải thích: `DATABASE_URL` trên worker là URL pooler của Supabase có `connection_limit=1` (hợp với Vercel). Worker chạy 8 bài đăng song song cộng các sweep, mà chỉ có 1 kết nối, nên truy vấn chờ quá 10 giây thì lỗi. Bài nhận claim xong không đọc được dữ liệu, và trả claim cũng không được, nên kẹt PUBLISHING mà chưa từng gọi tới LinkedIn.
+  - Sửa: thêm biến `DATABASE_CONNECTION_LIMIT` để đặt pool riêng cho từng process, không cần sửa `DATABASE_URL` (vốn chứa mật khẩu). Chỉ phần query của URL được viết lại, phần có mật khẩu giữ nguyên từng byte. Worker giờ báo lỗi `the database pool is too small for this worker` ngay khi khởi động nếu pool nhỏ hơn số bài đăng song song + 2.
+  - **Việc của anh:** đặt `DATABASE_CONNECTION_LIMIT=10` trên service worker ở Railway (không đặt trên Vercel). Sau khi worker khởi động lại, job dọn dẹp sẽ tự tiếp quản bài kẹt và đối soát với LinkedIn.
+  - Kiểm tra: typecheck, lint, 1887 unit test đạt (5 test mới).
 
 ---
 

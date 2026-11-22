@@ -75,6 +75,13 @@ Required everywhere:
 Worker only: `ORBIT_ROLE=worker` — `assertWorkerProcess()` refuses to consume without it, which is
 what catches the deployment mistake of running the wrong bundle (**D-022**).
 
+Worker only: `DATABASE_CONNECTION_LIMIT=10`. Supabase's pooled URL carries `connection_limit=1`,
+right for a Vercel function and far too small for a worker running eight publishes at once: with
+one connection, queries time out waiting for it (P2024) and publishes stick in "Publishing" with no
+attempt made (2026-11-23). This sets the worker's pool without editing `DATABASE_URL`, which holds
+the password. The worker logs `the database pool is too small for this worker` at boot when it is.
+Leave it unset on Vercel.
+
 Optional: `FACEBOOK_APP_ID`/`FACEBOOK_APP_SECRET` (absent ⇒ the mock provider, which the registry
 refuses in production), `SENTRY_DSN`, `WORKER_HEALTH_PORT` (3100). Moving storage between
 buckets: `packages/storage/scripts/move-bucket.ts` (`check`, `cors`, `copy`, `compare`).

@@ -1,4 +1,4 @@
-export { platformDb, disconnect } from './client.js';
+export { platformDb, disconnect, databaseConnectionLimit } from './client.js';
 export {
   withTenant,
   withTenantRaw,

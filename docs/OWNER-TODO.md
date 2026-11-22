@@ -996,6 +996,7 @@ cả hai đều gọi API.
 | `CREDENTIAL_ENCRYPTION_KEY` | 32 byte ngẫu nhiên, base64 | ✅ |
 | `STATE_SIGNING_SECRET` | 32 byte ngẫu nhiên, base64 | ✅ |
 | `DATABASE_URL` / `DIRECT_URL` | Supabase | ✅ |
+| `DATABASE_CONNECTION_LIMIT` | **`10`, chỉ trên Railway (worker)**. Không đặt trên Vercel. URL pooler của Supabase có `connection_limit=1`: worker chỉ có 1 kết nối cho 8 bài đăng chạy cùng lúc, nên bị kẹt "Publishing" (23/11) | ✅ |
 | `REDIS_URL` | Redis Cloud, **phải là `noeviction`** | ✅ |
 | `S3_*` | bucket chặn toàn bộ public access | ✅ |
 | `APP_URL` | URL production thật | ✅ |

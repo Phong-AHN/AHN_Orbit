@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { serverEnv } from '@orbit/config';
+import { connectionLimitOf, withConnectionLimit } from './pool.js';
 
 /**
  * The base Prisma client.
@@ -16,10 +17,24 @@ import { serverEnv } from '@orbit/config';
 
 const globalForPrisma = globalThis as unknown as { __orbitPrisma?: PrismaClient };
 
+/** The URL this process connects with: `DATABASE_URL`, its pool sized if asked. */
+function databaseUrl(): string {
+  const env = serverEnv();
+  return withConnectionLimit(env.DATABASE_URL, env.DATABASE_CONNECTION_LIMIT);
+}
+
+/**
+ * How many connections this process's pool holds, or `undefined` when the URL
+ * leaves it to Prisma. A number, never the URL — safe to log.
+ */
+export function databaseConnectionLimit(): number | undefined {
+  return connectionLimitOf(databaseUrl());
+}
+
 function create(): PrismaClient {
   const env = serverEnv();
   return new PrismaClient({
-    datasources: { db: { url: env.DATABASE_URL } },
+    datasources: { db: { url: databaseUrl() } },
     // Query events are emitted outside production, never printed: `emit: 'event'`
     // means nothing reaches stdout unless something subscribes. Development uses
     // it for tracing, and integration tests use it to assert that an aggregation
