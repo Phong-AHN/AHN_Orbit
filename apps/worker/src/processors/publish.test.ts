@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { THREAD_CONTINUES } from '@orbit/core';
 import { decideRetry, MAX_ATTEMPTS } from '@orbit/queue';
 
-vi.mock('../publishing/engine.js', () => ({ publishVariant: vi.fn() }));
+vi.mock('../publishing/engine.js', () => ({ publishVariant: vi.fn(), CLAIM_HELD: 'CLAIM_HELD' }));
 
 const { publishVariant } = await import('../publishing/engine.js');
 const { processPublish } = await import('./publish.js');
@@ -19,11 +19,12 @@ const { processPublish } = await import('./publish.js');
 
 const job = { payload: {}, attempt: 1, jobId: 'job-1', correlationId: 'corr-1' } as never;
 
-async function thrownFor(reason: string) {
+async function thrownFor(reason: string, requeueAfterMs?: number) {
   vi.mocked(publishVariant).mockResolvedValueOnce({
     kind: 'DEFERRED',
     variantId: 'variant-1',
     reason,
+    ...(requeueAfterMs !== undefined ? { requeueAfterMs } : {}),
   } as never);
   return processPublish(job).then(
     () => undefined,
@@ -43,6 +44,19 @@ describe('processPublish deferrals', () => {
         reason: 'CONTINUATION',
       });
     }
+  });
+
+  it('looks again at a held claim once it can be taken over, without spending an attempt', async () => {
+    // 2026-11-22: a job that found the claim of a worker that had stopped
+    // mid-publish exited quietly, and the variant stayed PUBLISHING for days.
+    const error = await thrownFor('CLAIM_HELD', 14 * 60_000 + 30_000);
+
+    expect(decideRetry(error, MAX_ATTEMPTS)).toEqual({
+      action: 'RESCHEDULE',
+      delayMs: 870_000,
+      consumesAttempt: false,
+      reason: 'CONTINUATION',
+    });
   });
 
   it('keeps a retryable provider failure on the normal backoff', async () => {

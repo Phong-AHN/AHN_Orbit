@@ -5396,6 +5396,36 @@ before the schedule control even appeared.
 
 - **Date:** 2026-11-18 · **Status:** IMPLEMENTED (no migration)
 
+## D-128 — A publish nobody is finishing is always picked up again
+
+Reported 2026-11-23: LinkedIn posts stayed "Scheduled", and the maintenance
+sweep logged eleven variants "claimed but never finished", the oldest two days
+old. Three ways a variant could stop with nothing ever coming back to it:
+
+- **A claim held by a stopped worker.** A worker stopped mid-publish (a deploy,
+  a crash) and the queue handed its job back within a minute. The claim was
+  not 15 minutes old, so `claimVariant` read it as a live worker's and the job
+  exited quietly — leaving the variant `PUBLISHING` for good. A fresh claim is
+  now `HELD`: the engine defers (`CLAIM_HELD`, no attempt spent) until just
+  after it can be taken over. A live holder has finished by then and the job
+  finds nothing to do; a dead one's claim is taken over and reconciled.
+- **The stuck-publish sweep only logged.** `reconcile-stuck-jobs` now gives
+  each variant stuck in `PUBLISHING` a publish job (`recover-<variant>-<claim
+  time>`, so sweeps do not stack). It decides nothing: the engine takes the
+  aged-out claim over and asks the platform first, around the time the lost
+  publish began rather than now.
+- **A platform the worker has no adapter for.** Its credentials missing on the
+  worker, loading the post threw, the claim was handed back and the job
+  dead-lettered — and the post said "Scheduled" for ever. The engine now fails
+  it visibly, once: `PROVIDER_NOT_CONFIGURED`, an attempt saying the platform
+  is not set up on the publishing service and nothing was sent, a
+  notification. Retrying after the worker is configured publishes it.
+
+**Not published late.** A lost publish that reconciliation finds did not go
+out, but which began more than two hours ago (`STALE_SCHEDULE_MS`, the same
+line the scheduler draws), is parked for review instead of published days
+late. Found is published; unknown is parked, as before.
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

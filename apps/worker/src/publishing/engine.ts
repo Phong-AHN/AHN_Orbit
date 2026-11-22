@@ -1,4 +1,5 @@
 import {
+  CLAIM_TTL_MS,
   HEALTH_CONFIRM_DELAY_MS,
   PublishingTimeoutError,
   RECONCILE_WINDOW_MS,
@@ -7,8 +8,10 @@ import {
   clock,
   isClientStandingFailure,
   isAppError,
+  isStale,
   type AttemptOutcome,
   type ErrorCode,
+  type Platform,
   type TenantContext,
 } from '@orbit/core';
 import { PUBLISH_WORKER_CAPABILITIES, systemContext } from '@orbit/auth';
@@ -25,7 +28,12 @@ import {
   withLock,
   type JobContext,
 } from '@orbit/queue';
-import { capabilitiesFor, getProvider, isThreadContinuation } from '@orbit/providers';
+import {
+  capabilitiesFor,
+  getProvider,
+  isThreadContinuation,
+  tryGetProvider,
+} from '@orbit/providers';
 import { workerBuild } from '../build-info.js';
 import { claimVariant, releaseClaim, settleClaim, type Claim } from './claim.js';
 import { closeAttempt, findInFlightAttempt, openAttempt, updateJobState } from './attempts.js';
@@ -71,6 +79,30 @@ const LOCK_TTL_MS = 90_000;
  */
 const DEFAULT_RATE_LIMIT = { capacity: 10, refillWindowMs: 60_000 };
 
+/**
+ * Deferred because another run holds the claim (see `claimVariant`'s `HELD`).
+ * The processor reschedules it without spending an attempt.
+ */
+export const CLAIM_HELD = 'CLAIM_HELD';
+
+/** How long after a held claim ages out the variant is looked at again. */
+const CLAIM_RECHECK_MARGIN_MS = 30_000;
+
+/** A platform this worker has no adapter for — its credentials are not set. */
+export const PROVIDER_NOT_CONFIGURED = 'PROVIDER_NOT_CONFIGURED';
+
+const PLATFORM_LABEL: Record<Platform, string> = {
+  FACEBOOK: 'Facebook',
+  INSTAGRAM: 'Instagram',
+  THREADS: 'Threads',
+  TIKTOK: 'TikTok',
+  YOUTUBE: 'YouTube',
+  LINKEDIN: 'LinkedIn',
+  PINTEREST: 'Pinterest',
+  X: 'X',
+  BLUESKY: 'Bluesky',
+};
+
 export type PublishOutcomeKind =
   'PUBLISHED' | 'ALREADY_SETTLED' | 'NOT_CLAIMABLE' | 'DEFERRED' | 'FAILED' | 'PARKED';
 
@@ -100,7 +132,12 @@ export async function publishVariant(job: JobContext<'publish'>): Promise<Publis
   // tenant-isolation security event.
   const row = await platformDb.postVariant.findUnique({
     where: { id: payload.postVariantId },
-    select: { organizationId: true },
+    select: {
+      organizationId: true,
+      platform: true,
+      postId: true,
+      post: { select: { workspaceId: true, brandId: true } },
+    },
   });
 
   const organizationId = resolveJobTenant(payload.organizationId, row, {
@@ -131,21 +168,60 @@ export async function publishVariant(job: JobContext<'publish'>): Promise<Publis
     return { kind: 'NOT_CLAIMABLE', variantId: payload.postVariantId };
   }
 
+  if (claimResult.status === 'HELD') {
+    // Most likely a live worker, and this the duplicate: when it finishes, the
+    // look later finds nothing to claim. But a worker that stopped mid-publish
+    // holds a claim too, and its job comes back long before the claim can be
+    // taken over — so look again just after it can be, when an abandoned one is
+    // reconciled rather than left PUBLISHING for good.
+    const requeueAfterMs =
+      Math.max(0, CLAIM_TTL_MS - claimResult.heldForMs) + CLAIM_RECHECK_MARGIN_MS;
+    logger.info('publish claim held by another run; looking again once it can be taken over', {
+      variantId: payload.postVariantId,
+      organizationId,
+      heldForMs: claimResult.heldForMs,
+      requeueAfterMs,
+    });
+    return {
+      kind: 'DEFERRED',
+      variantId: payload.postVariantId,
+      requeueAfterMs,
+      reason: CLAIM_HELD,
+    };
+  }
+
   const claim = claimResult.claim;
 
   // A stolen claim means a worker died mid-publish. Its outcome is unknown, so
   // the first thing we do is find out — never publish.
   const mustReconcileFirst = claimResult.status === 'ABANDONED';
 
+  const run: ClaimedRun = {
+    ctx,
+    organizationId,
+    claim,
+    publishingJobId: payload.publishingJobId,
+    correlationId,
+    mustReconcileFirst,
+    ...(claimResult.status === 'ABANDONED'
+      ? { abandonedSince: claimResult.previousClaimedAt }
+      : {}),
+  };
+
   try {
-    return await runClaimedPublish({
-      ctx,
-      organizationId,
-      claim,
-      publishingJobId: payload.publishingJobId,
-      correlationId,
-      mustReconcileFirst,
-    });
+    // A platform this worker cannot publish to fails visibly, once. Before, the
+    // missing adapter threw while loading the post, the claim was handed back
+    // and the job dead-lettered — and the post said "Scheduled" for ever.
+    if (row && !tryGetProvider(row.platform)) {
+      return await failUnconfigured(run, {
+        platform: row.platform,
+        postId: row.postId,
+        workspaceId: row.post.workspaceId,
+        brandId: row.post.brandId,
+      });
+    }
+
+    return await runClaimedPublish(run);
   } catch (error) {
     // Anything that escapes here has not been recorded as a terminal outcome,
     // so the variant goes back to SCHEDULED and the queue layer decides whether
@@ -162,6 +238,8 @@ interface ClaimedRun {
   publishingJobId: string;
   correlationId: string;
   mustReconcileFirst: boolean;
+  /** When the abandoned claim this run took over was first taken. */
+  abandonedSince?: Date | undefined;
 }
 
 async function runClaimedPublish(run: ClaimedRun): Promise<PublishRunResult> {
@@ -179,14 +257,24 @@ async function runClaimedPublish(run: ClaimedRun): Promise<PublishRunResult> {
   const orphaned = await findInFlightAttempt(run.publishingJobId);
 
   if (run.mustReconcileFirst || orphaned) {
-    const resolved = await reconcileUnknownOutcome({
-      run,
-      subject,
-      attemptedAt: orphaned?.startedAt ?? run.claim.claimedAt,
-    });
+    // When the lost publish began — not this run's claim, which is seconds
+    // old: reconciliation looks for the post around the time it was sent.
+    const attemptedAt = orphaned?.startedAt ?? run.abandonedSince ?? run.claim.claimedAt;
+    const resolved = await reconcileUnknownOutcome({ run, subject, attemptedAt });
 
     if (resolved) return resolved;
-    // NOT_FOUND: the earlier call never landed, so publishing now is safe.
+
+    // NOT_FOUND: the earlier call never landed, so publishing now is safe —
+    // but not necessarily wanted. A publish lost hours ago is the same "too
+    // late to publish unattended" the scheduler refuses, so it waits for a
+    // person instead of going out days after it should have.
+    if (isStale(attemptedAt)) {
+      return applyOutcome(run, subject, {
+        kind: 'INCONCLUSIVE',
+        reason:
+          'This did not go out: publishing stopped part-way, and it is now too late to publish it unattended. Retry it if it is still wanted, or abandon it.',
+      });
+    }
   }
 
   // ── Layer 3: one publish at a time per account ────────────────────────────
@@ -402,6 +490,57 @@ async function classifyAndMaybeReconcile(
   });
 
   return reconciled;
+}
+
+/**
+ * Fail a variant whose platform this worker has no adapter for.
+ *
+ * Nothing is sent: the adapter that would send it does not exist here, which
+ * means the platform's credentials are not set on the worker (they are read
+ * once, at start). Recorded as an ordinary failure — an attempt row, the
+ * variant FAILED, the post rolled up, a notification — so the reason is on the
+ * post. Retrying after the worker is configured publishes it.
+ */
+async function failUnconfigured(
+  run: ClaimedRun,
+  variant: { platform: Platform; postId: string; workspaceId: string; brandId: string },
+): Promise<PublishRunResult> {
+  const subject = {
+    variantId: run.claim.variantId,
+    workspaceId: variant.workspaceId,
+    brandId: variant.brandId,
+  };
+  const label = PLATFORM_LABEL[variant.platform] ?? variant.platform;
+  const message = `${label} isn't set up on the publishing service yet, so nothing was sent. Once an administrator has finished setting it up there, retry this post.`;
+  const outcome: AttemptOutcome = { kind: 'FAILED', code: PROVIDER_NOT_CONFIGURED };
+
+  await markPostPublishing(variant.postId);
+
+  const attempt = await openAttempt({
+    organizationId: run.organizationId,
+    publishingJobId: run.publishingJobId,
+    correlationId: run.correlationId,
+  });
+  await closeAttempt(attempt, outcome, { message, retryable: false });
+
+  await settleClaim(run.claim, {
+    status: 'FAILED',
+    lastError: { code: PROVIDER_NOT_CONFIGURED, message },
+  });
+  await updateJobState(run.publishingJobId, 'FAILED', { lastErrorCode: PROVIDER_NOT_CONFIGURED });
+  await auditPublish(run, subject, 'post_variant.publish_failed', {
+    errorCode: PROVIDER_NOT_CONFIGURED,
+  });
+  await rollUpPost(variant.postId);
+
+  logger.error('platform is not set up on this worker; failed the publish without calling it', {
+    platform: variant.platform,
+    variantId: subject.variantId,
+    organizationId: run.organizationId,
+  });
+
+  await raiseNotification(run, subject, 'publishing.failed');
+  return { kind: 'FAILED', variantId: subject.variantId, reason: PROVIDER_NOT_CONFIGURED };
 }
 
 /**
@@ -686,7 +825,7 @@ async function applyOutcome(
  */
 async function raiseNotification(
   run: ClaimedRun,
-  subject: PublishSubject,
+  subject: Pick<PublishSubject, 'variantId'>,
   event: 'publishing.failed' | 'publishing.needs_review',
 ): Promise<void> {
   try {
@@ -783,7 +922,7 @@ async function checkAccountAfterCredentialFailure(
 
 async function auditPublish(
   run: ClaimedRun,
-  subject: PublishSubject,
+  subject: Pick<PublishSubject, 'variantId' | 'workspaceId' | 'brandId'>,
   action: string,
   after: Record<string, string | number | boolean | undefined>,
 ): Promise<void> {

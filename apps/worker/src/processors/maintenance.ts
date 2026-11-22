@@ -1,7 +1,7 @@
 import { clock } from '@orbit/core';
 import { platformDb } from '@orbit/db';
 import { logger } from '@orbit/observability';
-import type { JobContext } from '@orbit/queue';
+import { enqueue, type JobContext } from '@orbit/queue';
 import { sweepAccountHealth } from '../health/sweep.js';
 import { sweepAnalytics } from '../analytics/sweep.js';
 import { sweepComments } from '../engagement/sweep.js';
@@ -22,9 +22,11 @@ import { mailer } from '../notifications/mailer.js';
  * `reconcile-stuck-jobs` is the one that matters for T1.13: a worker killed
  * mid-publish leaves a `PostVariant` in `PUBLISHING` with a claim token and no
  * live job. Left alone it would sit there forever, because nothing else clears
- * a claim. This finds them and flags them — it does **not** republish, and it
- * does not clear the claim, because the outcome is ambiguous and the
- * publishing engine's reconciliation (layer 4) is what decides.
+ * a claim. This finds them and hands each back to the publish queue — it does
+ * **not** republish and does not clear the claim itself. The engine takes the
+ * aged-out claim over and reconciles with the platform first (layer 4): found
+ * is published, not found is published or — hours late — left for a person,
+ * and unknown is left for a person.
  */
 
 /** How long a claim may be held before it is considered abandoned. */
@@ -36,7 +38,7 @@ const STAGED_ACCOUNT_TTL_MS = 60 * 60 * 1_000;
 export async function processMaintenance({ payload }: JobContext<'maintenance'>): Promise<void> {
   switch (payload.task) {
     case 'reconcile-stuck-jobs':
-      await reconcileStuckJobs();
+      await reconcileStuckJobs(payload.correlationId);
       return;
     case 'cleanup-staged-accounts':
       await cleanupStagedAccounts();
@@ -93,15 +95,21 @@ export async function processMaintenance({ payload }: JobContext<'maintenance'>)
 }
 
 /**
- * Find publishes that were claimed and never finished.
+ * Find publishes that were claimed and never finished, and queue them to be
+ * reconciled.
  *
- * Reports them; does not resolve them. A variant stuck in `PUBLISHING` may or
- * may not have reached the platform, and guessing is exactly what the
- * idempotency design forbids (docs/ARCHITECTURE.md §5.2). T1.13 adds the
- * reconciliation call; until then this makes the condition visible rather than
- * silent.
+ * A variant stuck in `PUBLISHING` may or may not have reached the platform,
+ * and guessing is exactly what the idempotency design forbids
+ * (docs/ARCHITECTURE.md §5.2) — so this decides nothing. It only gives each one
+ * a publish job again; the engine finds the claim aged out, takes it over and
+ * asks the platform before anything else. Until 2026-11-22 this only logged,
+ * and eleven variants sat in `PUBLISHING` for up to two days.
+ *
+ * One job per stuck claim: the job id names the variant and the claim's time,
+ * so a sweep every few minutes does not stack them, and a claim that is taken
+ * over and stuck again gets a new one.
  */
-async function reconcileStuckJobs(): Promise<void> {
+export async function reconcileStuckJobs(correlationId: string): Promise<void> {
   const cutoff = new Date(clock.now().getTime() - STUCK_CLAIM_MS);
 
   const stuck = await platformDb.postVariant.findMany({
@@ -118,11 +126,49 @@ async function reconcileStuckJobs(): Promise<void> {
 
   if (stuck.length === 0) return;
 
+  let queued = 0;
+  const unqueued: string[] = [];
+  for (const variant of stuck) {
+    const job = await platformDb.publishingJob.findFirst({
+      where: { postVariantId: variant.id, organizationId: variant.organizationId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, idempotencyKey: true },
+    });
+    if (!job || !variant.claimedAt) {
+      unqueued.push(variant.id);
+      continue;
+    }
+
+    try {
+      await enqueue(
+        'publish',
+        {
+          organizationId: variant.organizationId,
+          correlationId,
+          postVariantId: variant.id,
+          idempotencyKey: job.idempotencyKey,
+          publishingJobId: job.id,
+        },
+        { jobId: `recover-${variant.id}-${variant.claimedAt.getTime()}` },
+      );
+      queued += 1;
+    } catch (error) {
+      unqueued.push(variant.id);
+      logger.error('could not queue a stuck publish for reconciliation', {
+        variantId: variant.id,
+        organizationId: variant.organizationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   logger.error('publishes claimed but never finished', {
     count: stuck.length,
     // Ids only. A claim token is a capability of sorts, so it is not logged.
     variantIds: stuck.map((v) => v.id),
-    note: 'awaiting provider reconciliation before any retry',
+    queued,
+    ...(unqueued.length > 0 ? { unqueued } : {}),
+    note: 'queued for reconciliation with the platform before any retry',
   });
 }
 

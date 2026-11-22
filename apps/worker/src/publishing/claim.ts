@@ -34,8 +34,19 @@ export interface Claim {
 
 export type ClaimResult =
   | { status: 'CLAIMED'; claim: Claim }
-  /** Someone else owns it, or it is no longer scheduled. Exit quietly. */
+  /** It is no longer scheduled — published, rescheduled, cancelled. Exit quietly. */
   | { status: 'NOT_AVAILABLE'; reason: 'NOT_SCHEDULED' }
+  /**
+   * Another run holds a claim that has not aged out yet.
+   *
+   * Usually a live worker. Sometimes one that stopped mid-publish — a deploy,
+   * a crash — whose job the queue handed back within a minute, long before the
+   * claim could be taken over. Exiting quietly then left the variant
+   * `PUBLISHING` for good, with nothing ever coming back to it (2026-11-22:
+   * eleven variants, the oldest two days). The engine looks again once the
+   * claim can be taken over.
+   */
+  | { status: 'HELD'; claimedAt: Date; heldForMs: number }
   /**
    * A previous worker died holding this. Its outcome is unknown, so the engine
    * must reconcile before it may publish — never retry blindly.
@@ -83,8 +94,8 @@ export async function claimVariant(
 
   const heldFor = now.getTime() - current.claimedAt.getTime();
   if (heldFor <= CLAIM_TTL_MS) {
-    // A live worker is on it. Ours is the duplicate.
-    return { status: 'NOT_AVAILABLE', reason: 'NOT_SCHEDULED' };
+    // Probably a live worker, and ours the duplicate — but not certainly.
+    return { status: 'HELD', claimedAt: current.claimedAt, heldForMs: heldFor };
   }
 
   // The claim is stale: the worker holding it died. Take it over — but the

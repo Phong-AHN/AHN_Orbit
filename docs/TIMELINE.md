@@ -578,6 +578,15 @@ Cách đọc:
   - Việc của anh: ở *Auth* trong LinkedIn developer portal, redirect URL phải đúng `https://www.socialsquare.site/api/v1/social/oauth/linkedin/callback`, và phần OAuth 2.0 scopes phải có đủ ba scope trên. OWNER-TODO đã cập nhật, kèm giới hạn của Development tier (100 call mỗi người, 500 call mỗi app mỗi ngày; không có BATCH_GET; 12 tháng để lên Standard).
   - Kiểm tra: typecheck, lint, 1866 unit test đạt (6 test mới).
 
+### 23/11
+
+- **Bài đăng không bao giờ bị bỏ quên ở "Scheduled"/"Publishing" (D-128).** Anh báo bài LinkedIn luôn ở Schedule, kèm log "publishes claimed but never finished": 11 bản đăng kẹt ở PUBLISHING, cũ nhất từ 20/11 (4 bài nhiều tài khoản: 20/11 13:09, 20/11 16:25, 22/11 17:30, 22/11 17:31).
+  - **Kẹt vì worker dừng giữa chừng:** khi Railway deploy hoặc worker crash, job được trả lại sau khoảng 1 phút. Lúc đó claim chưa đủ 15 phút nên job tưởng có worker khác đang chạy và thoát im lặng, để bài kẹt ở PUBLISHING mãi. Giờ job hẹn chạy lại ngay sau khi claim hết hạn (không tốn lượt retry), rồi tiếp quản và đối soát với nền tảng.
+  - **Job dọn dẹp chỉ ghi log:** giờ nó xếp lại vào queue từng bài kẹt. Engine hỏi nền tảng trước: bài đã lên thì đánh Published, chưa biết thì chờ người xem lại. Bài chưa lên mà đã trễ quá 2 giờ thì cũng chờ người xem lại, không tự đăng muộn. 11 bài đang kẹt sẽ được xử lý ở lần chạy đầu tiên sau khi deploy.
+  - **Worker thiếu cấu hình nền tảng:** trước đây bài đứng ở "Scheduled" mãi mà không có lý do. Giờ bài được đánh Failed, kèm dòng "LinkedIn isn't set up on the publishing service yet, so nothing was sent", và gửi thông báo. Cấu hình xong thì bấm Retry là đăng được.
+  - Nguyên nhân riêng của LinkedIn chưa xác nhận được (không đọc được DB production và log Railway). Hai khả năng: worker trên Railway thiếu `LINKEDIN_CLIENT_ID`/`LINKEDIN_CLIENT_SECRET`, hoặc worker còn chạy code LinkedIn cũ nên kiểm tra sức khỏe đánh tài khoản là "Needs reconnect", và scheduler bỏ qua bài của tài khoản đó. Đã gửi anh câu SQL chỉ đọc để xác nhận.
+  - Kiểm tra: typecheck, lint, 1871 unit test đạt (5 test mới). Test tích hợp của engine đã sửa theo hành vi mới nhưng chưa chạy (cần Postgres/Redis local).
+
 ---
 
 ## Nền tảng mạng xã hội — ngày tích hợp

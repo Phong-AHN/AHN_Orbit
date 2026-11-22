@@ -62,6 +62,13 @@ describe('presentFailure', () => {
     expect(presentFailure('ABANDONED_BY_HUMAN').action).toBe('REVIEW');
   });
 
+  it('says a platform missing from the publishing service is a setup problem', () => {
+    const presentation = presentFailure('PROVIDER_NOT_CONFIGURED');
+    expect(presentation.summary).toMatch(/not set up on the publishing service/);
+    // Offered again: once the service is set up, a retry publishes it.
+    expect(isRetryOffered('PROVIDER_NOT_CONFIGURED')).toBe(true);
+  });
+
   it('explains a thread continuing between posts as progress, not failure', () => {
     // D-124: posts of the thread are live and the rest follow on their own.
     expect(presentFailure('THREAD_CONTINUES')).toEqual({

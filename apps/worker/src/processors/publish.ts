@@ -6,7 +6,7 @@ import {
 } from '@orbit/core';
 import { logger } from '@orbit/observability';
 import type { JobContext } from '@orbit/queue';
-import { publishVariant } from '../publishing/engine.js';
+import { CLAIM_HELD, publishVariant } from '../publishing/engine.js';
 
 /**
  * Job entry point for the publish queue.
@@ -48,6 +48,15 @@ export async function processPublish(job: JobContext<'publish'>): Promise<void> 
         // untouched — a busy queue must not become a failed post.
         throw new ProviderRateLimitError('Account is over its publishing rate limit', {
           retryAfterSeconds: Math.ceil((result.requeueAfterMs ?? 60_000) / 1_000),
+        });
+      }
+
+      if (result.reason === CLAIM_HELD) {
+        // Another run holds the claim. Looked at again once it can be taken
+        // over — not an attempt, since nothing was tried.
+        throw new ProviderUnavailableError('Publish claim held by another run', {
+          retryAfterSeconds: Math.ceil((result.requeueAfterMs ?? 60_000) / 1_000),
+          context: { continuation: true, variantId: result.variantId },
         });
       }
 

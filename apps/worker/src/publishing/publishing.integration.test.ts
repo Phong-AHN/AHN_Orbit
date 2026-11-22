@@ -314,7 +314,16 @@ describe('idempotency layer 2 — the atomic claim', () => {
     expect(mock.posts.size).toBe(1);
 
     expect(results.filter((r) => r.kind === 'PUBLISHED')).toHaveLength(1);
-    expect(results.filter((r) => r.kind === 'NOT_CLAIMABLE')).toHaveLength(2);
+    // The others either found it settled or found the claim held, and will
+    // look again once it could be taken over — neither publishes.
+    const others = results.filter((r) => r.kind !== 'PUBLISHED');
+    expect(others).toHaveLength(2);
+    for (const other of others) {
+      expect(
+        other.kind === 'NOT_CLAIMABLE' ||
+          (other.kind === 'DEFERRED' && other.reason === 'CLAIM_HELD'),
+      ).toBe(true);
+    }
   });
 
   it('a duplicate job after a successful publish does not publish again', async () => {
@@ -358,8 +367,22 @@ describe('idempotency layer 2 — the atomic claim', () => {
     const first = await claimVariant(VARIANT, NOW);
     expect(first.status).toBe('CLAIMED');
 
+    // Held, not "not available": the holder may have died, and the job must
+    // come back once the claim can be taken over (2026-11-22).
     const second = await claimVariant(VARIANT, NOW);
-    expect(second.status).toBe('NOT_AVAILABLE');
+    expect(second.status).toBe('HELD');
+  });
+
+  it('defers a job that finds the claim held, until it can be taken over', async () => {
+    await seedScheduled();
+    await claimVariant(VARIANT, new Date());
+
+    const result = await publishVariant(jobContext());
+
+    expect(result.kind).toBe('DEFERRED');
+    expect(result.reason).toBe('CLAIM_HELD');
+    expect(result.requeueAfterMs).toBeGreaterThan(CLAIM_TTL_MS - 60_000);
+    expect(mock.callCounts.publish).toBe(0);
   });
 
   it('takes over a claim whose worker died, and flags it for reconciliation', async () => {

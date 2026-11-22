@@ -176,6 +176,14 @@ export function presentFailure(code: string | null | undefined): FailurePresenta
         action: 'REVIEW',
         retryable: false,
       };
+    case 'PROVIDER_NOT_CONFIGURED':
+      // The publishing service has no adapter for the platform: its
+      // credentials are not set there. Nothing was sent.
+      return {
+        summary: 'This platform is not set up on the publishing service yet.',
+        action: 'CONTACT_SUPPORT',
+        retryable: true,
+      };
     case THREAD_CONTINUES:
       // Not a failure: posts of the thread are live and the rest follow on
       // their own, without spending a retry (D-124).
