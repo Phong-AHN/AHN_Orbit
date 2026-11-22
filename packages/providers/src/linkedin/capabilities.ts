@@ -33,29 +33,52 @@ export const LINKEDIN_AUTHORIZE_URL = 'https://www.linkedin.com/oauth/v2/authori
 export const LINKEDIN_TOKEN_URL = 'https://www.linkedin.com/oauth/v2/accessToken';
 
 /**
- * Scopes for posting as a company page, which is what an agency does.
+ * Scopes for posting as a company page, which is what an agency does — only
+ * ones the **Community Management API** grants (verified 2026-11-22 against the
+ * "API Products and Permissions" table, li-lms-2026-11).
  *
- * Verified: `w_organization_social` is "post, comment, and like posts on behalf
- * of an organization", and is restricted to pages where the authenticated
- * member holds ADMINISTRATOR, DIRECT_SPONSORED_CONTENT_POSTER or CONTENT_ADMIN.
+ *   • `w_organization_social` — "post, comment, and like posts on behalf of an
+ *     organization", restricted to pages where the member holds
+ *     ADMINISTRATOR, DIRECT_SPONSORED_CONTENT_POSTER or CONTENT_ADMIN.
+ *   • `r_organization_social` — reading the page's posts back (reconciliation).
+ *   • `rw_organization_admin` — `organizationAcls` (which pages this member
+ *     may post to) and reading a page's name.
+ *
+ * `openid` and `profile` were asked for until 2026-11-22 and are **not** in
+ * that product: they belong to "Sign in with LinkedIn using OpenID Connect",
+ * and LinkedIn says to request Community Management on an app with no other
+ * product. Asking for a scope the app was not granted fails the whole consent
+ * dialog, so no LinkedIn account could be connected. Nothing here read the
+ * profile anyway. `w_member_social` (posting as the person) is dropped too:
+ * only pages are connected.
+ *
  * A member who administers no page can authorise successfully and still have
  * nothing to connect — which the connect flow reports rather than returning an
  * empty list silently.
  */
 export const LINKEDIN_PUBLISH_SCOPES = [
-  'openid',
-  'profile',
-  'w_member_social',
   'w_organization_social',
   'r_organization_social',
+  'rw_organization_admin',
 ] as const;
 
-/** Roles on a company page that permit publishing. */
+/**
+ * Roles on a company page that permit publishing.
+ *
+ * LinkedIn names the content role two ways: `CONTENT_ADMIN` on the Posts API
+ * page, `CONTENT_ADMINISTRATOR` in the access-control role list. Both count.
+ */
 export const LINKEDIN_PUBLISHING_ROLES = [
   'ADMINISTRATOR',
   'DIRECT_SPONSORED_CONTENT_POSTER',
   'CONTENT_ADMIN',
+  'CONTENT_ADMINISTRATOR',
 ] as const;
+
+/** The numeric id in `urn:li:organization:123`, which the REST paths take. */
+export function linkedinOrganizationId(urn: string): string | undefined {
+  return /^urn:li:organization:(\d+)$/.exec(urn)?.[1];
+}
 
 export function linkedinCapabilities(apiVersion: string): PlatformCapabilities {
   return defineCapabilities({

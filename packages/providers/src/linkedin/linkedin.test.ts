@@ -92,13 +92,7 @@ function provider(api: FakeLinkedIn, overrides: Record<string, unknown> = {}): L
 
 const credential = {
   accessToken: 'li.token',
-  scopes: [
-    'openid',
-    'profile',
-    'w_member_social',
-    'w_organization_social',
-    'r_organization_social',
-  ],
+  scopes: ['w_organization_social', 'r_organization_social', 'rw_organization_admin'],
   keyVersion: 1,
 };
 
@@ -184,6 +178,37 @@ describe('authorization', () => {
     expect(scopes).toContain('w_organization_social');
   });
 
+  /**
+   * 2026-11-22: an app approved for the Community Management API could connect
+   * nothing. `openid` and `profile` belong to another LinkedIn product, and
+   * asking for a scope the app was not granted fails the whole dialog. Only
+   * what that product grants is asked for.
+   */
+  it('asks only for scopes the Community Management API grants', () => {
+    const { scopes } = provider(api).getAuthorizationUrl({
+      redirectUri: 'https://app.test/cb',
+      state: 's',
+    });
+    const granted = [
+      'r_1st_connections_size',
+      'r_basicprofile',
+      'r_organization_followers',
+      'r_organization_social',
+      'r_organization_social_feed',
+      'rw_organization_admin',
+      'w_member_social',
+      'w_member_social_feed',
+      'w_organization_social',
+      'w_organization_social_feed',
+      'r_member_profileAnalytics',
+      'r_member_postAnalytics',
+    ];
+    for (const scope of scopes) expect(granted).toContain(scope);
+    expect(scopes).not.toContain('openid');
+    expect(scopes).not.toContain('profile');
+    expect(scopes).toContain('rw_organization_admin');
+  });
+
   it('never puts the client secret in the dialog URL', () => {
     const { url } = provider(api).getAuthorizationUrl({
       redirectUri: 'https://app.test/cb',
@@ -221,8 +246,8 @@ describe('discovering pages', () => {
           ],
         },
       })
-      .on(/rest\/organizations\?/, {
-        body: { results: { 'urn:li:organization:1': { localizedName: 'AHN Media' } } },
+      .on(/rest\/organizations\/1$/, {
+        body: { id: 1, localizedName: 'AHN Media', vanityName: 'ahn-media' },
       });
 
   it('offers only pages the member may actually post to', async () => {
@@ -234,6 +259,67 @@ describe('discovering pages', () => {
     expect(accounts).toHaveLength(1);
     expect(accounts[0]!.externalId).toBe('urn:li:organization:1');
     expect(accounts[0]!.displayName).toBe('AHN Media');
+    expect(accounts[0]!.handle).toBe('ahn-media');
+  });
+
+  /**
+   * The Development tier refuses every BATCH_GET ("All APIs with BATCH_GET: No
+   * API calls allowed"), and the batch name lookup that was here failed every
+   * connect. Each page is read on its own, by its numeric id.
+   */
+  it('never sends a batch call, which the Development tier refuses', async () => {
+    const fake = aclApi();
+    await provider(fake).exchangeCode({ code: 'c', redirectUri: 'https://app.test/cb' });
+
+    expect(fake.calls.some((call) => call.headers['x-restli-method'] === 'BATCH_GET')).toBe(false);
+    expect(fake.calls.some((call) => /ids=List/.test(call.url))).toBe(false);
+    expect(fake.callTo(/rest\/organizations\/1$/)).toBeDefined();
+  });
+
+  it('still offers a page whose name cannot be read, by its id', async () => {
+    const local = aclApi().on(/rest\/organizations\/1$/, {
+      status: 403,
+      body: { message: 'Not enough permissions', status: 403 },
+    });
+
+    const { accounts } = await provider(local).exchangeCode({
+      code: 'c',
+      redirectUri: 'https://app.test/cb',
+    });
+
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0]!.displayName).toBe('LinkedIn page 1');
+  });
+
+  it('offers a page once when the member holds two roles on it', async () => {
+    const local = aclApi().on(/organizationAcls/, {
+      body: {
+        elements: [
+          { organization: 'urn:li:organization:1', role: 'ADMINISTRATOR', state: 'APPROVED' },
+          {
+            organization: 'urn:li:organization:1',
+            role: 'DIRECT_SPONSORED_CONTENT_POSTER',
+            state: 'APPROVED',
+          },
+          // Named this way in LinkedIn's access-control role list.
+          {
+            organization: 'urn:li:organization:3',
+            role: 'CONTENT_ADMINISTRATOR',
+            state: 'APPROVED',
+          },
+        ],
+      },
+    });
+
+    const { accounts } = await provider(local).exchangeCode({
+      code: 'c',
+      redirectUri: 'https://app.test/cb',
+    });
+
+    expect(accounts.map((account) => account.externalId)).toEqual([
+      'urn:li:organization:1',
+      'urn:li:organization:3',
+    ]);
   });
 
   /**
@@ -293,9 +379,7 @@ describe('tokens', () => {
           ],
         },
       })
-      .on(/rest\/organizations\?/, {
-        body: { results: { 'urn:li:organization:1': { localizedName: 'AHN Media' } } },
-      });
+      .on(/rest\/organizations\/1$/, { body: { id: 1, localizedName: 'AHN Media' } });
 
     const { accounts } = await provider(local).exchangeCode({
       code: 'c',
@@ -469,7 +553,7 @@ describe('health', () => {
    * two-click fix.
    */
   it('names the missing page role rather than blaming the connection', async () => {
-    const local = new FakeLinkedIn().on(/rest\/organizations\//, {
+    const local = new FakeLinkedIn().on(/organizationAcls/, {
       status: 403,
       body: { message: 'ACCESS_DENIED', status: 403 },
     });
@@ -480,6 +564,48 @@ describe('health', () => {
 
     expect(health.status).toBe('NEEDS_RECONNECT');
     expect(health.message).toMatch(/permission to post to that page/i);
+  });
+
+  it('notices a role that was taken away', async () => {
+    const local = new FakeLinkedIn().on(/organizationAcls/, {
+      body: {
+        elements: [
+          { organization: 'urn:li:organization:999', role: 'ADMINISTRATOR', state: 'APPROVED' },
+        ],
+      },
+    });
+
+    const health = await provider(local).probeHealth(credential, {
+      externalId: 'urn:li:organization:123',
+    });
+
+    expect(health.status).toBe('NEEDS_RECONNECT');
+    expect(health.message).toMatch(/permission to post to that page/i);
+  });
+
+  /**
+   * A content admin can post but cannot read the page's admin details. Health
+   * reads the member's roles instead, so it does not fail them.
+   */
+  it('passes a content admin who still holds the role', async () => {
+    const local = new FakeLinkedIn().on(/organizationAcls/, {
+      body: {
+        elements: [
+          {
+            organization: 'urn:li:organization:123',
+            role: 'CONTENT_ADMINISTRATOR',
+            state: 'APPROVED',
+          },
+        ],
+      },
+    });
+
+    const health = await provider(local).probeHealth(credential, {
+      externalId: 'urn:li:organization:123',
+    });
+
+    expect(health.status).toBe('ACTIVE');
+    expect(local.calls.some((call) => /rest\/organizations\//.test(call.url))).toBe(false);
   });
 });
 

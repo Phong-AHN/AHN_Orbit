@@ -30,6 +30,7 @@ import {
   LINKEDIN_PUBLISH_SCOPES,
   LINKEDIN_TOKEN_URL,
   linkedinCapabilities,
+  linkedinOrganizationId,
 } from './capabilities.js';
 
 /**
@@ -65,6 +66,15 @@ import {
 /** Refresh once the token is within this of expiring. */
 const REFRESH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * Pages whose names are read on connect, one call each.
+ *
+ * The Development tier allows 100 calls per member a day, so a member who
+ * administers hundreds of pages must not spend the day's budget connecting.
+ * Pages past this are still offered, by id.
+ */
+const MAX_PAGE_LOOKUPS = 25;
+
 export interface LinkedInProviderOptions extends LinkedInClientOptions {
   /**
    * How the worker reads an image's bytes.
@@ -90,7 +100,9 @@ interface OrganizationAclResponse {
 }
 
 interface OrganizationResponse {
-  results?: Record<string, { localizedName?: string; vanityName?: string; id?: number }>;
+  localizedName?: string;
+  vanityName?: string;
+  id?: number;
 }
 
 interface PostResponse {
@@ -161,8 +173,15 @@ export class LinkedInProvider implements SocialProvider {
    *
    * `organizationAcls` answers the question that matters — which pages, in
    * which role — where a profile lookup would answer who signed in. Roles are
-   * filtered to the three LinkedIn documents as permitting publishing, and only
-   * APPROVED grants count: a pending invitation is not access.
+   * filtered to those LinkedIn documents as permitting publishing, and only
+   * APPROVED grants count: a pending invitation is not access. A member with two
+   * roles on one page is offered that page once.
+   *
+   * Names are read **one page at a time**. The Development tier of the
+   * Community Management API refuses every BATCH_GET ("All APIs with BATCH_GET:
+   * No API calls allowed"), and the batch call that was here failed every
+   * connect. A name is a nicety, not a condition: a page whose details cannot
+   * be read — the admin lookup wants ADMINISTRATOR — is still offered, by id.
    *
    * Each page carries the whole issued credential, expiry and any refresh token
    * included (D-123): the connect flow stores `accounts[].credential` and
@@ -171,49 +190,71 @@ export class LinkedInProvider implements SocialProvider {
    */
   private async discoverPages(credential: IssuedCredential) {
     const accessToken = credential.accessToken;
+    const urns = [...(await this.publishablePages(accessToken))].filter(
+      (urn) => linkedinOrganizationId(urn) !== undefined,
+    );
+
+    if (urns.length === 0) return [];
+
+    const details = await Promise.all(
+      urns.map((urn, index) =>
+        index < MAX_PAGE_LOOKUPS ? this.readPage(urn, accessToken) : Promise.resolve(undefined),
+      ),
+    );
+
+    return urns.map((urn, index) => {
+      const detail = details[index];
+      const id = linkedinOrganizationId(urn) as string;
+
+      return {
+        externalId: urn,
+        displayName: detail?.localizedName ?? `LinkedIn page ${id}`,
+        ...(detail?.vanityName ? { handle: detail.vanityName } : {}),
+        accountType: 'ORGANIZATION',
+        // LinkedIn issues one member token that covers every page they
+        // administer; there is no per-page credential the way Meta issues a
+        // per-Page token. The same credential is attached to each.
+        credential,
+      };
+    });
+  }
+
+  /** A page's name and vanity name, or nothing if it cannot be read. */
+  private async readPage(
+    urn: string,
+    accessToken: string,
+  ): Promise<OrganizationResponse | undefined> {
+    const id = linkedinOrganizationId(urn);
+    if (!id) return undefined;
+    try {
+      const page = await this.client.request<OrganizationResponse>({
+        path: `/rest/organizations/${id}`,
+        accessToken,
+      });
+      return page.body;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** The pages this member holds a publishing role on, as URNs. */
+  private async publishablePages(accessToken: string): Promise<Set<string>> {
     const acls = await this.client.request<OrganizationAclResponse>({
       path: '/rest/organizationAcls',
       accessToken,
       params: { q: 'roleAssignee', state: 'APPROVED', count: 100 },
       restliMethod: 'FINDER',
     });
-
-    const publishable = (acls.body.elements ?? []).filter(
-      (element) =>
-        element.organization &&
-        element.role &&
-        (LINKEDIN_PUBLISHING_ROLES as readonly string[]).includes(element.role),
+    return new Set(
+      (acls.body.elements ?? [])
+        .filter(
+          (element) =>
+            element.organization &&
+            element.role &&
+            (LINKEDIN_PUBLISHING_ROLES as readonly string[]).includes(element.role),
+        )
+        .map((element) => element.organization as string),
     );
-
-    if (publishable.length === 0) return [];
-
-    // One batch call rather than one per page: an agency member may administer
-    // dozens, and LinkedIn's rate limits are the tightest in the product.
-    const ids = publishable
-      .map((element) => element.organization as string)
-      .map((urn) => encodeURIComponent(urn));
-
-    const details = await this.client.request<OrganizationResponse>({
-      path: `/rest/organizations?ids=List(${ids.join(',')})`,
-      accessToken,
-      restliMethod: 'BATCH_GET',
-    });
-
-    return publishable.map((element) => {
-      const urn = element.organization as string;
-      const detail = details.body.results?.[urn];
-
-      return {
-        externalId: urn,
-        displayName: detail?.localizedName ?? urn,
-        ...(detail?.vanityName ? { handle: detail.vanityName } : {}),
-        accountType: 'ORGANIZATION',
-        // LinkedIn issues one member token that covers every page they
-        // administer; there is no per-page credential the way Meta issues a
-        // per-Page token. The same credential is attached to each.
-        credential: { ...credential, scopes: [...LINKEDIN_PUBLISH_SCOPES] },
-      };
-    });
   }
 
   private toIssuedCredential(token: TokenResponse): IssuedCredential {
@@ -316,14 +357,14 @@ export class LinkedInProvider implements SocialProvider {
       };
     }
 
+    let roleHeld: boolean;
     try {
-      // Reading the page back proves both that the token lives *and* that this
-      // member still holds a role on it — the second is what actually changes,
-      // when somebody is removed as an admin.
-      await this.client.request({
-        path: `/rest/organizations/${encodeURIComponent(account.externalId)}`,
-        accessToken: credential.accessToken,
-      });
+      // The member's roles prove both that the token lives *and* that they may
+      // still post to this page — the second is what actually changes, when
+      // somebody is removed as an admin. Reading the page itself would not:
+      // that lookup wants ADMINISTRATOR, so it failed a content admin who can
+      // post perfectly well.
+      roleHeld = (await this.publishablePages(credential.accessToken)).has(account.externalId);
     } catch (error) {
       const code = (error as { code?: string }).code;
       if (code === 'PROVIDER_AUTHENTICATION_ERROR') {
@@ -348,6 +389,17 @@ export class LinkedInProvider implements SocialProvider {
         };
       }
       throw error;
+    }
+
+    if (!roleHeld) {
+      return {
+        status: 'NEEDS_RECONNECT',
+        grantedScopes: granted,
+        missingScopes: missing,
+        message:
+          'This LinkedIn account no longer has permission to post to that page. Check the page admins, then reconnect.',
+        checkedAt,
+      };
     }
 
     if (missing.length > 0) {

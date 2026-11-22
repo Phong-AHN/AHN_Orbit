@@ -567,6 +567,17 @@ Cách đọc:
 - **Ảnh trong thread được chia đều cho các bài (D-124, sửa lại).** Anh báo: Threads dồn cả 5 ảnh vào bài đầu, các bài trả lời không có ảnh. Nguyên nhân: cách cũ xếp ảnh vào bài đầu cho tới khi đầy, mà Threads cho tới 20 ảnh một bài. Giờ ảnh chưa được xếp tay được chia đều theo thứ tự: 5 ảnh cho 5 bài thì mỗi bài 1 ảnh; 7 ảnh cho 3 bài thì 3 + 2 + 2. Ảnh đã chuyển tay sang bài nào vẫn giữ nguyên. Video/GIF trên X vẫn đứng riêng một bài.
   - Kiểm tra cho cả hai mục: typecheck, lint, 1860 unit test đạt (17 test mới, 2 test cũ sửa theo cách chia mới).
 
+### 22/11
+
+- **LinkedIn: sửa lỗi không kết nối được sau khi được duyệt Development tier của Community Management API.** Đối chiếu docs LinkedIn (li-lms-2026-11), có ba lỗi chặn trong code và một lỗi che mất nguyên nhân:
+  - **Xin sai scope:** code xin `openid profile`, nhưng hai scope này thuộc sản phẩm "Sign in with LinkedIn using OpenID Connect", không thuộc Community Management API. LinkedIn từ chối luôn cả màn hình đồng ý nên không thể kết nối. Giờ chỉ xin `w_organization_social r_organization_social rw_organization_admin`, đều thuộc Community Management API. Bỏ luôn `w_member_social` vì chỉ kết nối page, không đăng thay cá nhân.
+  - **Gọi BATCH_GET:** bảng giới hạn của Development tier ghi "All APIs with BATCH_GET: No API calls allowed", mà bước đọc tên page lại dùng batch, nên dù qua được bước đồng ý vẫn lỗi. Giờ đọc từng page một theo id số (tối đa 25 page). Đọc tên lỗi thì page vẫn được hiện, tên là "LinkedIn page {id}".
+  - **Vai trò:** nhận cả `CONTENT_ADMINISTRATOR` (tên trong danh sách vai trò của LinkedIn) bên cạnh `CONTENT_ADMIN`. Một người có hai vai trò trên cùng page thì page chỉ hiện một lần.
+  - **Kiểm tra sức khỏe kết nối:** đọc vai trò qua `organizationAcls` thay vì đọc chi tiết page, vì đọc chi tiết page đòi quyền ADMINISTRATOR, nên content admin bị báo lỗi oan. Trước đây còn gửi URN đã encode vào đường dẫn, trong khi LinkedIn nhận id số.
+  - **Lỗi bị che:** khi nền tảng từ chối, callback ghi log là "cancelled" mà không kèm `error_description`, rồi đưa về trang chủ, nơi không hiện gì. Giờ log có lý do của nền tảng. Người dùng được đưa về trang connect với thông báo cố định: đã huỷ, bị nền tảng từ chối (có hướng dẫn riêng cho LinkedIn), hoặc đăng nhập được nhưng không đọc được page. Áp dụng cho mọi nền tảng.
+  - Việc của anh: ở *Auth* trong LinkedIn developer portal, redirect URL phải đúng `https://www.socialsquare.site/api/v1/social/oauth/linkedin/callback`, và phần OAuth 2.0 scopes phải có đủ ba scope trên. OWNER-TODO đã cập nhật, kèm giới hạn của Development tier (100 call mỗi người, 500 call mỗi app mỗi ngày; không có BATCH_GET; 12 tháng để lên Standard).
+  - Kiểm tra: typecheck, lint, 1866 unit test đạt (6 test mới).
+
 ---
 
 ## Nền tảng mạng xã hội — ngày tích hợp

@@ -2,10 +2,11 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { serverEnv } from '@orbit/config';
-import { Card, CardBody, Empty, PageHeader, PermissionDenied } from '@orbit/ui';
+import { Alert, Card, CardBody, Empty, PageHeader, PermissionDenied } from '@orbit/ui';
 import { pageCan, requirePageContext } from '@/server/page-context';
 import { getBrand } from '@/features/tenancy/service';
 import { listAccounts } from '@/features/social/service';
+import { platformName } from '@/features/publishing/ui/links';
 import { AccountPicker } from '@/features/social/ui/account-picker';
 import { ConnectStartButton } from '@/features/social/ui/connect-start-button';
 import { FacebookConnectButton } from '@/features/social/ui/facebook-connect-button';
@@ -221,6 +222,35 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
       />
     );
 
+  // How the last attempt ended, from the callback's fixed codes — never text
+  // from the URL, which anybody can write.
+  const outcome =
+    connection === 'cancelled'
+      ? {
+          tone: 'info' as const,
+          title: 'The connection was cancelled',
+          body: `Nothing was connected. Start again whenever you are ready.`,
+        }
+      : connection === 'refused'
+        ? {
+            tone: 'danger' as const,
+            title: `${platformName(platform)} refused the connection`,
+            body:
+              platform === 'LINKEDIN'
+                ? 'LinkedIn would not show its consent screen for this app. Check that the app has the Community Management API product approved and that this page’s redirect URL is registered under Auth in the LinkedIn developer portal, then try again.'
+                : 'The platform would not authorize this app. Check the app’s permissions and redirect URL in its developer portal, then try again.',
+          }
+        : connection === 'failed'
+          ? {
+              tone: 'danger' as const,
+              title: 'The connection could not be completed',
+              body:
+                platform === 'LINKEDIN'
+                  ? 'You signed in, but the company pages could not be read. Make sure you are an admin of the LinkedIn page, then try again. The reason is in the server log under "oauth callback failed".'
+                  : 'You signed in, but the accounts could not be read. Try again; the reason is in the server log under "oauth callback failed".',
+            }
+          : undefined;
+
   return (
     <main id="main" className="px-4 py-10 sm:px-6">
       <PageHeader
@@ -228,6 +258,12 @@ export default async function ConnectAccountPage({ params, searchParams }: PageP
         title={`Connect ${PLATFORM_ARTICLE[platform]} to ${brand.name}`}
         description="Posts publish to the accounts connected to a brand."
       />
+
+      {outcome ? (
+        <Alert tone={outcome.tone} title={outcome.title} className="mb-6">
+          {outcome.body}
+        </Alert>
+      ) : null}
 
       {unconfigured ? (
         <Empty

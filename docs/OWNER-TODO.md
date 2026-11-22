@@ -1617,12 +1617,23 @@ khác các nền tảng kia, chứ không đẩy cùng một caption đi khắp 
       granted through it, and approval is a review, not a checkbox.
 - [ ] Set `LINKEDIN_CLIENT_ID` / `LINKEDIN_CLIENT_SECRET` on **both** Vercel and
       Railway.
-- [ ] **Register the redirect URI**:
-      `https://ahn-orbit-web.vercel.app/api/v1/social/oauth/linkedin/callback`
+- [ ] **Register the redirect URI** under *Auth → Authorized redirect URLs*,
+      exactly `${APP_URL}/api/v1/social/oauth/linkedin/callback` — on production
+      `https://www.socialsquare.site/api/v1/social/oauth/linkedin/callback`
+      (the old `ahn-orbit-web.vercel.app` one no longer matches `APP_URL`).
 - [ ] Make sure whoever connects **holds an admin role on the company page**.
       LinkedIn only offers pages where that person is ADMINISTRATOR,
       DIRECT_SPONSORED_CONTENT_POSTER or CONTENT_ADMIN. Someone who administers
       no page can sign in successfully and have nothing to connect.
+- [x] Development tier approved (2026-11-22). The connect flow asks for
+      `w_organization_social r_organization_social rw_organization_admin` —
+      all granted by the Community Management API. *Auth → OAuth 2.0 scopes*
+      in the developer portal should list those three; if one is missing,
+      LinkedIn refuses the consent screen and the connect page says so.
+- **Development tier limits** (LinkedIn's table): 500 calls per app and 100
+  per member per 24 hours, **no BATCH_GET calls at all**, no webhooks.
+  Integration and testing must be finished within 12 months of approval,
+  then apply for Standard tier (form + screencast).
 
 ### 🟡 On a calendar, not a checklist
 

@@ -24,6 +24,16 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
+ * `error` values that mean the person said no, as opposed to the platform
+ * refusing: LinkedIn's two, and the OAuth standard one everyone else sends.
+ */
+const CANCELLED_ERRORS = new Set([
+  'access_denied',
+  'user_cancelled_login',
+  'user_cancelled_authorize',
+]);
+
+/**
  * OAuth callback.
  *
  * Not wrapped in `withAuth` because the tenant comes from the **signed state**
@@ -50,6 +60,10 @@ export async function GET(
   const route = 'GET /api/v1/social/oauth/{platform}/callback';
 
   return withLogContext({ correlationId, route }, async () => {
+    // Where to send the browser once the state is known: the connect page the
+    // flow started from, which says what happened. Until then, the home page.
+    let returnTo: string | undefined;
+
     try {
       ensureProvidersRegistered();
 
@@ -61,15 +75,31 @@ export async function GET(
 
       const url = new URL(request.url);
 
-      // The user declined, or Meta refused. This is not an error to shout about.
+      /**
+       * The person declined, or the platform refused.
+       *
+       * A refusal is not a cancellation: LinkedIn sends one when the app asks
+       * for a scope it was not granted, and the consent dialog never appears
+       * (2026-11-22 — every LinkedIn connect came back this way, was logged as
+       * "cancelled" without LinkedIn's reason, and landed on a home page that
+       * said nothing). The platform's own description is logged; the person is
+       * returned to the connect page with a fixed code, never the platform's
+       * text, so a crafted link cannot put words on our page.
+       */
       const providerError = url.searchParams.get('error');
       if (providerError) {
+        const cancelled = CANCELLED_ERRORS.has(providerError);
         logger.info('oauth flow was not completed', {
           platform,
           error: providerError,
           reason: url.searchParams.get('error_reason'),
+          description: url.searchParams.get('error_description')?.slice(0, 300),
         });
-        return redirectWithMessage(request, 'connection-cancelled');
+        return redirectWithMessage(
+          request,
+          cancelled ? 'cancelled' : 'refused',
+          await returnPathFor(request, url),
+        );
       }
 
       // 1–2. Authenticate and resolve the user.
@@ -82,6 +112,7 @@ export async function GET(
         cookie: request.cookies.get(OAUTH_STATE_COOKIE)?.value,
         sessionUserId: user.id,
       });
+      returnTo = payload.returnTo;
 
       if (payload.platform !== platform) {
         throw new ValidationError('State does not match the callback platform', {
@@ -131,9 +162,34 @@ export async function GET(
       return response;
     } catch (error) {
       logError('oauth callback failed', error, { route });
+      // Past the state check, the person is somewhere they can retry from —
+      // not a JSON error in a browser tab.
+      if (returnTo) return redirectWithMessage(request, 'failed', returnTo);
       return handleRouteError(error, route);
     }
   });
+}
+
+/**
+ * The connect page a flow started from, if its state still checks out.
+ *
+ * Verified exactly as the success path verifies it — session, signature,
+ * expiry, nonce — because a redirect target must never come from the query
+ * string. Anything that does not verify goes to the home page, as before.
+ */
+async function returnPathFor(request: NextRequest, url: URL): Promise<string> {
+  try {
+    const identity = await requireSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
+    const user = await resolveUser(identity);
+    const payload = verifyOAuthState({
+      state: url.searchParams.get('state'),
+      cookie: request.cookies.get(OAUTH_STATE_COOKIE)?.value,
+      sessionUserId: user.id,
+    });
+    return payload.returnTo ?? '/';
+  } catch {
+    return '/';
+  }
 }
 
 function redirectWithMessage(request: NextRequest, status: string, path = '/'): NextResponse {
