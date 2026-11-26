@@ -56,8 +56,16 @@ import { NOTIFICATION_AUDIENCE, type NotificationType } from './types.js';
 const MAX_CANDIDATES = 200;
 
 export interface RecipientRule {
-  /** Holding this permission is what makes the event your business. */
-  interestedIn: Permission;
+  /**
+   * Holding this permission is what makes the event your business.
+   *
+   * `null` means **nobody is interested by role alone** — only the people the
+   * producer names (`includeUsers`), still filtered by visibility and audience.
+   * For news that matters to the people with a stake in one post and would be
+   * noise to everyone else who holds a role (D-129): an Owner told about every
+   * post the agency publishes stops reading what they are told.
+   */
+  interestedIn: Permission | null;
   /**
    * Nobody is notified about something they cannot see. Omitted only where the
    * interest permission *is* the visibility permission.
@@ -100,6 +108,15 @@ export const RECIPIENT_RULES: Record<NotificationType, RecipientRule> = {
     interestedIn: 'post:retry_failed',
     visibilityRequires: 'post:read',
   },
+
+  /**
+   * A post went out, or came off the schedule (D-129): its author, its
+   * assignee and whoever scheduled it. The whole team's view of this is the
+   * organization's Slack channel, not everybody's inbox.
+   */
+  'publishing.published': { interestedIn: null, visibilityRequires: 'post:read' },
+  'post.canceled': { interestedIn: null, visibilityRequires: 'post:read' },
+  'post.unscheduled': { interestedIn: null, visibilityRequires: 'post:read' },
 
   /**
    * The client's own gate, and the fan-out bug this fixes.
@@ -238,7 +255,10 @@ export async function resolveRecipients(
       continue;
     }
 
-    if (!explicit.has(member.userId) && !can(ctx, rule.interestedIn, resource)) {
+    if (
+      !explicit.has(member.userId) &&
+      (rule.interestedIn === null || !can(ctx, rule.interestedIn, resource))
+    ) {
       continue;
     }
 

@@ -173,6 +173,23 @@ export async function probeAccount(input: ProbeInput): Promise<ProbeResult> {
       organizationId: input.ctx.organizationId,
       platform: account.platform,
     });
+
+    // The in-app and email notices were written with the status change; the
+    // organization's Slack channel hears after it commits (D-129). Whether it
+    // wants to is the Slack processor's question, and it is rare enough not to
+    // ask first.
+    await enqueue('slack', {
+      organizationId: input.ctx.organizationId,
+      correlationId: input.correlationId,
+      event: 'social_account.needs_reconnect',
+      resourceType: 'SocialAccount',
+      resourceId: account.id,
+    }).catch((error: unknown) => {
+      logError('could not queue a Slack message about a broken connection', error, {
+        socialAccountId: account.id,
+        organizationId: input.ctx.organizationId,
+      });
+    });
   }
 
   return { kind: 'PROBED', status: verdict.status, change };

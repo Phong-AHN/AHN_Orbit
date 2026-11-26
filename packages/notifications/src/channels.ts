@@ -63,16 +63,30 @@ const IN_APP_AND_EMAIL: readonly NotificationChannel[] = ['IN_APP', 'EMAIL'];
  * `post.changes_requested`, `post.approved` and `social_account.reconnected`
  * stay in-app. The first two reach somebody already working in the product; the
  * last is good news about a thing they just did, and an email for it is noise.
+ *
+ * **D-129 adds three, at the agency's request**, and they pass the test for a
+ * narrower audience: `publishing.published` (with the live links),
+ * `post.canceled` and `post.unscheduled` go only to the post's author, its
+ * assignee and whoever scheduled it — the people who would otherwise go and
+ * check — never to everyone holding a role (see `RECIPIENT_RULES`).
  */
 const EMAIL_WORTHY: ReadonlySet<NotificationType> = new Set([
   'social_account.needs_reconnect',
   'publishing.failed',
   'publishing.needs_review',
+  'publishing.published',
+  'post.canceled',
+  'post.unscheduled',
   'post.approval_requested',
   'post.client_review_requested',
   // A customer the assistant could not help is waiting on a person (D-108).
   'message.needs_human',
 ]);
+
+/** Whether a type is ever emailed, for the settings page to say so (D-129). */
+export function isEmailWorthy(type: NotificationType): boolean {
+  return EMAIL_WORTHY.has(type);
+}
 
 export function channelsFor(
   type: NotificationType,

@@ -236,6 +236,7 @@ Full schema in `DATABASE.md`. Architectural stance:
 | `assistant` | an incoming message, delayed by the brand's grace period | 2 | The AI assistant decides whether to answer a conversation, and answers or hands it to a person (D-108) |
 | `account-health` | repeatable (hourly) | 2 | Token validity & permission probe |
 | `notifications` | domain events | 10 | In-app + email fan-out |
+| `slack` | the notifications processor, after its commit; a broken connection | 1 | One message to an organization's Slack channel, retried on its own (D-129) |
 | `reports` | a person asking for one | 2 | Render a client report and store it |
 | `maintenance` | repeatable | 1 | Retention (nightly), analytics rollup (hourly), comment sweep (5-minutely), cleanup |
 

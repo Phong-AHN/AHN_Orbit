@@ -1064,7 +1064,7 @@ cả hai đều gọi API.
 > audit log (`social_account.health_degraded`), kèm lý do và commit của worker
 > đã ghi.
 
-| `RESEND_API_KEY` + `EMAIL_FROM` | Resend | tuỳ chọn² |
+| `RESEND_API_KEY` + `EMAIL_FROM` | Resend; `EMAIL_FROM` = `socialsquare@ahnmedia.com` (mặc định, D-129) | tuỳ chọn² |
 | `SENTRY_DSN` | Sentry | tuỳ chọn |
 
 ¹ Không có thì production **từ chối ngay lần gọi đầu** — trợ lý viết bài không
@@ -1202,6 +1202,41 @@ mục "X" và "Bluesky" bên dưới để cấu hình.
 - [ ] Analytics xuất hiện cho bài đã đăng trong vài giờ
 - [ ] Nếu bật AI: số dòng `AIUsage` khớp với số request trên console Gemini
 - [ ] Nếu bật email: nhận được một email thật khi publish thất bại
+
+### Bật email và Slack (**D-129**, 2026-11-26)
+
+Code đã xong, chỉ chờ các bước dưới đây.
+
+**Email từ `socialsquare@ahnmedia.com`:**
+
+1. Vào Resend → **Domains** → thêm `ahnmedia.com`, rồi thêm các bản ghi DNS
+   Resend đưa (SPF, DKIM) ở nơi quản lý DNS của `ahnmedia.com`. Chờ trạng thái
+   **Verified**. Chưa verify thì Resend từ chối mọi email.
+2. Tạo API key ở Resend → **API Keys** (quyền *Sending access*).
+3. Đặt biến trên **cả Railway (worker) và Vercel (web)**:
+   - `RESEND_API_KEY` = key vừa tạo;
+   - `EMAIL_FROM` = `socialsquare@ahnmedia.com`, hoặc xóa biến này để dùng mặc
+     định. Nếu đang đặt `info@ahnmedia.com` thì phải sửa;
+   - `EMAIL_FROM_NAME` không cần đặt (mặc định `Social Square`).
+
+   Thiếu key ở worker trong khi web có key thì worker sẽ báo lỗi mỗi 2 phút. Hai
+   nơi phải giống nhau.
+4. Kiểm tra: Settings → **Notifications** hiện "Email notifications: On" và
+   địa chỉ gửi. Cho một bài đăng lên, tác giả sẽ nhận email kèm link.
+
+**Slack (mỗi organization tự kết nối):**
+
+1. Ở Slack: vào api.slack.com/apps → **Create New App** → *From scratch* → chọn
+   workspace. Trong app, bật **Incoming Webhooks** → **Add New Webhook to
+   Workspace** → chọn kênh (ví dụ `#social-alerts`) → copy URL
+   `https://hooks.slack.com/services/…`.
+2. Ở Social Square: Settings → **Notifications** → dán URL → **Connect Slack**.
+   Kênh sẽ nhận một tin chào ngay. Nếu không nhận được, trang sẽ báo lỗi.
+3. Chọn các loại tin muốn gửi: bài đã đăng, đăng lỗi, không xác định được
+   kết quả, lịch bị hủy, bị gỡ khỏi lịch, tài khoản cần kết nối lại.
+
+Không có migration. Commit này đổi `apps/worker/`, nên Railway sẽ tự deploy
+worker.
 
 ---
 

@@ -59,10 +59,43 @@ export function notificationContent(event: NotificationEvent): NotificationConte
           : 'Open the post to see what needs changing.',
       };
 
-    case 'publishing.failed':
+    case 'publishing.failed': {
+      // The specific reason, when there is one the summary does not already
+      // say. "The platform rejected the content" is true and useless next to
+      // "The caption is over 2,200 characters".
+      const detail = event.detail?.trim();
+      const reason =
+        detail && detail !== event.summary.trim() ? ` Reason: ${truncate(detail, 300)}` : '';
       return {
         title: `${event.postTitle} did not publish to ${event.accountName}`,
-        body: `${event.summary} Open the publishing log to see what to do next.`,
+        body: `${event.summary}${reason} Open the publishing log to see what to do next.`,
+      };
+    }
+
+    case 'publishing.published': {
+      const links = event.live.map((link) =>
+        link.permalink ? `${link.accountName}: ${link.permalink}` : link.accountName,
+      );
+      return {
+        title: event.partial
+          ? `${event.postTitle} went out on some of its accounts`
+          : `${event.postTitle} is live`,
+        body:
+          `Live on ${links.join(' · ')}.` +
+          (event.partial ? ' The others did not go out — open the publishing log to see why.' : ''),
+      };
+    }
+
+    case 'post.canceled':
+      return {
+        title: `${event.postTitle} was canceled`,
+        body: `${event.by ? `${event.by} canceled it` : 'It was canceled'} before it went out, so it will not be published.`,
+      };
+
+    case 'post.unscheduled':
+      return {
+        title: `${event.postTitle} was taken off the schedule`,
+        body: `${event.by ? `${event.by} moved it` : 'It was moved'} back to draft. It needs approving again before it can be scheduled.`,
       };
 
     case 'publishing.needs_review':

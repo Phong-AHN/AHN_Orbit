@@ -1,7 +1,7 @@
 import { serverEnv } from '@orbit/config';
 import { InternalError } from '@orbit/core';
 import { logger } from '@orbit/observability';
-import { LogMailer, ResendMailer, type Mailer } from '@orbit/notifications';
+import { LogMailer, ResendMailer, formatSender, type Mailer } from '@orbit/notifications';
 
 /**
  * Which mailer this worker uses (SRS §18).
@@ -20,8 +20,11 @@ export function mailer(): Mailer {
   const env = serverEnv();
 
   if (env.RESEND_API_KEY) {
-    cached = new ResendMailer({ apiKey: env.RESEND_API_KEY, from: env.EMAIL_FROM });
-    logger.info('mailer registered', { provider: 'resend', from: env.EMAIL_FROM });
+    // `Social Square <socialsquare@ahnmedia.com>` by default (D-129). The
+    // address must be on a domain verified in Resend, or every send is refused.
+    const from = formatSender(env.EMAIL_FROM_NAME, env.EMAIL_FROM);
+    cached = new ResendMailer({ apiKey: env.RESEND_API_KEY, from });
+    logger.info('mailer registered', { provider: 'resend', from });
     return cached;
   }
 

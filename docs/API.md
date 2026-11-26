@@ -358,6 +358,16 @@ Email is a seam rather than a stub: `channelsFor` returns `['IN_APP']`, and the
 `Notification` row — with `channel` and `emailedAt` already in the schema — is
 the outbox email will read. SSE/WebSocket push remains P2.
 
+**Slack, per organization** (**D-129**) — `org:update`, never delegated to an
+agent. The webhook URL is write-only: no response contains it.
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/orgs/{orgId}/integrations/slack` | `{ slack: { connected, channel, hint, events, connectedAt, connectedBy, failure } }` |
+| `PUT` | `/orgs/{orgId}/integrations/slack` | `{ webhookUrl?, channel?, events[] }`. A new `webhookUrl` is sent a test message before it is saved; omit it to change only the events |
+| `DELETE` | `/orgs/{orgId}/integrations/slack` | |
+| `POST` | `/orgs/{orgId}/integrations/slack/test` | Sends a test message; clears a recorded refusal when it lands |
+
 Fan-out is **authorized, not addressed** (**D-035**): a recipient must both hold
 the permission that makes the event their business *and* be able to read the
 underlying resource. A notification is a disclosure pushed at someone, so

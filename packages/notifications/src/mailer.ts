@@ -128,6 +128,23 @@ export class LogMailer implements Mailer {
   }
 }
 
+/**
+ * `Social Square <socialsquare@ahnmedia.com>` — the name an inbox shows, and
+ * the address (D-129).
+ *
+ * The name is quoted when it holds anything RFC 5322 would read as syntax, and
+ * line breaks are removed outright: this ends up in a header, and a newline in
+ * a header is how a second header gets written.
+ */
+export function formatSender(name: string | undefined, address: string): string {
+  const clean = (name ?? '').replace(/[\r\n]+/g, ' ').trim();
+  if (!clean) return address;
+
+  const needsQuotes = /[()<>[\]:;@\\,."]/.test(clean);
+  const display = needsQuotes ? `"${clean.replace(/["\\]/g, '\\$&')}"` : clean;
+  return `${display} <${address}>`;
+}
+
 /** Provider text can be long and can echo the payload; the log wants neither. */
 function truncate(value: string): string {
   return value.length > 200 ? `${value.slice(0, 200)}…` : value;

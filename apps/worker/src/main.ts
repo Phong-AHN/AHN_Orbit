@@ -21,6 +21,7 @@ import { processMaintenance } from './processors/maintenance.js';
 import { processNotification } from './processors/notifications.js';
 import { processPublish } from './processors/publish.js';
 import { processScheduler } from './processors/scheduler-job.js';
+import { processSlack } from './processors/slack.js';
 import { ensureProvidersRegistered } from './providers.js';
 import { workerBuild } from './build-info.js';
 
@@ -87,6 +88,8 @@ async function main(): Promise<void> {
     startWorker('engagement', processEngagement),
     startWorker('reports', processReport),
     startWorker('notifications', processNotification),
+    // An organization's Slack channel, one message at a time (D-129).
+    startWorker('slack', processSlack),
     startWorker('maintenance', processMaintenance),
     startWorker('scheduler', processScheduler),
     startWorker('webhooks', processWebhooks),

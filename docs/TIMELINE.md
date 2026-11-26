@@ -598,6 +598,17 @@ Cách đọc:
   - **Việc của anh:** đặt `DATABASE_CONNECTION_LIMIT=10` trên service worker ở Railway (không đặt trên Vercel). Sau khi worker khởi động lại, job dọn dẹp sẽ tự tiếp quản bài kẹt và đối soát với LinkedIn.
   - Kiểm tra: typecheck, lint, 1887 unit test đạt (5 test mới).
 
+### 26/11
+
+- **Gửi thông báo quan trọng vào Slack, và email từ `socialsquare@ahnmedia.com` (D-129).** Anh yêu cầu gửi tin vào Slack khi bài đã lên lịch được đăng (kèm URL), khi lịch bị hủy, khi đăng lỗi (kèm lý do)…, và gửi email cho người dùng từ `socialsquare@ahnmedia.com`.
+  - **Ba loại thông báo mới:** bài đã đăng (mỗi bài một tin khi đăng xong, kèm link bài trên từng tài khoản; ghi rõ nếu chỉ lên được một phần), bài đã lên lịch bị hủy, bài bị gỡ khỏi lịch về nháp. Tin hủy/gỡ ghi tên người làm, lấy từ audit log. Hủy một bài chưa từng lên lịch thì không báo.
+  - **Đăng lỗi có lý do cụ thể:** thông báo lấy câu báo lỗi của lần đăng cuối (như trong thẻ Attempts), không chỉ câu chung theo mã lỗi.
+  - **Slack theo từng organization:** Settings → **Notifications** (chỉ Owner/Admin). Dán URL Incoming Webhook của Slack; hệ thống gửi thử một tin trước khi lưu. Chọn loại tin muốn gửi: bài đã đăng, đăng lỗi, không xác định được kết quả, lịch bị hủy, bị gỡ khỏi lịch, tài khoản cần kết nối lại. URL được mã hóa, không bao giờ hiện lại (chỉ hiện 4 ký tự cuối), và chỉ chấp nhận `https://hooks.slack.com/services/…`. Tiêu đề bài được escape nên một bài tên `<!channel>` không ping cả kênh. Nếu Slack từ chối hẳn webhook (bị xóa, kênh archive), hệ thống ngừng gửi và trang Notifications báo lý do.
+  - Gửi qua queue `slack` riêng, mỗi lần một tin (Slack cho khoảng 1 tin/giây mỗi webhook), tự retry khi Slack lỗi hay bị rate limit. Lưu trong `Organization.settings`, **không cần migration**.
+  - **Email:** người gửi mặc định là `Social Square <socialsquare@ahnmedia.com>`. Ba loại mới cũng được gửi email, nhưng chỉ tới tác giả, người được giao và người đã lên lịch bài, không gửi cho mọi người có quyền. Email vẫn chỉ bật khi có `RESEND_API_KEY`.
+  - **Việc của anh** (OWNER-TODO, mục "Bật email và Slack"): verify domain `ahnmedia.com` trong Resend; đặt `RESEND_API_KEY` và `EMAIL_FROM=socialsquare@ahnmedia.com` trên cả Railway và Vercel; tạo Slack app có Incoming Webhook rồi dán URL vào Settings → Notifications.
+  - Kiểm tra: typecheck, lint, 1941 unit test đạt (54 test mới). Chưa chạy được test tích hợp (Docker không chạy; có thêm 1 test tích hợp cho người nhận). Chưa gửi tin Slack thật, chưa xem trang Settings → Notifications.
+
 ---
 
 ## Nền tảng mạng xã hội — ngày tích hợp
@@ -650,3 +661,4 @@ Cách đọc:
 8. D-117, còn chờ quyết định:
    - có đổi khóa ngoại `PostVariant → SocialAccount` sang `Restrict` không (cần migration);
    - có sửa việc luồng kết nối chuyển tài khoản đang hoạt động sang brand khác không.
+9. Bật email và Slack (D-129, 26/11): verify `ahnmedia.com` trong Resend, đặt `RESEND_API_KEY` + `EMAIL_FROM` trên Railway và Vercel, rồi kết nối Slack ở Settings → Notifications. Sau đó chạy `pnpm test:integration` khi có Docker.

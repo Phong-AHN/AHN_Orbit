@@ -20,11 +20,17 @@ export {
   type NotificationType,
   type NotificationEvent,
   type NotificationResource,
+  type PublishedLink,
 } from './types.js';
 
 export { notificationContent, type NotificationContent } from './content.js';
 
-export { EMAIL_DELIVERY_ENABLED, channelsFor, type DeliveryPreferences } from './channels.js';
+export {
+  EMAIL_DELIVERY_ENABLED,
+  channelsFor,
+  isEmailWorthy,
+  type DeliveryPreferences,
+} from './channels.js';
 
 export {
   RECIPIENT_RULES,
@@ -44,5 +50,34 @@ export {
   type ListNotificationsOptions,
   type NotificationView,
 } from './read.js';
-export { ResendMailer, LogMailer, type Mailer, type Email, type ResendOptions } from './mailer.js';
+export {
+  ResendMailer,
+  LogMailer,
+  formatSender,
+  type Mailer,
+  type Email,
+  type ResendOptions,
+} from './mailer.js';
 export { renderEmail, type EmailNotification } from './email-content.js';
+export {
+  SLACK_EVENT_LABELS,
+  SLACK_EVENT_TYPES,
+  escapeSlack,
+  isSlackEvent,
+  openSlackWebhook,
+  parseSlackWebhookUrl,
+  readSlackSettings,
+  renderSlackMessage,
+  renderSlackTest,
+  sealSlackWebhook,
+  sendSlackMessage,
+  slackWants,
+  webhookHint,
+  withSlackSettings,
+  type SecretCipher,
+  type SlackEventType,
+  type SlackMessage,
+  type SlackNotice,
+  type SlackSenderOptions,
+  type SlackSettings,
+} from './slack.js';

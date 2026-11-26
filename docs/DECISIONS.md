@@ -5450,6 +5450,97 @@ same publish twice, and skips a post already marked PUBLISHING. So:
   Still on time, it is queued again and the claim decides; more than two hours
   late it is failed as `PUBLISH_STALLED`, and one click retries it.
 
+---
+
+## D-129 — Publishing news goes to Slack, and email comes from Social Square
+
+Asked 2026-11-26: post a message to a Slack channel when something important
+happens — a scheduled post went out (with its URL), a schedule was canceled, a
+publish failed (with the reason) — and email users from
+`socialsquare@ahnmedia.com`.
+
+### Three new notification types
+
+- **`publishing.published`** — once per **post**, when it settles with at least
+  one account live, listing every live account with its permalink (`partial`
+  when some did not go out). Once per post rather than per account: a post to
+  three accounts is one piece of news with three links. `rollUpPost` settles a
+  post exactly once (its update is guarded on the status it read), so
+  `settled` is the one moment to announce; all four roll-up sites in the engine
+  go through `settlePost`. A retry that later publishes the rest settles the
+  post again and announces it again, with every link.
+- **`post.canceled`** (`SCHEDULED → CANCELED`) and **`post.unscheduled`**
+  (`SCHEDULED → DRAFT`). Only from `SCHEDULED`: canceling a draft nobody
+  scheduled is not news. Who did it is read from the `post.transitioned` audit
+  row, and only believed when that row is the move being reported.
+- **`publishing.failed` carries the reason.** `detail` is the last attempt's
+  user-facing message (what the adapter said), falling back to
+  `lastError.message` for failures recorded without an attempt (D-128). The
+  copy shows it only when it adds to the per-code summary.
+
+### Who is told, in-app and by email
+
+The new types are **named people only** (`interestedIn: null`): the post's
+author, its assignee and whoever scheduled it (the `post.scheduled` audit row),
+still filtered by visibility and audience, and never the person who did it.
+Holding a role is not enough: an Owner emailed about every post the agency
+publishes stops reading what they are emailed. The whole team's view is the
+Slack channel. All three are email-worthy.
+
+### Slack, per organization
+
+- **Configured once per organization** in Settings → Notifications, by whoever
+  holds `org:update` (Owner, Admin). That permission is never delegated to an AI
+  agent, so an agent cannot point an agency's alerts somewhere else. One
+  platform-wide channel was rejected: Social Square serves more than one agency,
+  and it would put every tenant's post titles in front of whoever reads it.
+- **Stored in `Organization.settings.slack`** — no migration. The webhook URL is
+  sealed with the credential cipher, bound to the organization (AAD
+  `{organizationId}:slack-webhook`), never returned by any endpoint, and never
+  written to the audit log; the page shows its last four characters.
+- **The server only ever calls Slack.** A URL someone types that the server
+  then POSTs to is a server-side request forgery risk, so only
+  `https://hooks.slack.com/services/T…/B…/…` is accepted (no other host,
+  port, credentials or query), checked again before every send, and redirects
+  are refused.
+- **A new webhook is tested before it is saved** — a hello message is sent, so
+  a revoked or mistyped URL is found by the person who can fix it.
+- **Escaped.** Titles and account names have `& < >` escaped, so a post called
+  `<!channel>` cannot ping the channel; only http(s) URLs become links.
+- **Its own `slack` queue, concurrency 1.** Slack allows about one message a
+  second per webhook. The notifications processor queues the message after its
+  transaction commits (`jobId` `slack-<notifications job id>`, so a retried
+  notifications job never posts twice, and a Slack outage never re-writes
+  in-app rows); the health probe queues one after a connection is found broken.
+  The Slack processor decides when it runs — still connected, event still
+  wanted, subject still there. Outages and 429s retry (honouring
+  `Retry-After`); a webhook Slack refuses for good (403/404/410) is recorded as
+  `failure` on the organization, sending stops, and the page says so. A new
+  webhook or a successful test message clears it.
+- **Events are chosen per organization**: published, failed, outcome unknown,
+  canceled, taken off the schedule, account needs reconnecting. Review traffic
+  stays out — it is addressed to individuals.
+
+### Email from Social Square
+
+`EMAIL_FROM` now defaults to `socialsquare@ahnmedia.com`, and `EMAIL_FROM_NAME`
+(default `Social Square`) makes the sender `Social Square
+<socialsquare@ahnmedia.com>`. Nothing else about email changed: it is still
+written only when `RESEND_API_KEY` is set (D-080), and Resend refuses every
+send until `ahnmedia.com` is verified there. The settings page says whether
+email is on and which address it comes from.
+
+### Not done
+
+- A manual "check connection" in the web app does not post to Slack: the
+  person who clicked it is looking at the answer.
+- One channel per organization, not one per client workspace.
+- Verified by unit tests, typecheck and lint. **Not run:** the integration
+  suites (Docker was not running), and no real Slack message was sent. The
+  settings page has not been seen.
+
+- **Date:** 2026-11-26 · **Status:** IMPLEMENTED (no migration)
+
 ## Known residual gaps
 
 **User references are not tenant-enforceable at the database level.** A `Post`

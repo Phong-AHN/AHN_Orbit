@@ -2,7 +2,7 @@ import { clock } from '@orbit/core';
 import { platformDb } from '@orbit/db';
 import { logger, logError } from '@orbit/observability';
 import { renderEmail, type Mailer } from '@orbit/notifications';
-import { serverEnv } from '@orbit/config';
+import { linkFor } from './links.js';
 
 /**
  * Draining the email outbox (SRS §18).
@@ -136,29 +136,4 @@ export async function drainEmailOutbox(resolveMailer: () => Mailer): Promise<Out
   }
 
   return result;
-}
-
-/**
- * Where the email points.
- *
- * Deep-links to the thing that needs attention rather than the dashboard —
- * an alert that lands somebody on a home page and makes them hunt is an alert
- * they stop opening.
- */
-function linkFor(notification: {
-  type: string;
-  resourceType: string | null;
-  resourceId: string | null;
-  organization: { slug: string };
-}): string {
-  const base = `${serverEnv().APP_URL.replace(/\/$/, '')}/orgs/${notification.organization.slug}`;
-
-  if (notification.resourceType === 'Post' && notification.resourceId) {
-    return `${base}/posts/${notification.resourceId}`;
-  }
-
-  if (notification.type.startsWith('social_account.')) return `${base}/settings/accounts`;
-  if (notification.type.startsWith('publishing.')) return `${base}/publishing`;
-
-  return `${base}/dashboard`;
 }

@@ -43,8 +43,20 @@ describe('fan-out rules', () => {
     // satisfied by a cast.
     for (const type of NOTIFICATION_TYPES) {
       expect(RECIPIENT_RULES[type], type).toBeDefined();
-      expect(RECIPIENT_RULES[type].interestedIn, type).toBeTruthy();
+      expect(RECIPIENT_RULES[type].interestedIn, type).not.toBeUndefined();
     }
+  });
+
+  it('tells only named people about exactly the types meant for them', () => {
+    // `null` is a decision — "only the post's own people" — not a gap. Pinning
+    // the set means a new type cannot drift into it by leaving a field empty.
+    const namedOnly = NOTIFICATION_TYPES.filter(
+      (type) => RECIPIENT_RULES[type].interestedIn === null,
+    );
+
+    expect(namedOnly.sort()).toEqual(
+      ['post.canceled', 'post.unscheduled', 'publishing.published'].sort(),
+    );
   });
 
   it('requires post visibility for every post-scoped type', () => {

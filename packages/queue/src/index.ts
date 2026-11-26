@@ -19,6 +19,7 @@ export {
   analyticsPayloadSchema,
   accountHealthPayloadSchema,
   notificationPayloadSchema,
+  slackPayloadSchema,
   maintenancePayloadSchema,
   schedulerPayloadSchema,
   type JobEnvelope,

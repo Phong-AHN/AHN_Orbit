@@ -50,6 +50,17 @@ const SAMPLES: Record<(typeof NOTIFICATION_TYPES)[number], NotificationEvent> = 
     postTitle: 'Spring launch',
     accountName: 'Acme Bakery',
   },
+  'publishing.published': {
+    type: 'publishing.published',
+    postTitle: 'Spring launch',
+    live: [
+      { accountName: 'Acme Bakery', permalink: 'https://www.facebook.com/123_456' },
+      { accountName: 'acme.bakery', permalink: null },
+    ],
+    partial: false,
+  },
+  'post.canceled': { type: 'post.canceled', postTitle: 'Spring launch', by: 'Linh' },
+  'post.unscheduled': { type: 'post.unscheduled', postTitle: 'Spring launch', by: 'Linh' },
   'post.client_review_requested': {
     type: 'post.client_review_requested',
     postTitle: 'Spring launch',
@@ -156,6 +167,55 @@ describe('publishing', () => {
     expect(content.body).toContain('The platform rejected the content.');
   });
 
+  it('gives the specific reason when there is one beyond the summary', () => {
+    const content = notificationContent({
+      ...(SAMPLES['publishing.failed'] as Extract<
+        NotificationEvent,
+        { type: 'publishing.failed' }
+      >),
+      detail: 'The caption is longer than 2,200 characters.',
+    });
+
+    expect(content.body).toContain('Reason: The caption is longer than 2,200 characters.');
+    expect(content.body.indexOf('rejected the content')).toBeLessThan(
+      content.body.indexOf('Reason:'),
+    );
+  });
+
+  it('does not repeat the summary as its own reason', () => {
+    const content = notificationContent({
+      type: 'publishing.failed',
+      postTitle: 'Spring launch',
+      accountName: 'Acme Bakery',
+      summary: 'The platform rejected the content.',
+      detail: 'The platform rejected the content.',
+    });
+
+    expect(content.body).not.toContain('Reason:');
+  });
+
+  it('lists every account a post went live on, with its link where there is one', () => {
+    const content = notificationContent(SAMPLES['publishing.published']);
+
+    expect(content.title).toBe('Spring launch is live');
+    expect(content.body).toContain('Acme Bakery: https://www.facebook.com/123_456');
+    // No link from the platform: the account is still named, without a dangling colon.
+    expect(content.body).toContain('acme.bakery.');
+    expect(content.body).not.toContain('acme.bakery:');
+  });
+
+  it('says so when only some accounts went out', () => {
+    const content = notificationContent({
+      type: 'publishing.published',
+      postTitle: 'Spring launch',
+      live: [{ accountName: 'Acme Bakery', permalink: 'https://www.facebook.com/1' }],
+      partial: true,
+    });
+
+    expect(content.title).toContain('some of its accounts');
+    expect(content.body).toContain('publishing log');
+  });
+
   it('does not claim a parked publish failed', () => {
     // The whole point of parking is that we do not know (decision D-027).
     // Saying "failed" here would be the system asserting something it refused
@@ -165,6 +225,33 @@ describe('publishing', () => {
     expect(content.title).toContain('Check whether');
     expect(content.body).toContain('could not confirm');
     expect(content.body.toLowerCase()).not.toContain('failed');
+  });
+});
+
+describe('coming off the schedule', () => {
+  it('says who canceled a post and that it will not go out', () => {
+    const content = notificationContent(SAMPLES['post.canceled']);
+
+    expect(content.title).toBe('Spring launch was canceled');
+    expect(content.body).toContain('Linh canceled it');
+    expect(content.body).toContain('will not be published');
+  });
+
+  it('says an unscheduled post needs approving again', () => {
+    const content = notificationContent(SAMPLES['post.unscheduled']);
+
+    expect(content.title).toContain('taken off the schedule');
+    expect(content.body).toContain('Linh moved it back to draft');
+    expect(content.body).toContain('approving again');
+  });
+
+  it('copes without knowing who did it', () => {
+    expect(notificationContent({ type: 'post.canceled', postTitle: 'X' }).body).toMatch(
+      /^It was canceled/,
+    );
+    expect(notificationContent({ type: 'post.unscheduled', postTitle: 'X' }).body).toMatch(
+      /^It was moved/,
+    );
   });
 });
 

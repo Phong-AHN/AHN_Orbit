@@ -273,6 +273,36 @@ describe('resolving recipients', () => {
     expect(elsewhere).not.toContain(CREATOR);
   });
 
+  it('tells only the post’s own people that it went out, and still checks visibility', async () => {
+    // D-129: `interestedIn: null`. Holding a role is not enough — the Owner
+    // can see everything and is told nothing unless named.
+    const scope = { workspaceId: WS, brandId: BRAND, postStatus: 'PUBLISHED' as const };
+
+    const named = await withTenant(orgCtx, (db) =>
+      resolveRecipients(db, ORG, 'publishing.published', scope, {
+        includeUsers: [CREATOR, CLIENT],
+      }),
+    );
+    expect(named).toEqual([CREATOR]);
+
+    const nobodyNamed = await withTenant(orgCtx, (db) =>
+      resolveRecipients(db, ORG, 'publishing.published', scope),
+    );
+    expect(nobodyNamed).toEqual([]);
+
+    // Named, but for a post in a workspace they cannot see.
+    const elsewhere = await withTenant(orgCtx, (db) =>
+      resolveRecipients(
+        db,
+        ORG,
+        'post.canceled',
+        { workspaceId: WS_OTHER, postStatus: 'CANCELED' },
+        { includeUsers: [CREATOR] },
+      ),
+    );
+    expect(elsewhere).not.toContain(CREATOR);
+  });
+
   it('does not tell someone about their own action', async () => {
     const recipients = await withTenant(orgCtx, (db) =>
       resolveRecipients(

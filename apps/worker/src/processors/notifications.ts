@@ -1,14 +1,15 @@
 import { NotFoundError, ValidationError, presentFailure, type ErrorCode } from '@orbit/core';
 import { NOTIFICATION_WORKER_CAPABILITIES } from '@orbit/auth';
 import { withTenant, type TenantDb } from '@orbit/db';
-import { logger } from '@orbit/observability';
+import { logError, logger } from '@orbit/observability';
 import {
   isNotificationType,
   notify,
+  slackWants,
   type NotificationEvent,
   type NotificationType,
 } from '@orbit/notifications';
-import type { JobContext } from '@orbit/queue';
+import { enqueue, type JobContext } from '@orbit/queue';
 import { resolveTenantForJob } from '../context.js';
 
 /**
@@ -56,8 +57,8 @@ export async function processNotification(job: JobContext<'notifications'>): Pro
     correlationId,
   });
 
-  await withTenant(ctx, async (db) => {
-    const described = await describe(db, event, payload.resourceId);
+  const forSlack = await withTenant(ctx, async (db) => {
+    const described = await describeNotification(db, event, payload.resourceId);
 
     if (!described) {
       // The subject was deleted between enqueue and now. Nothing to say.
@@ -65,14 +66,42 @@ export async function processNotification(job: JobContext<'notifications'>): Pro
         event,
         resourceId: payload.resourceId,
       });
-      return;
+      return false;
     }
 
     await notify(db, ctx, {
       ...described,
       excludeUsers: [payload.actorUserId],
     });
+
+    const organization = await db.organization.findFirst({ select: { settings: true } });
+    return slackWants(organization?.settings, event);
   });
+
+  // After the commit, and never able to fail this job: the in-app rows are
+  // written, and a retry here would write them all again (D-129).
+  if (forSlack) {
+    try {
+      await enqueue(
+        'slack',
+        {
+          organizationId: payload.organizationId,
+          correlationId,
+          event,
+          resourceType: payload.resourceType,
+          resourceId: payload.resourceId,
+        },
+        // A retried notifications job does not post twice.
+        { jobId: `slack-${job.jobId}` },
+      );
+    } catch (error) {
+      logError('could not queue a Slack message', error, {
+        event,
+        organizationId: ctx.organizationId,
+        resourceId: payload.resourceId,
+      });
+    }
+  }
 }
 
 type Described = Parameters<typeof notify>[2];
@@ -83,8 +112,11 @@ type Described = Parameters<typeof notify>[2];
  * Returns `null` when the subject has gone — a post deleted between the event
  * and its fan-out is not an error, it is a race that resolves in favour of
  * saying nothing.
+ *
+ * Exported for the Slack processor (D-129), so the channel and the bell are
+ * written from the same facts.
  */
-async function describe(
+export async function describeNotification(
   db: TenantDb,
   event: NotificationType,
   resourceId: string,
@@ -96,6 +128,23 @@ async function describe(
         where: { id: resourceId, deletedAt: null },
         select: {
           lastError: true,
+          /**
+           * The last attempt's own words (D-129). The variant's `lastError`
+           * holds the per-code sentence; the attempt holds what the adapter
+           * actually said, which is what someone fixing the post needs.
+           */
+          jobs: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              attempts: {
+                where: { errorMessage: { not: null } },
+                orderBy: { attemptNumber: 'desc' },
+                take: 1,
+                select: { errorMessage: true },
+              },
+            },
+          },
           post: {
             select: {
               id: true,
@@ -124,6 +173,8 @@ async function describe(
                 accountName: variant.socialAccount.displayName,
                 // The same wording the publishing log shows, so the two agree.
                 summary: presentFailure(errorCodeOf(variant.lastError)).summary,
+                detail:
+                  variant.jobs[0]?.attempts[0]?.errorMessage ?? errorMessageOf(variant.lastError),
               }
             : {
                 type: 'publishing.needs_review',
@@ -213,6 +264,97 @@ async function describe(
       };
     }
 
+    case 'publishing.published': {
+      const post = await db.post.findFirst({
+        where: { id: resourceId, deletedAt: null },
+        select: {
+          id: true,
+          title: true,
+          body: true,
+          status: true,
+          workspaceId: true,
+          brandId: true,
+          createdById: true,
+          assignedToId: true,
+          variants: {
+            where: { deletedAt: null, status: { in: ['PUBLISHED', 'FAILED', 'NEEDS_REVIEW'] } },
+            orderBy: { createdAt: 'asc' },
+            select: {
+              status: true,
+              externalPermalink: true,
+              socialAccount: { select: { displayName: true } },
+            },
+          },
+        },
+      });
+
+      if (!post) return null;
+
+      const live = post.variants.filter((variant) => variant.status === 'PUBLISHED');
+      // Raised when a post settles with something live; if nothing is live by
+      // now, there is no good news to give.
+      if (live.length === 0) return null;
+
+      return {
+        event: {
+          type: 'publishing.published',
+          postTitle: postLabel(post.title, post.body),
+          live: live.slice(0, MAX_LINKS).map((variant) => ({
+            accountName: variant.socialAccount.displayName,
+            permalink: variant.externalPermalink,
+          })),
+          partial: live.length < post.variants.length,
+        },
+        resource: {
+          resourceType: 'Post',
+          resourceId: post.id,
+          workspaceId: post.workspaceId,
+          brandId: post.brandId,
+        },
+        scope: { postStatus: post.status, createdById: post.createdById },
+        includeUsers: [post.createdById, post.assignedToId, await scheduledBy(db, post.id)],
+      };
+    }
+
+    case 'post.canceled':
+    case 'post.unscheduled': {
+      const post = await db.post.findFirst({
+        where: { id: resourceId, deletedAt: null },
+        select: {
+          id: true,
+          title: true,
+          body: true,
+          status: true,
+          workspaceId: true,
+          brandId: true,
+          createdById: true,
+          assignedToId: true,
+        },
+      });
+
+      if (!post) return null;
+
+      const title = postLabel(post.title, post.body);
+      // From the audit row the transition wrote, not from the job — the same
+      // choice the review events make: the record is what happened.
+      const by = await movedBy(db, post.id, event === 'post.canceled' ? 'CANCELED' : 'DRAFT');
+
+      return {
+        event:
+          event === 'post.canceled'
+            ? { type: 'post.canceled', postTitle: title, by }
+            : { type: 'post.unscheduled', postTitle: title, by },
+        resource: {
+          resourceType: 'Post',
+          resourceId: post.id,
+          workspaceId: post.workspaceId,
+          brandId: post.brandId,
+        },
+        scope: { postStatus: post.status, createdById: post.createdById },
+        includeUsers: [post.createdById, post.assignedToId, await scheduledBy(db, post.id)],
+      };
+    }
+
     // Account health is written inline, in the same transaction as the status
     // change (T1.7, decision D-033), so it never travels through this queue.
     case 'social_account.needs_reconnect':
@@ -281,6 +423,60 @@ function errorCodeOf(value: unknown): ErrorCode | null {
     if (typeof code === 'string') return code as ErrorCode;
   }
   return null;
+}
+
+/**
+ * The stored `lastError`'s sentence, for a failure no attempt recorded — a
+ * publish the queue gave up on, a platform not set up (D-128). The engine
+ * writes only vetted text there, never a provider payload.
+ */
+function errorMessageOf(value: unknown): string | null {
+  if (value && typeof value === 'object' && 'message' in value) {
+    const message = (value as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim().length > 0) return message;
+  }
+  return null;
+}
+
+/** More links than this is a post nobody reads the list of. */
+const MAX_LINKS = 20;
+
+/**
+ * Who put the post on the schedule, from the audit row `schedulePost` writes.
+ *
+ * Often not the author: a writer drafts, an account manager schedules. Both
+ * want to know when it goes out or comes off (D-129).
+ */
+async function scheduledBy(db: TenantDb, postId: string): Promise<string | null> {
+  const row = await db.auditLog.findFirst({
+    where: { resourceType: 'Post', resourceId: postId, action: 'post.scheduled' },
+    orderBy: { createdAt: 'desc' },
+    select: { actorUserId: true },
+  });
+  return row?.actorUserId ?? null;
+}
+
+/**
+ * The name of whoever last moved the post to `status`, if a person did.
+ *
+ * Read from the newest transition row and only believed when that row is the
+ * move being reported — a post canceled and then touched again must not name
+ * whoever touched it.
+ */
+async function movedBy(db: TenantDb, postId: string, status: string): Promise<string | null> {
+  const row = await db.auditLog.findFirst({
+    where: { resourceType: 'Post', resourceId: postId, action: 'post.transitioned' },
+    orderBy: { createdAt: 'desc' },
+    select: { after: true, actorUser: { select: { name: true } } },
+  });
+
+  const after = row?.after;
+  const movedTo =
+    after && typeof after === 'object' && !Array.isArray(after)
+      ? (after as Record<string, unknown>)['status']
+      : undefined;
+
+  return movedTo === status ? (row?.actorUser?.name ?? null) : null;
 }
 
 /** A post has no mandatory title, so fall back to the opening of its body. */

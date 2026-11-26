@@ -39,6 +39,9 @@ describe('the queue catalogue', () => {
         'messaging',
         // D-108. The AI assistant considering one conversation.
         'assistant',
+        // D-129. One message to an organization's Slack channel, retried on
+        // its own so a Slack outage never re-writes in-app notifications.
+        'slack',
       ].sort(),
     );
   });

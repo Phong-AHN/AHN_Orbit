@@ -110,6 +110,22 @@ export const notificationPayloadSchema = jobEnvelopeSchema.extend({
 });
 
 /**
+ * One message to an organization's Slack channel (**D-129**).
+ *
+ * Its own queue rather than a step in the notifications job, because the two
+ * fail differently: a Slack outage must be retried without writing everybody's
+ * in-app rows a second time, and Slack allows about one message a second per
+ * webhook, which a concurrency-1 queue respects on its own. Like notifications,
+ * the payload names the subject and the processor reads everything else —
+ * including whether the organization still wants it.
+ */
+export const slackPayloadSchema = jobEnvelopeSchema.extend({
+  event: z.string().min(1).max(100),
+  resourceType: z.enum(['Post', 'PostVariant', 'SocialAccount']),
+  resourceId: z.string().uuid(),
+});
+
+/**
  * Housekeeping. Runs against the whole platform rather than one tenant, so it
  * carries the nil uuid and is the one job type `resolveJobTenant` refuses —
  * maintenance uses the platform client directly and is audited as such.
@@ -205,6 +221,8 @@ export const QUEUE_DEFINITIONS = {
   reports: { schema: reportPayloadSchema, concurrency: 2 },
   'account-health': { schema: accountHealthPayloadSchema, concurrency: 2 },
   notifications: { schema: notificationPayloadSchema, concurrency: 10 },
+  // One at a time: Slack allows about a message a second per webhook (D-129).
+  slack: { schema: slackPayloadSchema, concurrency: 1 },
   maintenance: { schema: maintenancePayloadSchema, concurrency: 1 },
   scheduler: { schema: schedulerPayloadSchema, concurrency: 1 },
   // A message is somebody waiting; webhook events are small and many.

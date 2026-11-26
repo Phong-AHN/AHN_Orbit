@@ -89,6 +89,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { label: 'Team', path: '/settings/members', permission: 'member:list' },
       // Owners and Admins; only the Owner can ask for another plan (D-116).
       { label: 'Plan', path: '/settings/plan', permission: 'billing:read' },
+      // Slack, and what is emailed from where (D-129). Owners and Admins.
+      { label: 'Notifications', path: '/settings/notifications', permission: 'org:update' },
     ],
   },
 ];

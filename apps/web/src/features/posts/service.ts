@@ -17,7 +17,6 @@ import { withTenant, type TenantDb } from '@orbit/db';
 import { assertCan, assertTransitionAllowed } from '@orbit/rbac';
 import { logger } from '@orbit/observability';
 import { enqueue } from '@orbit/queue';
-import type { NotificationType } from '@orbit/notifications';
 import { audit, type AuditInput } from '@/server/audit';
 import { openGateFor, voidOpenGates } from '@/features/approvals/records';
 import type { CreatePostInput, UpdatePostInput, UpdateVariantInput } from './contracts';
@@ -27,6 +26,7 @@ import {
   type PostListParams,
   type PostListScope,
 } from './list-query';
+import { transitionEvents } from './transition-events';
 import { validatePost } from './validation';
 import { assertNoBlockingTasks } from '../tasks/service';
 
@@ -879,59 +879,21 @@ export async function transitionPost(
   // Postgres decided. Equally, a queue that is briefly unreachable must not
   // fail somebody's approval: the transition is the record, the notification is
   // a prompt, so `notifyTransition` swallows its own failures.
-  if (notify) await notifyTransition(ctx, result, to);
+  if (notify) await notifyTransition(ctx, result, post.status, to);
 
   return result;
-}
-
-/**
- * Which transitions are worth telling someone about (SRS §22).
- *
- * ## Why this returns a list
- *
- * It used to return one event, and `CLIENT_REVIEW` reused the internal one:
- * both gates read as "someone needs to look at this", and the processor told
- * them apart by the post's status to pick the wording.
- *
- * **The wording was the only thing that differed, and it was not the only thing
- * that should have.** `post.approval_requested` fans out on
- * `post:approve_internal`, which no client holds — so opening the client's gate
- * notified the agency that it was "with the client" and told the client
- * nothing. One event cannot address two different sets of people.
- *
- * So the client's gate now raises two: the agency's status update, and the
- * client's actual prompt. Same transition, two audiences, two events.
- */
-function transitionEvents(to: PostStatus): readonly NotificationType[] {
-  switch (to) {
-    case 'INTERNAL_REVIEW':
-      return ['post.approval_requested'];
-
-    case 'CLIENT_REVIEW':
-      return ['post.approval_requested', 'post.client_review_requested'];
-
-    case 'CHANGES_REQUESTED':
-      return ['post.changes_requested'];
-
-    // Nothing fired here before, so an approval — including the client's, which
-    // is the last gate — was something the agency had to notice for itself.
-    case 'APPROVED':
-      return ['post.approved'];
-
-    default:
-      return [];
-  }
 }
 
 async function notifyTransition(
   ctx: TenantContext,
   post: { id: string; workspaceId: string },
+  from: PostStatus,
   to: PostStatus,
 ): Promise<void> {
   // Enqueued one at a time rather than as a batch so a queue that rejects one
   // does not silently drop the other — and so the client's prompt is not lost
   // because the agency's status update failed.
-  for (const event of transitionEvents(to)) {
+  for (const event of transitionEvents(from, to)) {
     try {
       await enqueue('notifications', {
         organizationId: ctx.organizationId,

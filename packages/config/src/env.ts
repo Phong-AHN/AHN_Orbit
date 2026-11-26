@@ -456,9 +456,11 @@ export const serverEnvSchema = z.object({
    * notification.
    *
    * `EMAIL_FROM` must be a sender the provider has verified, or every send is
-   * refused.
+   * refused — for `ahnmedia.com`, that means the domain is verified in Resend.
+   * `EMAIL_FROM_NAME` is the name an inbox shows beside it (D-129).
    */
-  EMAIL_FROM: z.string().email().default('orbit@example.com'),
+  EMAIL_FROM: z.string().email().default('socialsquare@ahnmedia.com'),
+  EMAIL_FROM_NAME: z.string().trim().min(1).max(80).default('Social Square'),
   RESEND_API_KEY: optionalString,
 });
 

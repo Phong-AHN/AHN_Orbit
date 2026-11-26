@@ -18,6 +18,11 @@ export const NOTIFICATION_TYPES = [
   // Publishing (T1.13, T1.14)
   'publishing.failed',
   'publishing.needs_review',
+  // A post went out, and where to see it (D-129).
+  'publishing.published',
+  // A scheduled post came off the schedule (D-129).
+  'post.canceled',
+  'post.unscheduled',
   // The client's side of the review conversation.
   'post.client_review_requested',
   'post.approved',
@@ -69,6 +74,9 @@ export const NOTIFICATION_AUDIENCE: Record<NotificationType, NotificationAudienc
   'post.changes_requested': 'AGENCY',
   'publishing.failed': 'AGENCY',
   'publishing.needs_review': 'AGENCY',
+  'publishing.published': 'AGENCY',
+  'post.canceled': 'AGENCY',
+  'post.unscheduled': 'AGENCY',
 
   // The only one a client is ever shown: their own gate opening.
   'post.client_review_requested': 'CLIENT',
@@ -127,8 +135,35 @@ export type NotificationEvent =
       accountName: string;
       /** From `presentFailure`, so the wording matches the publishing log. */
       summary: string;
+      /**
+       * The specific reason, when there is one beyond the summary: the last
+       * attempt's user-facing message, as the publishing log shows it. Never a
+       * provider payload — the engine stores only vetted text there (D-129).
+       */
+      detail?: string | null | undefined;
     }
   | { type: 'publishing.needs_review'; postTitle: string; accountName: string }
+  /**
+   * A post finished publishing with at least one account live (D-129).
+   *
+   * Raised once per post, when it settles, rather than once per account: a
+   * post to three accounts is one piece of news with three links. `partial`
+   * is set when some accounts did not go out — each of those has its own
+   * `publishing.failed` or `publishing.needs_review`.
+   */
+  | {
+      type: 'publishing.published';
+      postTitle: string;
+      live: readonly PublishedLink[];
+      partial: boolean;
+    }
+  /** A scheduled post was canceled and will not go out (D-129). */
+  | { type: 'post.canceled'; postTitle: string; by?: string | null | undefined }
+  /**
+   * A scheduled post went back to draft (D-129). Unlike a cancel it can come
+   * back — but only after a new round of approval, which the copy says.
+   */
+  | { type: 'post.unscheduled'; postTitle: string; by?: string | null | undefined }
   /**
    * The client's gate has opened and it is waiting on them.
    *
@@ -173,6 +208,13 @@ export type NotificationEvent =
    * Carries the kind of matter, never the customer's words or name.
    */
   | { type: 'message.needs_human'; accountName: string; reason: string };
+
+/** One account a post went out on, and where to see it there. */
+export interface PublishedLink {
+  accountName: string;
+  /** Absent when the platform gave no public URL (a private TikTok, say). */
+  permalink: string | null;
+}
 
 /** Where a notification points when someone clicks it. */
 export interface NotificationResource {

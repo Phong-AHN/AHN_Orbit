@@ -561,7 +561,7 @@ async function failWithoutPublishing(
   });
   await updateJobState(run.publishingJobId, 'FAILED', { lastErrorCode: failure.code });
   await auditPublish(run, subject, 'post_variant.publish_failed', { errorCode: failure.code });
-  await rollUpPost(variant.postId);
+  await settlePost(run, variant.postId);
   await raiseNotification(run, subject, 'publishing.failed');
 
   return { kind: 'FAILED', variantId: subject.variantId, reason: failure.code };
@@ -818,7 +818,7 @@ async function applyOutcome(
       await auditPublish(run, subject, 'post_variant.published', {
         externalPostId: outcome.externalPostId,
       });
-      await rollUpPost(subject.postId);
+      await settlePost(run, subject.postId);
 
       logger.info('published', {
         variantId: subject.variantId,
@@ -840,7 +840,7 @@ async function applyOutcome(
       });
       await updateJobState(run.publishingJobId, 'FAILED', { lastErrorCode: outcome.code });
       await auditPublish(run, subject, 'post_variant.publish_failed', { errorCode: outcome.code });
-      await rollUpPost(subject.postId);
+      await settlePost(run, subject.postId);
 
       // Some failures are about the post; two may be about the connection, and
       // the health check is what finds out which (T1.7, D-114).
@@ -867,7 +867,7 @@ async function applyOutcome(
       await auditPublish(run, subject, 'post_variant.publish_inconclusive', {
         reason: 'reason' in outcome ? outcome.reason : outcome.code,
       });
-      await rollUpPost(subject.postId);
+      await settlePost(run, subject.postId);
 
       logger.error('publish outcome could not be established; parked for review', {
         variantId: subject.variantId,
@@ -897,6 +897,40 @@ async function applyOutcome(
     default: {
       const exhaustive: never = outcome;
       throw new Error(`Unhandled outcome: ${String(exhaustive)}`);
+    }
+  }
+}
+
+/**
+ * Roll the post up, and when that settles it with something live, say so
+ * (D-129).
+ *
+ * `rollUpPost` settles a post exactly once — its update is guarded on the
+ * status it read, so of two accounts finishing together only one settles it —
+ * which makes `settled` the one moment to announce. A post that settles FAILED
+ * has nothing live; each of its accounts already raised `publishing.failed`.
+ */
+async function settlePost(run: ClaimedRun, postId: string): Promise<void> {
+  const rollup = await rollUpPost(postId);
+
+  if (
+    rollup.settled &&
+    (rollup.status === 'PUBLISHED' || rollup.status === 'PARTIALLY_PUBLISHED')
+  ) {
+    try {
+      await enqueue('notifications', {
+        organizationId: run.organizationId,
+        correlationId: run.correlationId,
+        event: 'publishing.published',
+        resourceType: 'Post',
+        resourceId: postId,
+      });
+    } catch (error) {
+      // The publish is recorded; the news about it is a prompt, not the record.
+      logError('could not enqueue a published notification', error, {
+        postId,
+        organizationId: run.organizationId,
+      });
     }
   }
 }

@@ -36,7 +36,10 @@ interface PathSpec {
  * refuses everyone else, and an admin route has no tenant at all. A reader of
  * this document should learn that before they learn any individual endpoint.
  */
-const PATHS: Record<string, Partial<Record<'get' | 'post' | 'patch' | 'delete', PathSpec>>> = {
+const PATHS: Record<
+  string,
+  Partial<Record<'get' | 'post' | 'put' | 'patch' | 'delete', PathSpec>>
+> = {
   '/api/health': {
     get: { summary: 'Liveness probe.', permission: 'public', surface: 'public' },
   },
@@ -159,6 +162,30 @@ const PATHS: Record<string, Partial<Record<'get' | 'post' | 'patch' | 'delete', 
     delete: {
       summary: 'Withdraw the plan change that is waiting.',
       permission: 'billing:manage',
+      surface: 'agency',
+    },
+  },
+  '/api/v1/orgs/{orgSlug}/integrations/slack': {
+    get: {
+      summary: 'The Slack channel connection, without its webhook URL (D-129).',
+      permission: 'org:update',
+      surface: 'agency',
+    },
+    put: {
+      summary: 'Connect Slack or change which events it receives. A new webhook is tested first.',
+      permission: 'org:update',
+      surface: 'agency',
+    },
+    delete: {
+      summary: 'Disconnect Slack.',
+      permission: 'org:update',
+      surface: 'agency',
+    },
+  },
+  '/api/v1/orgs/{orgSlug}/integrations/slack/test': {
+    post: {
+      summary: 'Send a test message to the connected channel.',
+      permission: 'org:update',
       surface: 'agency',
     },
   },
